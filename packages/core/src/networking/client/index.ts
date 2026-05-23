@@ -114,7 +114,7 @@ export interface Client<T extends PacketManagerSerializerMap>{
     // websockets.ts
     ws?: WebSocket | NodeWebSocket
     connectWebSocket: () => Promise<void>
-    send: (data: string | ArrayBuffer) => void
+    send: (data: string | ArrayBuffer | Uint8Array) => void
     connect: () => Promise<void>
     getPing: () => Promise<number>
     disconnect: () => Promise<void>

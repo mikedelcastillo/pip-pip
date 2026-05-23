@@ -175,6 +175,6 @@ export interface Connection<
     // websockets.ts
     setWebSocket: (ws: WebSocket) => void
     removeWebSocket: () => void
-    send: (data: string | ArrayBuffer) => void
+    send: (data: string | ArrayBuffer | Uint8Array) => void
     getPing: () => Promise<number>
 }

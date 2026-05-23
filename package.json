@@ -9,6 +9,9 @@
     "./packages/*"
   ],
   "private": true,
+  "resolutions": {
+    "minimatch": ">=3.1.4 <4"
+  },
   "scripts": {
     "uninstall": "rm -rf node_modules/ packages/*/node_modules",
     "clear": "rm -rf ./packages/*/dist ./packages/*/tsconfig.tsbuildinfo",

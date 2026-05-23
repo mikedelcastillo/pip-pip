@@ -12,8 +12,6 @@ import { SHIP_DAIMETER, TILE_SIZE } from "@pip-pip/game/src/logic/constants"
 import { PipGameTile } from "@pip-pip/game/src/logic/map"
 import { COLORS, DIMS } from "./styles"
 import { Bullet } from "@pip-pip/game/src/logic/bullet"
-import { tickDown } from "@pip-pip/game/src/logic/utils"
-import { Vector2 } from "@pip-pip/core/src/physics"
 
 const SMOOTHING = {
     CAMERA_MOVEMENT: 5,
@@ -101,10 +99,12 @@ export class GraphicPool<T extends PoolableGraphic>{
     }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export interface PoolableGraphic{
     cleanUp(): void,
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class PoolableGraphic{
     active = false
     container = new PIXI.Container()
