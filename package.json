@@ -17,6 +17,7 @@
     "game": "yarn workspace @pip-pip/game",
     "core": "yarn workspace @pip-pip/core",
     "map": "yarn workspace @pip-pip/map-maker",
+    "dev": "bash ./scripts/dev.sh",
     "build": "bash ./scripts/build.sh",
     "deploy": "bash ./scripts/deploy.sh",
     "lint": "yarn client lint && yarn core lint && yarn game lint && yarn server lint",
