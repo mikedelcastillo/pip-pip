@@ -1,24 +1,127 @@
 # React Port: `@pip-pip/client-react`
 
-1:1 port of `packages/client-vue` to modern React. This document is a pickup guide for implementation.
+1:1 port of `packages/client-vue` to modern React. This document is the pickup guide for implementation.
 
 ---
 
 ## New packages to install (not in client-vue)
 
-```
-react
-react-dom
-react-router-dom        # replaces vue-router
-zustand                 # replaces pinia — same mental model, minimal API
-@vitejs/plugin-react    # replaces @vitejs/plugin-vue
-@types/react            # dev
-@types/react-dom        # dev
+```jsonc
+// dependencies
+"react": "^18.2.0",
+"react-dom": "^18.2.0",
+"react-router-dom": "^6.18.0",   // replaces vue-router
+"zustand": "^4.4.6",             // replaces pinia
+
+// devDependencies
+"@types/react": "^18.2.37",
+"@types/react-dom": "^18.2.15",
+"@vitejs/plugin-react": "^4.1.1" // replaces @vitejs/plugin-vue
 ```
 
-**Kept from client-vue:** `pixi.js`, `@pixi/assets`, `pixi-filters`, `sass`, `vite`, `vite-tsconfig-paths`, `typescript`
+**Kept verbatim from client-vue:**
+`@pixi/assets@^6.5.5`, `@pixi/basis@^6.5.5`, `pixi-filters@^4.2.0`, `pixi.js@^6.5.4`, `sass@^1.55.0`, `vite-tsconfig-paths@^3.5.1`, `vite@^3.1.0`, `typescript@^4.6.4`, `eslint`, `@typescript-eslint/*`
 
-**Dropped:** `vue`, `vue-router`, `pinia`, `pug`, `@vitejs/plugin-vue`
+**Dropped:**
+`vue`, `vue-router`, `pinia`, `pug`, `@vitejs/plugin-vue`, `vue-tsc`, `eslint-plugin-vue`
+
+> **Why Zustand and not plain React state?** `chat.ts` and `client.ts` write to `GAME_CONTEXT.store` from outside React (the game tick loop). We need a store API that works both inside React (via hooks for re-render) and outside (`getState()` / `setState()`). Zustand is ~1KB, has both APIs, and matches Pinia's mental model closely. The minimal-deps alternative (`useSyncExternalStore` + a hand-rolled observable) is more code and reinvents the same surface — not worth it.
+
+---
+
+## ⚠️ Key architectural change: Pinia mutation → Zustand actions
+
+This is the **biggest semantic difference** in the port. Pinia setup-style stores expose reactive `ref`s that game code mutates directly:
+
+```ts
+// client-vue/src/game/chat.ts (works because chatMessages is a ref)
+GAME_CONTEXT.store.chatMessages.push(message)
+GAME_CONTEXT.store.chatMessages = []
+```
+
+Zustand stores require mutations to go through `setState`. So `game/chat.ts` and `game/store.ts` need explicit **action methods**, and call sites must change:
+
+```ts
+// client-react/src/game/store.ts
+addChatMessage: (msg) => set(s => ({ chatMessages: [...s.chatMessages, msg] })),
+clearChatMessages: () => set({ chatMessages: [] }),
+
+// client-react/src/game/chat.ts (adapted)
+useGameStore.getState().addChatMessage(message)
+useGameStore.getState().clearChatMessages()
+```
+
+**Files needing this adaptation (not pure copy):**
+- `game/store.ts` — full rewrite (Pinia → Zustand)
+- `game/chat.ts` — replace 9 direct mutations with action calls
+- `game/index.ts` — `this.store = useGameStore` (store the *hook* itself, not the result), use `this.store.getState().sync()` in the tick loop
+- `game/client.ts` — check for any `GAME_CONTEXT.store.*` writes; replace with actions
+- `game/ui.ts` — read-only access to keyboard/mouse, no store writes (verify)
+- `game/renderer.ts` — read-only access (verify)
+- `game/assets.ts` — no store access (verbatim)
+- `game/styles.ts` — no store access (verbatim)
+
+**Store shape stays identical** to `client-vue/src/game/store.ts` — same fields (`phase`, `countdownMs`, `isHost`, `ping`, `clientPlayerShipIndex`, `clientPlayerStats`, `players`, `chatMessages`, `outgoingMessages`, `showPlayerList`, plus method `addOutgoingMessage`, `sync`). The Pinia `computed` getters (`isPhaseSetup`, etc.) become inline selectors at call sites: `useGameStore(s => s.phase === PipPipGamePhase.SETUP)`.
+
+---
+
+## ⚠️ Other architectural concerns
+
+### 1. `hostGame()` navigates the router from outside a React component
+
+`client-vue/src/game/index.ts` exports `hostGame()` which calls `router.push(...)`. Vue's `router` is a module-level singleton, so this works. **React Router v6 `useNavigate()` only works inside components.**
+
+**Fix:** Refactor `hostGame()` to accept `navigate` as a parameter:
+
+```ts
+// game/index.ts
+export async function hostGame(navigate: NavigateFunction) { ... navigate(`/${lobby.lobbyId}`) }
+
+// views/Index.tsx
+const navigate = useNavigate()
+<GameButton onClick={() => hostGame(navigate)}>Host Game</GameButton>
+```
+
+### 2. `GameInput` exposes its internal `<input>` ref to `GameChat`
+
+`GameChat.vue` does `e.target !== inputComponent.value.input` to detect whether keystrokes happened inside the chat input. Vue exposes the `input` ref via `defineExpose`.
+
+**React equivalent:** `forwardRef` + `useImperativeHandle`:
+
+```ts
+const GameInput = forwardRef<{ focus: () => void; input: HTMLInputElement | null }, Props>(
+  (props, ref) => {
+    const inputRef = useRef<HTMLInputElement>(null)
+    useImperativeHandle(ref, () => ({
+      focus: () => inputRef.current?.focus(),
+      get input() { return inputRef.current },
+    }))
+    ...
+  }
+)
+```
+
+### 3. `GAME_CONTEXT.initialize()` order in `main.tsx`
+
+`client-vue/main.ts` order is: `createPinia()` → `app.use(pinia)` → `GAME_CONTEXT.initialize()` → `app.mount()`. This is important because `GAME_CONTEXT.initialize()` calls `useGameStore()`, which requires Pinia to be active.
+
+In React with Zustand, the store is a module-level singleton — no provider needed. Just import and use. So order simplifies: `GAME_CONTEXT.initialize()` can run any time before the first render.
+
+### 4. Pixi.js global config
+
+`client-vue/main.ts` line 2: `PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.NEAREST` — must run before any Pixi rendering. Copy verbatim to `main.tsx`.
+
+### 5. React.StrictMode WILL break GameContext
+
+StrictMode double-mounts components in dev. `GameView`'s `useEffect` calls `GAME_CONTEXT.mountGameView(container)` → `unmountGameView()` → `mountGameView()` again. This is fine for `unmountGameView` (it cleans up game/events/tickers) but **the Pixi renderer mount/unmount cycle may leak**. The current `unmountGameView()` doesn't destroy the renderer (see line 64 in `game/index.ts`: `// this.renderer?.destroy()` is commented out).
+
+**Decision:** Disable StrictMode for now (`<App />` not `<React.StrictMode><App /></React.StrictMode>`). Note this as a TODO to fix renderer cleanup later.
+
+### 6. Sass `@import` vs CSS Modules
+
+Vue's `<style scoped>` becomes per-file scoped CSS. The React equivalent is **CSS Modules**: `Component.module.sass` → `import styles from './Component.module.sass'` → `<div className={styles.button}>`. Vite handles `.module.sass` out of the box (with `sass` installed).
+
+Global styles (`styles/global.sass`, `styles/_variables.sass`) stay unchanged. Inside `.module.sass` files, `@import "../styles/_variables"` still works.
 
 ---
 
@@ -29,54 +132,66 @@ packages/client-react/
 ├── index.html
 ├── package.json
 ├── tsconfig.json
-├── tsconfig.node.json
+├── tsconfig.node.json           # for vite.config.ts
 ├── vite.config.ts
-├── public/
-│   ├── logo.png          (copy from client-vue/public/)
-│   └── bg.png            (copy from client-vue/public/)
+├── .eslintrc.cjs
+├── public/                       # copy from client-vue/public/
+│   ├── logo.png
+│   └── bg.png
 └── src/
     ├── main.tsx
     ├── App.tsx
     ├── vite-env.d.ts
     ├── router.tsx
     ├── game/
-    │   ├── index.ts      (port — swap Pinia refs to Zustand)
-    │   ├── store.ts      (rewrite — Zustand instead of Pinia)
-    │   ├── client.ts     (copy verbatim)
-    │   ├── ui.ts         (copy verbatim)
-    │   ├── chat.ts       (copy verbatim)
-    │   ├── renderer.ts   (copy verbatim)
-    │   ├── assets.ts     (copy verbatim)
-    │   └── styles.ts     (copy verbatim)
+    │   ├── index.ts              # adapt: store is the hook itself
+    │   ├── store.ts              # rewrite: Zustand
+    │   ├── client.ts             # adapt: store writes → actions
+    │   ├── ui.ts                 # verify read-only; likely verbatim
+    │   ├── chat.ts               # adapt: store writes → actions
+    │   ├── renderer.ts           # verify read-only; likely verbatim
+    │   ├── assets.ts             # verbatim
+    │   └── styles.ts             # verbatim
     ├── components/
     │   ├── GameLoading.tsx
+    │   ├── GameLoading.module.sass
     │   ├── GameView.tsx
+    │   ├── GameView.module.sass
     │   ├── GameOverlaySetup.tsx
+    │   ├── GameOverlaySetup.module.sass
     │   ├── GameOverlayCountdown.tsx
+    │   ├── GameOverlayCountdown.module.sass
     │   ├── GameOverlayMatch.tsx
+    │   ├── GameOverlayMatch.module.sass
     │   ├── GameChat.tsx
+    │   ├── GameChat.module.sass
     │   ├── GameChatMessage.tsx
+    │   ├── GameChatMessage.module.sass
     │   ├── GamePlayerList.tsx
+    │   ├── GamePlayerList.module.sass
     │   ├── GameButton.tsx
-    │   └── GameInput.tsx
+    │   ├── GameButton.module.sass
+    │   ├── GameInput.tsx
+    │   └── GameInput.module.sass
     ├── views/
     │   ├── Index.tsx
+    │   ├── Index.module.sass
     │   └── Game.tsx
     ├── store/
-    │   └── ui.ts         (rewrite — Zustand)
+    │   └── ui.ts                 # Zustand
     ├── styles/
-    │   ├── _variables.sass  (copy verbatim)
-    │   └── global.sass      (copy verbatim)
+    │   ├── _variables.sass       # verbatim from client-vue
+    │   └── global.sass           # verbatim from client-vue
     └── assets/
-        (copy entire assets/ directory from client-vue/src/assets/)
+        # copy entire client-vue/src/assets/ tree
 ```
 
 ---
 
-## Config files
+## Config file specifics
 
 ### `package.json`
-```json
+```jsonc
 {
   "name": "@pip-pip/client-react",
   "private": true,
@@ -84,323 +199,237 @@ packages/client-react/
   "type": "module",
   "scripts": {
     "dev": "vite --port 5174",
-    "build": "tsc && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext .ts,.tsx --report-unused-disable-directives"
+    "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {
-    "@pip-pip/core": "*",
-    "@pip-pip/game": "*",
-    "@pixi/assets": "^6.5.4",
-    "pixi-filters": "^4.1.5",
+    "@pixi/assets": "^6.5.5",
+    "@pixi/basis": "^6.5.5",
+    "pixi-filters": "^4.2.0",
     "pixi.js": "^6.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.18.0",
+    "sass": "^1.55.0",
+    "vite-tsconfig-paths": "^3.5.1",
     "zustand": "^4.4.6"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
+    "@typescript-eslint/eslint-plugin": "^5.39.0",
+    "@typescript-eslint/parser": "^5.39.0",
     "@vitejs/plugin-react": "^4.1.1",
-    "sass": "^1.55.0",
-    "typescript": "^4.9.3",
-    "vite": "^3.2.3",
-    "vite-tsconfig-paths": "^4.0.0"
+    "eslint": "^8.24.0",
+    "typescript": "^4.6.4",
+    "vite": "^3.1.0"
+  },
+  "peerDependencies": {
+    "@pip-pip/core": "*",
+    "@pip-pip/game": "*"
   }
 }
 ```
 
 ### `vite.config.ts`
 ```ts
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tsconfigPaths from 'vite-tsconfig-paths'
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import tsconfigPaths from "vite-tsconfig-paths"
 
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
 })
 ```
 
-### `tsconfig.json`
-```json
+### `tsconfig.json` (mirror client-vue with React tweaks)
+```jsonc
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "target": "ESNext",
-    "lib": ["ESNext", "DOM"],
+    "useDefineForClassFields": true,
     "module": "ESNext",
-    "moduleResolution": "bundler",
-    "jsx": "react-jsx",
+    "moduleResolution": "Node",
     "strict": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true
+    "jsx": "react-jsx",
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "lib": ["ESNext", "DOM"],
+    "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
+  "references": [{ "path": "./tsconfig.node.json" }]
 }
 ```
 
-### `index.html`
-Same as client-vue but entry is `/src/main.tsx` instead of `/src/main.ts`. Keep the same Google Fonts links (Ubuntu Mono, VT323).
+### `tsconfig.node.json` — copy from client-vue verbatim
 
----
+### `index.html` — copy from client-vue verbatim, change `/src/main.ts` → `/src/main.tsx`
 
-## Implementation todos
-
-### 1. Scaffold package
-- [ ] Create `packages/client-react/` with `package.json`, `vite.config.ts`, `tsconfig.json`, `tsconfig.node.json`, `index.html`
-- [ ] Copy `public/` and `src/assets/` from client-vue
-- [ ] Copy `src/styles/` verbatim
-- [ ] Copy `src/vite-env.d.ts` verbatim
-- [ ] Run `yarn install` from repo root to link the workspace
-
-### 2. Copy game logic (no changes needed)
-- [ ] `src/game/client.ts` — copy verbatim
-- [ ] `src/game/ui.ts` — copy verbatim
-- [ ] `src/game/chat.ts` — copy verbatim
-- [ ] `src/game/renderer.ts` — copy verbatim
-- [ ] `src/game/assets.ts` — copy verbatim
-- [ ] `src/game/styles.ts` — copy verbatim
-
-### 3. Port `src/game/store.ts` (Pinia → Zustand)
-
-The Pinia store uses `defineStore('game', { state: () => ({...}), getters: {...}, actions: {...} })`.
-
-Zustand equivalent:
-```ts
-import { create } from 'zustand'
-
-interface GameStore { ... }
-
-export const useGameStore = create<GameStore>()((set, get) => ({
-  phase: PipPipGamePhase.SETUP,
-  // ... all state fields
-  sync() {
-    // same logic as the Pinia sync() action
-    set({ phase: game.phase, ... })
-  },
-}))
-```
-
-Key difference: computed getters (like `isPhaseSetup`) become plain fields set during `sync()`, or can be derived with `useGameStore(s => s.phase === PipPipGamePhase.SETUP)` at the call site.
-
-### 4. Port `src/store/ui.ts` (Pinia → Zustand)
-
-Simple store, straightforward conversion:
-```ts
-export const useUiStore = create<UiStore>()((set) => ({
-  loading: false,
-  body: '',
-  setLoading: (loading, body = '') => set({ loading, body }),
-}))
-```
-
-### 5. Port `src/game/index.ts`
-
-- Replace `import { useGameStore } from './store'` with the Zustand version
-- Replace `this.store = useGameStore()` — Zustand stores aren't instantiated, they're imported directly. Store the reference as `import { useGameStore } from './store'` and call `useGameStore.getState()` / `useGameStore.setState()` inside the class methods (outside React components you use the store API directly, not hooks)
-- `store.sync()` call stays — it maps to the `sync` action on the Zustand store
-
-**Note:** In `GameContext`, all store access is outside React lifecycle, so use `useGameStore.getState().sync()` pattern (Zustand supports this).
-
-### 6. Entry: `src/main.tsx`
-```tsx
-import { SCALE_MODE } from 'pixi.js'
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App'
-import { GAME_CONTEXT } from './game'
-import './styles/global.sass'
-
-// Mirror client-vue: configure Pixi before anything else
-SCALE_MODE.DEFAULT = SCALE_MODE.NEAREST
-
-GAME_CONTEXT.initialize()
-
-ReactDOM.createRoot(document.getElementById('app')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-)
-```
-
-### 7. Router: `src/router.tsx`
-```tsx
-import { createBrowserRouter } from 'react-router-dom'
-import Index from './views/Index'
-import Game from './views/Game'
-
-export const router = createBrowserRouter([
-  { path: '/', element: <Index /> },
-  { path: '/:id', element: <Game /> },
-])
-```
-
-### 8. `src/App.tsx`
-
-Port of `App.vue`. Handles:
-- Asset bundle preloading (ui, ships, misc via `Assets.loadBundle`)
-- Shows `<GameLoading>` during load with progress %
-- On load complete, renders `<RouterProvider router={router} />`
-- On error, shows retry prompt
-
-Use `useState` for `{ loaded, progress, error }` and `useEffect` to trigger the load sequence.
-
-### 9. Components
-
-Each `.vue` → `.tsx`. Reactive state reads via Zustand hooks: `const phase = useGameStore(s => s.phase)`.
-
-#### `GameButton.tsx`
-- Custom 3D button: two `<div>` layers (top + bottom)
-- `onMouseEnter` / `onMouseLeave` / `onMouseDown` / `onMouseUp` for hover/active state using `useState`
-- Props: `onClick`, `accent?: boolean`, `children`
-
-#### `GameInput.tsx`
-- Controlled input: `value` + `onChange` props
-- `onKeyDown`: Enter → emit `onEnter`, ArrowUp → emit `onUp`, Escape → blur ref
-- Forward ref or use internal `useRef` for focus management
-- Props: `value`, `onChange`, `onEnter`, `onUp`, `onFocus`, `onBlur`, `placeholder`
-
-#### `GameChatMessage.tsx`
-- Renders `ChatMessage` with styled text parts
-- Each part has a `style` field (`space | player | info | bad | good`) → CSS class or inline style
-- Props: `message: ChatMessage`
-
-#### `GameChat.tsx`
-- Reads `chatMessages` and `outgoingMessages` from `useGameStore`
-- Input: T, Enter, or `/` to focus; Escape to blur
-- On submit: calls `store.addOutgoingMessage(text)`, clears input
-- Displays last 10 messages
-- Use `useRef` + `useEffect` to scroll to bottom on new messages
-
-#### `GamePlayerList.tsx`
-- Table: Ping | Name | Ship | Damage | Kills | Deaths | Wins
-- Sort order: client player first, then host, then by kills desc, idle last
-- "You" and "Host" badges
-- Color: accent for client player, dimmed for idle
-- Reads `players`, `ping` from store
-
-#### `GameLoading.tsx`
-- Reads from `useUiStore`
-- Shows loading overlay with message and progress
-
-#### `GameView.tsx`
-- `useRef<HTMLDivElement>` for canvas container
-- `useEffect(() => { GAME_CONTEXT.mountGameView(ref.current); return () => GAME_CONTEXT.unmountGameView() }, [])` 
-- Renders `#game-container` div
-- Conditionally renders overlays based on `useGameStore(s => s.phase)`:
-  - SETUP → `<GameOverlaySetup />`
-  - COUNTDOWN → `<GameOverlayCountdown />`
-  - MATCH → `<GameOverlayMatch />`
-
-#### `GameOverlaySetup.tsx`
-- Lobby phase overlay
-- Start Game button (host only: `store.isHost`)
-- Includes `<GamePlayerList />` and `<GameChat />`
-
-#### `GameOverlayCountdown.tsx`
-- Large countdown display: `store.countdownMs` formatted to seconds
-- Blackout effect (semi-transparent overlay)
-- Includes `<GameChat />`
-
-#### `GameOverlayMatch.tsx`
-- Player list shown when `store.showPlayerList` (Tab key managed in `GameView` or here via `useEffect` on keydown)
-- Debug stats for client player
-- Includes `<GameChat />`
-
-### 10. Views
-
-#### `views/Index.tsx`
-Port of `Index.vue`:
-- Logo + animated caption
-- Buttons: Host Game → navigate to `/${nanoid()}` or similar random ID, Join Game, Settings, Credits (latter three unimplemented — same as Vue)
-- Use `useNavigate()` from react-router-dom
-
-#### `views/Game.tsx`
-Port of `Game.vue`:
-- Get lobby ID: `const { id } = useParams()`
-- On mount: `GAME_CONTEXT.initializeClient()` then join lobby with the id
-- On success: show `<GameView />`
-- On failure: `navigate('/')` (use `useNavigate()`)
-- Cleanup on unmount: disconnect client
-
----
-
-## Important porting notes
-
-### Zustand outside React components
-In `GameContext` (a class, not a React component), access the store like:
-```ts
-// Read
-const state = useGameStore.getState()
-// Write
-useGameStore.setState({ phase: ... })
-// Or call an action
-useGameStore.getState().sync()
-```
-This is the Zustand pattern for non-React contexts. Do NOT try to call `useGameStore()` hook inside the class.
-
-### Vue `watch` → Zustand `subscribe`
-If any game logic watches a store value reactively, use `useGameStore.subscribe()`. In practice `GameContext` drives state into the store (not the other way), so this may not be needed.
-
-### Vue `v-model` on `GameInput`
-In React, replace with controlled component pattern: `value` + `onChange` props.
-
-### Vue scoped styles
-Client-vue uses `<style lang="sass" scoped>`. In React, use CSS Modules (`.module.scss`) for component-scoped styles. Name them `ComponentName.module.scss` alongside the `.tsx` file.
-
-### Pug templates
-Client-vue uses Pug in some components (`lang="pug"` on `<template>`). When porting, convert the Pug structure to JSX directly — no Pug needed in React.
-
-### `$el` / template refs
-Vue's `ref="container"` → React's `useRef<HTMLDivElement>(null)` + `ref={containerRef}`.
-
-### Lifecycle mapping
-| Vue | React |
-|---|---|
-| `onMounted` | `useEffect(() => {...}, [])` |
-| `onUnmounted` | cleanup return in `useEffect` |
-| `computed` | `useMemo` or inline derived value |
-| `watch` | `useEffect` with deps |
-| `ref()` | `useState` or `useRef` |
-
-### Port dev server port
-Use port `5174` (client-vue uses `5173`) to run both simultaneously during development.
-
-### Root workspace scripts
-After creating the package, add to root `package.json` scripts:
-```json
+### Root `package.json` — add a workspace script proxy
+```jsonc
 "react": "yarn workspace @pip-pip/client-react"
 ```
-So `yarn react dev` works like `yarn client dev`.
+This gives `yarn react dev`, `yarn react build`, etc., matching the `yarn client`, `yarn server` pattern.
+
+---
+
+## Step-by-step implementation order
+
+### Phase 1: Scaffold
+- [ ] `mkdir packages/client-react/`
+- [ ] Create `package.json`, `vite.config.ts`, `tsconfig.json`, `tsconfig.node.json`, `index.html`, `.eslintrc.cjs`
+- [ ] Copy `client-vue/public/` → `client-react/public/`
+- [ ] Copy `client-vue/src/assets/` → `client-react/src/assets/` (full tree)
+- [ ] Copy `client-vue/src/styles/` → `client-react/src/styles/` (verbatim, no changes)
+- [ ] Copy `client-vue/src/vite-env.d.ts` → `client-react/src/vite-env.d.ts`
+- [ ] Add `"react"` script to root `package.json`
+- [ ] Run `yarn install` from repo root
+
+### Phase 2: Game logic layer (no store)
+- [ ] Copy `assets.ts` verbatim
+- [ ] Copy `styles.ts` verbatim
+- [ ] Copy `renderer.ts` verbatim (verify no store writes — should be read-only)
+- [ ] Copy `ui.ts` verbatim (verify no store writes — should be read-only)
+
+### Phase 3: Store rewrite
+- [ ] Write `store/ui.ts` as Zustand (`loading: boolean`, `body: string`, setters)
+- [ ] Write `game/store.ts` as Zustand. Keep identical field names and types. Add actions for every mutation that game-side code does:
+  - `addChatMessage(msg)`
+  - `clearChatMessages()`
+  - `addOutgoingMessage(text)`
+  - `consumeOutgoingMessages(): string[]` (atomically read + clear, for `sendPackets`)
+  - `setSnapshot(partial)` — used by `sync()` to bulk-update phase/countdown/isHost/ping/clientPlayer*/players/showPlayerList
+  - `sync()` itself
+
+### Phase 4: Adapt game logic with store dependencies
+- [ ] Port `game/index.ts`:
+  - `this.store = useGameStore` (the hook itself, used for `.getState()` / `.setState()`)
+  - `this.store.getState().sync()` in the tick loop
+  - Refactor `hostGame()` to accept `navigate: NavigateFunction`
+- [ ] Port `game/chat.ts`: find all `GAME_CONTEXT.store.chatMessages.push(...)` → `useGameStore.getState().addChatMessage(...)`. Find all `GAME_CONTEXT.store.chatMessages = []` → `useGameStore.getState().clearChatMessages()`. Reads like `GAME_CONTEXT.store.isHost` → `useGameStore.getState().isHost`.
+- [ ] Port `game/client.ts`: same treatment as chat.ts. Check `sendPackets` for outgoing message consumption — likely needs `consumeOutgoingMessages()`.
+
+### Phase 5: Entry + router
+- [ ] `main.tsx`:
+  ```tsx
+  import * as PIXI from "pixi.js"
+  PIXI.settings.SCALE_MODE = PIXI.SCALE_MODES.NEAREST
+  import React from "react"
+  import ReactDOM from "react-dom/client"
+  import { RouterProvider } from "react-router-dom"
+  import { router } from "./router"
+  import { GAME_CONTEXT } from "./game"
+  import App from "./App"
+  import "./styles/global.sass"
+
+  GAME_CONTEXT.initialize()
+  ReactDOM.createRoot(document.getElementById("app")!).render(<App />)
+  // NOTE: not wrapping in StrictMode — see port.md "React.StrictMode" note
+  ```
+- [ ] `router.tsx`:
+  ```tsx
+  import { createBrowserRouter } from "react-router-dom"
+  import Index from "./views/Index"
+  import Game from "./views/Game"
+  export const router = createBrowserRouter([
+    { path: "/", element: <Index /> },
+    { path: "/:id", element: <Game /> },
+  ])
+  ```
+- [ ] `App.tsx`: port `App.vue` logic — `useEffect` triggers `assetLoader.loadBundle(["ui","ships","misc"], onProgress)`, sets `useUiStore` loading/body during load. After load, renders `<RouterProvider router={router} />`. Always renders `<GameLoading />` on top (it self-hides when `loading === false`).
+
+### Phase 6: Primitive components
+- [ ] `GameButton.tsx` — accepts `className?: string` for `accent` variant (or boolean prop). Children render in `.top .text`.
+- [ ] `GameInput.tsx` — `forwardRef` exposing `{ focus(), input }`. Props: `value`, `onChange`, `onEnter`, `onUp`, `onFocus`, `onBlur`, `placeholder`, `type`. Internal keyup handler does Escape→blur, Enter→onEnter, ArrowUp→onUp. Document body click handler blurs when target ≠ input.
+- [ ] `GameChatMessage.tsx` — renders `message.text.map(part => <span className={styles[part.style ?? '']}>...</span>)`.
+
+### Phase 7: Composite components
+- [ ] `GameLoading.tsx` — `useUiStore(s => s.loading)` gates rendering; shows `body` text.
+- [ ] `GamePlayerList.tsx` — `useGameStore(s => s.players)`, sort with `getPlayerListPriority`. Table identical to Vue.
+- [ ] `GameChat.tsx` — local state for `chatMessage`. `useRef<GameInputHandle>()` for the input. `useEffect` to attach window keyup listener (T / Enter / Slash focus shortcut). Renders last 10 messages from `useGameStore(s => s.chatMessages.slice(-10))` (use shallow equality or it'll churn — see Zustand `shallow` if needed).
+
+### Phase 8: Overlays
+- [ ] `GameOverlaySetup.tsx` — tabs state (`useState` for active index), conditional Host/Players. Includes `<GamePlayerList />` and `<GameChat />`.
+- [ ] `GameOverlayCountdown.tsx` — read `countdownMs`, format `(ms/1000).toFixed(2)`.
+- [ ] `GameOverlayMatch.tsx` — `useGameStore(s => s.showPlayerList)` toggles `<GamePlayerList />`. `<pre>{JSON.stringify(clientPlayerStats, null, 2)}</pre>` for debug.
+
+### Phase 9: GameView + views
+- [ ] `GameView.tsx`:
+  ```tsx
+  const containerRef = useRef<HTMLDivElement>(null)
+  const phase = useGameStore(s => s.phase)
+  useEffect(() => {
+    if (!containerRef.current) return
+    GAME_CONTEXT.mountGameView(containerRef.current)
+    return () => {
+      GAME_CONTEXT.unmountGameView()
+      GAME_CONTEXT.client.disconnect()
+    }
+  }, [])
+  return <>
+    {phase === PipPipGamePhase.SETUP && <GameOverlaySetup />}
+    {phase === PipPipGamePhase.COUNTDOWN && <GameOverlayCountdown />}
+    {phase === PipPipGamePhase.MATCH && <GameOverlayMatch />}
+    <div id="game-container" ref={containerRef} />
+  </>
+  ```
+- [ ] `Index.tsx` — port `Index.vue` template, use `useNavigate()` to pass into `hostGame(navigate)`.
+- [ ] `Game.tsx`:
+  ```tsx
+  const { id } = useParams<{id: string}>()
+  const navigate = useNavigate()
+  const setUi = useUiStore(s => s.setLoading)
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    ;(async () => {
+      setUi(true, "Connecting...")
+      try {
+        await GAME_CONTEXT.client.connect()
+        setUi(true, "Joining lobby...")
+        await GAME_CONTEXT.client.joinLobby(id)
+        if (!cancelled) setReady(true)
+      } catch (e) {
+        console.warn(e)
+        alert("Could not join lobby.")
+        navigate("/")
+      } finally {
+        setUi(false, "")
+      }
+    })()
+    return () => { cancelled = true }
+  }, [id])
+  return ready ? <GameView /> : null
+  ```
+
+### Phase 10: Polish
+- [ ] Compare visually against client-vue side-by-side (different ports)
+- [ ] Smoke test: see Verification below
 
 ---
 
 ## Verification
 
 ```sh
-# Install new deps
-yarn install
-
-# Start server (separate terminal)
-yarn server dev
-
-# Start React client
-yarn react dev
-# → http://localhost:5174
-
-# TypeScript check
-yarn workspace @pip-pip/client-react tsc --noEmit
+yarn install                            # picks up new workspace
+yarn server dev                         # in one terminal
+yarn react dev                          # in another → http://localhost:5174
+yarn workspace @pip-pip/client-react tsc --noEmit  # type check
 ```
 
-Smoke test checklist:
-- [ ] Home page renders with logo and buttons
-- [ ] "Host Game" navigates to `/:id` route
-- [ ] Canvas mounts and renders the game
-- [ ] WebSocket connects to server (port 8443)
-- [ ] Chat input works (T / Enter / / shortcuts)
-- [ ] Ship selection works (`/ship 2` etc.)
-- [ ] Player movement renders
-- [ ] Lobby → Countdown → Match phase transitions work
-- [ ] Player list (Tab) shows in match phase
-- [ ] Disconnect returns to home
+Smoke test (compare against `yarn client dev` at :5173):
+- [ ] Home page renders with logo + 4 buttons
+- [ ] "Host Game" creates a lobby and navigates to `/:id`
+- [ ] Canvas mounts and renders ships, map, stars
+- [ ] Chat input works: T / Enter / `/` shortcuts focus it
+- [ ] `/help`, `/ships`, `/ship 2`, `/name Foo` all work
+- [ ] Setup → Countdown → Match phase transitions render correct overlay
+- [ ] Tab key in match shows player list
+- [ ] Player list sort: you first, then host, then by kills, idle last
+- [ ] Disconnect (back to home) cleans up — no leaked tickers in console
