@@ -33,7 +33,7 @@ export default function App() {
     }, [setLoading])
 
     return <>
-        {loadedAssets && <RouterProvider router={router} />}
+        {loadedAssets && <RouterProvider router={router} future={{ v7_startTransition: true }} />}
         <GameLoading />
     </>
 }
