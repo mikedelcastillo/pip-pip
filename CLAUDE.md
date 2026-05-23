@@ -22,7 +22,8 @@ Run from repo root unless noted. Workspace scripts are proxied via `yarn <name> 
 yarn server dev      # nodemon server, watches core/game/server src
 yarn server dev:latency   # simulated 30ms latency
 yarn server dev:jitter    # 30ms latency + 5ms jitter
-yarn client dev      # vite dev server for the Vue client
+yarn client:vue dev  # vite dev server for the Vue client
+yarn client:react dev  # vite dev server for the React client
 yarn map dev         # vite dev server for the map maker
 yarn build           # full prod build: clear → core → game → server → fix-tsc-paths → client
 yarn deploy          # reinstall, build, restart pm2 (server + client preview)
@@ -33,7 +34,7 @@ yarn clear           # remove all dist/ and tsbuildinfo
 yarn uninstall       # remove all node_modules
 ```
 
-Per-package lint: `yarn core lint`, `yarn game lint`, `yarn server lint`, `yarn client lint`.
+Per-package lint: `yarn core lint`, `yarn game lint`, `yarn server lint`, `yarn client:vue lint`.
 
 There is **no test runner configured** — the entry files in `core` and `game` currently say `// TODO: Add tests`. Don't claim tests pass; there are none to run.
 

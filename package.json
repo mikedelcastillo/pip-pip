@@ -16,15 +16,15 @@
     "uninstall": "rm -rf node_modules/ packages/*/node_modules",
     "clear": "rm -rf ./packages/*/dist ./packages/*/tsconfig.tsbuildinfo",
     "server": "yarn workspace @pip-pip/server",
-    "client": "yarn workspace @pip-pip/client-vue",
-    "react": "yarn workspace @pip-pip/client-react",
+    "client:vue": "yarn workspace @pip-pip/client-vue",
+    "client:react": "yarn workspace @pip-pip/client-react",
     "game": "yarn workspace @pip-pip/game",
     "core": "yarn workspace @pip-pip/core",
     "map": "yarn workspace @pip-pip/map-maker",
     "dev": "bash ./scripts/dev.sh",
     "build": "bash ./scripts/build.sh",
     "deploy": "bash ./scripts/deploy.sh",
-    "lint": "yarn client lint && yarn core lint && yarn game lint && yarn server lint",
+    "lint": "yarn client:vue lint && yarn core lint && yarn game lint && yarn server lint",
     "generate-maps": "cd tools/game_maps && cargo run",
     "clear-maps": "rm ./packages/game/src/maps/*.map.json"
   }

@@ -1,5 +1,12 @@
 @import "../styles/variables"
 
+@keyframes wobble
+    $deg: 3deg
+    from
+        transform: rotate(-$deg)
+    to
+        transform: rotate($deg)
+
 .header
     padding-bottom: 2em
     animation: wobble 1.5s infinite alternate ease-in-out
