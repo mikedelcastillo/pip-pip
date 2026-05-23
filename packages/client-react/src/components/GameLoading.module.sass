@@ -1,0 +1,17 @@
+@import "../styles/variables"
+
+@keyframes zoom
+    $amount: 0.1
+    from
+        transform: scale(1 - $amount)
+    to
+        transform: rotate(1 + $amount)
+
+.gameLoading
+    background-color: transparentize($color-dark-2, 0.2)
+    position: fixed
+    z-index: 100
+    inset: 0
+    font-size: 1.6em
+    .contentContainer
+        animation: zoom 400ms alternate infinite ease-in-out

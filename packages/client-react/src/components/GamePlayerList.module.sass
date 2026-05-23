@@ -1,0 +1,53 @@
+@import "../styles/variables"
+
+.playerList
+    font-size: 1.4em
+    table
+        width: 100%
+        max-width: 30em
+        margin: auto
+        border-collapse: collapse
+        td
+            white-space: nowrap
+            text-overflow: ellipsis
+            overflow: hidden
+        td, th
+            padding: 0.2em 0.5em
+            &.ping
+                text-align: right
+                width: 3em
+            &.damage, &.kills, &.deaths, &.wins
+                text-align: center
+                width: 2em
+            &.name, &.ship
+                text-align: left
+            &.ship
+                max-width: 2em
+            &.name
+                max-width: 5em
+        tr.rowHeader
+            color: $color-main
+        tr.rowPlayer
+            border-top: 1px solid rgba(255, 255, 255, 0.1)
+            &.idle *
+                color: rgba(255, 255, 255, 0.5) !important
+            &.client
+                color: $color-accent
+
+            td.name
+                .text
+                    vertical-align: middle
+                    display: inline-block
+                .tag
+                    vertical-align: middle
+                    display: inline-block
+                    margin-left: 0.4em
+                    font-size: 0.7em
+                    text-transform: uppercase
+                    padding: 0.025em 0.2em
+                    border-radius: 3px
+                    line-height: 1em
+                    color: white
+                    background-color: transparentize($color-main, 0.5)
+                    &.you
+                        background-color: transparentize($color-accent, 0.5)

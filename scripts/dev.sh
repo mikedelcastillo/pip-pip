@@ -19,7 +19,7 @@ create_session() {
     pane0=$(tmux new-session -d -s "$SESSION" -n dev -c "$REPO_ROOT" -P -F '#{pane_id}')
     tmux send-keys -t "$pane0" "yarn server dev" Enter
     pane1=$(tmux split-window -h -t "$pane0" -c "$REPO_ROOT" -P -F '#{pane_id}')
-    tmux send-keys -t "$pane1" "yarn client dev" Enter
+    tmux send-keys -t "$pane1" "yarn client:vue dev" Enter
     tmux select-pane -t "$pane0"
     trap - ERR
 }

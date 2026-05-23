@@ -1,0 +1,25 @@
+@import "../styles/variables"
+
+.input
+    input
+        appearance: none
+        border: 0
+        outline: 0
+        user-select: text
+        font-size: $font-size-input
+        padding: $text-padding-y $text-padding-x
+        border: $border-size solid
+        border-radius: $border-radius
+        display: block
+        width: 100%
+
+.input
+    input
+        background-color: white
+        border-color: $color-border
+        color: $color-dark-2
+        &:focus
+            border-color: $color-dark-3
+        &::selection
+            color: white
+            background: $color-main-darker
