@@ -16,7 +16,7 @@ export class Packet<T extends PacketSerializerMap>{
     get dataLength(){
         let sum = 0
 
-        for(const key in this.serializers){
+        for(const key of this.keyOrder){
             const serializer = this.serializers[key]
             if(typeof serializer.length === "number"){
                 sum += serializer.length
@@ -27,7 +27,7 @@ export class Packet<T extends PacketSerializerMap>{
     }
 
     get isFixedLength(){
-        return Object.values(this.serializers).every(serializer => typeof serializer.length === "number")
+        return this.keyOrder.every(key => typeof this.serializers[key].length === "number")
     }
 
     constructor(serializers: T){

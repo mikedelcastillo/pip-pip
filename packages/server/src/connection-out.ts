@@ -29,9 +29,7 @@ export function sendPacketToConnection(context: ConnectionContext){
     const messages = sendFullGameState ? getFullGameState(context) : getPartialGameState(context)
 
     if(messages.length){
-        let code: number[] = []
-        messages.forEach(mes => code = code.concat(mes))
-        const buffer = new Uint8Array(code).buffer
+        const buffer = new Uint8Array(messages.flat()).buffer
         connection.send(buffer)
     }
 }
@@ -41,8 +39,7 @@ export function getFullGameState(context: ConnectionContext): number[][] {
 
     const messages = []
 
-    for(const id in game.players){
-        const player = game.players[id]
+    for(const player of Object.values(game.players)){
         messages.push(encode.addPlayer(player))
         messages.push(encode.playerName(player))
         messages.push(encode.playerIdle(player))
@@ -93,20 +90,15 @@ class PlayerUpdateTracker{
     states: PlayerUpdateType = {}
     
     track<K extends keyof PlayerUpdateObject>(id: string, key: K, value: PlayerUpdateObject[K] = true){
-        if(id in this.states){
-            this.states[id] = {
-                ...this.states[id],
-                [key]: value,
-            }
-        } else{
+        if(!(id in this.states)){
             this.states[id] = {
                 shipTimings: false,
                 shipCapacities: false,
                 playerTimings: false,
                 playerScores: false,
-                [key]: value,
             }
         }
+        this.states[id][key] = value
     }
 }
 
@@ -191,7 +183,7 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
     }
 
     // Shoot bullet
-    for(const event of gameEvents.filter("addBullet") || []){
+    for(const event of gameEvents.filter("addBullet")){
         const { bullet } = event.addBullet
         if(bullet.owner instanceof PipPlayer){
             if(bullet.owner.id === connection.id) continue
@@ -200,7 +192,7 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
     }
 
     // Reload
-    for(const event of gameEvents.filter("playerReloadStart") || []){
+    for(const event of gameEvents.filter("playerReloadStart")){
         const { player } = event.playerReloadStart
         if(connection.id === player.id){
             playerUpdates.track(player.id, "playerTimings")
@@ -208,7 +200,7 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
             playerUpdates.track(player.id, "shipTimings")
         }
     }
-    for(const event of gameEvents.filter("playerReloadEnd") || []){
+    for(const event of gameEvents.filter("playerReloadEnd")){
         const { player } = event.playerReloadEnd
         if(connection.id === player.id){
             playerUpdates.track(player.id, "playerTimings")
@@ -218,7 +210,7 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
     }
 
     // Deal damage
-    for(const event of gameEvents.filter("dealDamage") || []){
+    for(const event of gameEvents.filter("dealDamage")){
         const { dealer, target, damage } = event.dealDamage
         if(connection.id === dealer.id){
             messages.push(encode.playerDamage(dealer, target, damage))
@@ -229,7 +221,7 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
     }
 
     // Track kill
-    for(const event of gameEvents.filter("playerKill") || []){
+    for(const event of gameEvents.filter("playerKill")){
         const { killer, killed } = event.playerKill
         messages.push(encode.playerKill(killer, killed))
         playerUpdates.track(killer.id, "playerScores")
@@ -283,19 +275,17 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
         }
         
         // Send player locations
-        for(const playerId in game.players){
-            const player = game.players[playerId]
+        for(const player of Object.values(game.players)){
             messages.push(encode.playerPosition(player))
             if(connection.id !== player.id){
                 messages.push(encode.playerInputs(player))
-            } 
+            }
         }
     }
 
     // send player ping
     if(game.tickNumber % (game.tps - PING_REFRESH) === 0){
-        for(const playerId in game.players){
-            const player = game.players[playerId]
+        for(const player of Object.values(game.players)){
             messages.push(encode.playerPing(player))
         }
     }

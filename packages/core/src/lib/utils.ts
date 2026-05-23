@@ -10,7 +10,7 @@ export function generateId(length = 4, reference?: string[]){
 
 export function getKeyDuplicates(...args: Record<string, unknown>[]){
     const keys = args.map(obj => Object.keys(obj))
-    const keysUnion = keys.reduce((agg, item) => [...agg, ...item], [])
+    const keysUnion = keys.flat()
     const keysSet: string[] = []
     const duplicates: string[] = []
 

@@ -182,7 +182,6 @@ export class PipPlayer{
         }
 
         if(this.spawned === true){
-            this.game.physics.removeObject(this.ship.physics)
             this.game.physics.addObject(ship.physics)
         }
 
