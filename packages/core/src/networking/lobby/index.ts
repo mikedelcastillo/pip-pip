@@ -92,8 +92,7 @@ export class Lobby<
     addConnection(connection: Connection<T, R, P>){
         if(connection.id in this.connections) throw new Error(`Connection "${connection.id}" already in lobby ${this.id}.`)
 
-        const connections = Object.values(this.connections)
-        if(connections.length >= this.typeOptions.maxConnections) throw new Error("Max connections reached for lobby.")
+        if(Object.keys(this.connections).length >= this.typeOptions.maxConnections) throw new Error("Max connections reached for lobby.")
 
         this.connections[connection.id] = connection
         connection.setLobby(this)
@@ -107,8 +106,7 @@ export class Lobby<
             delete this.connections[connection.id]
             this.events.emit("removeConnection", { connection })
 
-            const connections = Object.values(this.connections)
-            if(connections.length === 0){
+            if(Object.keys(this.connections).length === 0){
                 this.startIdle()
             }
         }

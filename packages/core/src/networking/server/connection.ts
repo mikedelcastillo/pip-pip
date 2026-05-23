@@ -42,8 +42,7 @@ export function initializeConnectionMethods<
             throw new Error(`Connection "${connection.id}" already exists.`)
         }
 
-        const connections = Object.values(server.connections)
-        if(connections.length >= server.options.maxConnections){
+        if(Object.keys(server.connections).length >= server.options.maxConnections){
             throw new Error("Server has reached max connections.")
         }
 

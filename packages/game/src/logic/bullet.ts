@@ -94,7 +94,7 @@ export class BulletPool {
     }
 
     log(){
-        // console.log(`BulletPool(${this.getActive().length}/${this.getAll().length})`)
+        //
     }
 
     new(params: BulletParams){

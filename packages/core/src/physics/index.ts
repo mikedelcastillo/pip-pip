@@ -177,7 +177,6 @@ export class PointPhysicsWorld{
     destroy(){
         for(const id in this.objects){
             this.objects[id].destroy()
-            delete this.objects[id]
         }
         for(const id in this.rectWalls){
             delete this.rectWalls[id]
@@ -228,7 +227,7 @@ export class PointPhysicsWorld{
         const baseMs = 1000 / this.options.baseTps
         const deltaTime =  (Math.max(1, deltaMs) / baseMs) * this.timeScale
         const objects = Object.values(this.objects)
-        const collidableObjects = Object.values(this.objects).filter(object => object.collision.enabled === true)
+        const collidableObjects = objects.filter(object => object.collision.enabled === true)
 
         // Apply air resistance
         for(const object of objects){
@@ -241,8 +240,6 @@ export class PointPhysicsWorld{
         for(const a of collidableObjects){
             for(const b of collidableObjects){
                 if(a.id === b.id) continue
-                if(!a.collision.enabled) continue
-                if(!b.collision.enabled) continue
                 if(a.collision.channels.some(channel => b.collision.excludeChannels.includes(channel))) continue
                 if(b.collision.channels.some(channel => a.collision.excludeChannels.includes(channel))) continue
                 if(a.collision.excludeObjects.includes(b)) continue

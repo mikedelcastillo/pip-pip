@@ -1,6 +1,6 @@
 import { EventEmitter } from "@pip-pip/core/src/common/events"
 import { PointPhysicsWorld, Vector2 } from "@pip-pip/core/src/physics"
-import { intersectionOfTwoLines, nearestPointFromSegment, radianDifference } from "@pip-pip/core/src/math"
+import { intersectionOfTwoLines, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool } from "./bullet"
 import { PipPlayer } from "./player"
@@ -259,11 +259,7 @@ export class PipPipGame{
                 }
             }
         }
-        
-        if(this.phase === PipPipGamePhase.MATCH){
-            //
-        }
-        
+
         if(this.phase !== PipPipGamePhase.SETUP){
             this.updateSystems()
             this.updatePhysics()
@@ -398,8 +394,6 @@ export class PipPipGame{
             // destroy all bullets
             this.bullets.destroy()
         }
-        
-        // Kill bullets
     }
 
     dealDamage(dealer: PipPlayer, target: PipPlayer){
@@ -440,9 +434,6 @@ export class PipPipGame{
         // check wall collisions
         const segWalls = Object.values(this.physics.segWalls)
         for(const bullet of this.bullets.getActive()){
-            // type Intersections = {x: number, y: number}
-            // const intersections: Intersections[] = []
-
             for(const segWall of segWalls){
                 const intersection = intersectionOfTwoLines(
                     bullet.physics.position.x, 
@@ -476,51 +467,8 @@ export class PipPipGame{
                 if(inIntX && inIntY && inBulX && inBulY){
                     // improve this in the future
                     this.bullets.unset(bullet)
-                    // intersections.push(intersection)
-                    // bullet.physics.velocity.x = 0
-                    // bullet.physics.velocity.y = 0
                 }
-
-                // const nearest = nearestPointFromSegment(
-                //     segWall.start.x,
-                //     segWall.start.y,
-                //     segWall.end.x,
-                //     segWall.end.y,
-                //     intersection.x,
-                //     intersection.y,
-                // )
-                
-                // const dx = nearest.x - intersection.x
-                // const dy = nearest.y - intersection.y
-                // const dist = Math.sqrt(dx * dx + dy * dy)
-                // if(dist < segWall.radius + bullet.physics.radius){
-                //     bullet.physics.position.x = nearest.x
-                //     bullet.physics.position.y = nearest.y
-                //     bullet.physics.velocity.x = 0
-                //     bullet.physics.velocity.y = 0
-                // }
             }
-
-            // get the nearest
-            // if(intersections.length === 0) continue
-
-            // let distance = Infinity
-            // let intersection = intersections[0]
-            // for(let i = 1; i < intersections.length; i++){
-            //     const inters = intersections[i]
-            //     const dx = bullet.physics.position.x - inters.x
-            //     const dy = bullet.physics.position.y - inters.y
-            //     const dist = Math.sqrt(dx * dx + dy * dy)
-            //     if(dist < distance){
-            //         distance = dist
-            //         intersection = inters
-            //     }
-            // }
-
-            // bullet.physics.position.x = intersection.x
-            // bullet.physics.position.y = intersection.y
-            // bullet.physics.velocity.x = 0
-            // bullet.physics.velocity.y = 0
         }
 
         // collide with players

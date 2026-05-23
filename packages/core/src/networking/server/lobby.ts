@@ -23,8 +23,11 @@ export function initializeLobbyMethods<
         const lobbies = Object.values(server.lobbies)
         if(lobbies.length >= server.options.maxLobbies) throw new Error("Max lobbies reached.")
 
-        const instances = lobbies.filter(lobby => lobby.type === type)
-        if(instances.length >= lobbyType.options.maxInstances) throw new Error(`Max instances of lobby type "${type}" reached.`)
+        let instanceCount = 0
+        for(const lobby of lobbies){
+            if(lobby.type === type) instanceCount++
+        }
+        if(instanceCount >= lobbyType.options.maxInstances) throw new Error(`Max instances of lobby type "${type}" reached.`)
      
         const lobby = new Lobby(server, type)
         lobbyType.initializer({

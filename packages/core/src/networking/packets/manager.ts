@@ -16,7 +16,7 @@ export type PacketManagerDecoded<T extends PacketManagerSerializerMap> = {
 export class BasePacketManager<T extends PacketManagerSerializerMap>{
     serializers: T
 
-    constructor(serializers: T){{
+    constructor(serializers: T){
         this.serializers = serializers
 
         const p = Object.values(this.serializers)
@@ -24,7 +24,7 @@ export class BasePacketManager<T extends PacketManagerSerializerMap>{
         for(let i = 0; i < p.length; i++){
             p[i].setId(i)
         }
-    }}
+    }
 
     encode<K extends keyof T, I extends GetPacketInput<GetPacketSerializerMap<T[K]>>>(serializer: K, input: I | I[]){
         return this.serializers[serializer].encode(input)
