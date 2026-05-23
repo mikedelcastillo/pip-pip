@@ -11,7 +11,7 @@ export class Ticker extends EventEmitter<TickerEventMap>{
     useRequestAnimationFrame = false
     lastUpdate = Date.now()
     ticking = false
-    tickInterval?: NodeJS.Timer
+    tickInterval?: ReturnType<typeof setInterval>
 
     deltaMsLog: number[] = []
     executionTimes: number[] = []

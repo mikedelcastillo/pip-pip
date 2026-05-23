@@ -1,6 +1,6 @@
 import { EventEmitter } from "@pip-pip/core/src/common/events"
 import { PointPhysicsWorld, Vector2 } from "@pip-pip/core/src/physics"
-import { intersectionOfTwoLines, nearestPointFromSegment, radianDifference } from "@pip-pip/core/src/math"
+import { intersectionOfTwoLines, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool } from "./bullet"
 import { PipPlayer } from "./player"

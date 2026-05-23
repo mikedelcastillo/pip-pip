@@ -10,7 +10,7 @@ import { generateId } from "../../lib/utils"
 export function initializeWebSockets<T extends PacketManagerSerializerMap>(client: Client<T>){
     const isBrowser = typeof window !== "undefined"
 
-    client.send = async (data: string | ArrayBuffer) => {
+    client.send = async (data: string | ArrayBuffer | Uint8Array) => {
         if(typeof client.ws === "undefined") return
         if(client.ws.readyState !== client.ws.OPEN) return
         

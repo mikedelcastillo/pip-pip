@@ -27,3 +27,12 @@ export const getForceLatencyJitter = () => {
 
     return 0
 }
+
+export const getServerPort = (defaultPort: number) => {
+    if(typeof process.env.HRZN_PORT !== "undefined"){
+        const value = Number(process.env.HRZN_PORT)
+        if(!Number.isNaN(value) && value > 0) return value
+    }
+
+    return defaultPort
+}

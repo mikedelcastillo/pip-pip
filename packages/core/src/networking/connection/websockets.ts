@@ -41,7 +41,7 @@ export function initializeWebSockets<
         connection.startIdle() // Emits status
     }
 
-    connection.send = (data: string | ArrayBuffer) => {
+    connection.send = (data: string | ArrayBuffer | Uint8Array) => {
         const send = async () => {
             if(typeof connection.ws !== "undefined"){
                 if(connection.ws.readyState === connection.ws.OPEN){

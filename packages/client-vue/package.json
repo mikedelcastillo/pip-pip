@@ -10,26 +10,26 @@
     "lint": "eslint . --ext .ts"
   },
   "dependencies": {
-    "@pixi/assets": "^6.5.5",
-    "@pixi/basis": "^6.5.5",
-    "pinia": "^2.0.22",
+    "@pixi/assets": "^6.5.10",
+    "@pixi/basis": "^6.5.10",
+    "pinia": "^2.3.1",
     "pixi-filters": "^4.2.0",
-    "pixi.js": "^6.5.4",
-    "pug": "^3.0.2",
-    "sass": "^1.55.0",
-    "vite-tsconfig-paths": "^3.5.1",
-    "vue": "^3.2.41",
-    "vue-router": "4"
+    "pixi.js": "^6.5.10",
+    "pug": "^3.0.4",
+    "sass": "^1.100.0",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vue": "^3.5.34",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^5.39.0",
-    "@typescript-eslint/parser": "^5.39.0",
-    "@vitejs/plugin-vue": "^3.1.0",
-    "eslint": "^8.24.0",
-    "eslint-plugin-vue": "^9.6.0",
-    "typescript": "^4.6.4",
-    "vite": "^3.1.0",
-    "vue-tsc": "^0.40.13"
+    "@typescript-eslint/eslint-plugin": "^8.31.0",
+    "@typescript-eslint/parser": "^8.31.0",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "eslint": "^8.57.1",
+    "eslint-plugin-vue": "^9.33.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.4.2",
+    "vue-tsc": "^2.2.8"
   },
   "peerDependencies": {
     "@pip-pip/core": "*",

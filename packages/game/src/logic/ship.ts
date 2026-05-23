@@ -304,7 +304,7 @@ export class PipShip{
         }
 
         // check if reload is done
-        if(wasReloading && this.isReloading === false){
+        if(wasReloading && !this.isReloading){
             this.capacities.weapon = this.stats.weapon.capacity
             if(typeof this.player !== "undefined"){
                 this.game.events.emit("playerReloadEnd", { player: this.player })

@@ -17,7 +17,7 @@ export function processLobbyPackets(context: GameTickContext){
     for(const events of lobbyEvents.filter("removeConnection")){
         const { connection } = events.removeConnection
         const player = game.players[connection.id]
-        if(typeof player !== undefined){
+        if(player !== undefined){
             player.remove()
         }
     }
