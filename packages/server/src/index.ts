@@ -10,6 +10,7 @@ import { sendPacketToConnection } from "./connection-out"
 import { processLobbyPackets } from "./connection-in"
 
 import { PING_REFRESH } from "@pip-pip/game/src/logic/constants"
+import { getServerPort } from "@pip-pip/core/src/lib/server-env"
 
 type GamePacketManagerSerializerMap = ExtractSerializerMap<typeof packetManager>
 
@@ -26,6 +27,7 @@ export type PipPipConnection = ConnectionOf<PipPipServer>
 export type PipPipLobby = LobbyOf<PipPipServer>
 
 const server: PipPipServer = new Server(packetManager, {
+    port: getServerPort(8443),
     connectionIdleLifespan: 1000 * 5, //1000 * 60 * 10, // 10 minutes
     lobbyIdleLifespan: 1000 * 5, // 5 second
     verifyTimeLimit: 5000,
