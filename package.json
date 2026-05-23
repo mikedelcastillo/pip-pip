@@ -17,6 +17,7 @@
     "clear": "rm -rf ./packages/*/dist ./packages/*/tsconfig.tsbuildinfo",
     "server": "yarn workspace @pip-pip/server",
     "client": "yarn workspace @pip-pip/client-vue",
+    "react": "yarn workspace @pip-pip/client-react",
     "game": "yarn workspace @pip-pip/game",
     "core": "yarn workspace @pip-pip/core",
     "map": "yarn workspace @pip-pip/map-maker",
