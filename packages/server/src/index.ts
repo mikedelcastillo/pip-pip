@@ -136,30 +136,6 @@ async function run(){
     ]
 
     console.log(artLines.join("\n"))
-
-    // let logTimeout: NodeJS.Timeout
-    // const conLobWatch = new EventCollector(server.events, [
-    //     "addConnection", 
-    //     "createConnection", 
-    //     "createLobby", 
-    //     "removeConnection", 
-    //     "removeLobby", 
-    //     "connectionStatusChange",
-    //     "lobbyStatusChange",
-    // ])
-    // conLobWatch.on("collect", () => {
-    //     clearTimeout(logTimeout)
-    //     logTimeout = setTimeout(() => {
-    //         const map = (a: PipPipLobby | PipPipConnection) => {
-    //             return [a.id, a.status].join(":")
-    //         }
-    //         console.log({
-    //             connections: Object.values(server.connections).map(map),
-    //             lobbies: Object.values(server.lobbies).map(map),
-    //         })
-    //         conLobWatch.flush()
-    //     }, 100)
-    // })
 }
 
 run()
