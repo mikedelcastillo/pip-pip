@@ -14,6 +14,7 @@ import { COLORS, DIMS } from "./styles"
 import { Bullet } from "@pip-pip/game/src/logic/bullet"
 import { Powerup, POWERUP_RADIUS } from "@pip-pip/game/src/logic/powerup"
 import { tickDown } from "@pip-pip/game/src/logic/utils"
+import { exceedsSnapDistance } from "./interpolation"
 import { Vector2 } from "@pip-pip/core/src/physics"
 import { EventCallback, EventMapOf } from "@pip-pip/core/src/common/events"
 import {
@@ -718,7 +719,7 @@ export class PipPipRenderer{
             const dx = tx - graphic.container.position.x
             const dy = ty - graphic.container.position.y
 
-            if(dx * dx + dy + dy > SMOOTHING.MAX_PLAYER_DISTANCE * SMOOTHING.MAX_PLAYER_DISTANCE){
+            if(exceedsSnapDistance(dx, dy, SMOOTHING.MAX_PLAYER_DISTANCE)){
                 graphic.container.position.x = tx
                 graphic.container.position.y = ty
             } else{

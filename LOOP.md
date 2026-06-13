@@ -139,7 +139,7 @@ Verified, prioritized. `[x]` = fixed and shipped.
 - [x] **C1 (critical)** `$varstring`/packet length prefix decoded only the LOW byte (`new Uint16Array(number[])`), so any payload ≥256 bytes was truncated AND desynced every following packet in the batch — chat/names are user input (emoji/CJK trip it). Fixed in core `serializer.ts` + `packet.ts` (3 sites), with regression tests. (#4)
 - [x] **C2 (critical, client)** Renderer/PIXI app + input + audio-resume listeners now fully torn down on unmount (`PipPipRenderer.destroy()`, rewritten `unmountGameView`, `destory`→`destroy`); core keyboard/mouse store bound handlers so `removeEventListener` matches. Regression test asserts add/remove symmetry. (#16)
 - [x] **H1 (high)** Physics collision relative-velocity sign error (`core/physics` ~278) — fixed + regression test. (#11)
-- [ ] **H2 (high, client)** `renderer.ts` far-distance snap guard typo `dx*dx + dy + dy` → `dy*dy`.
+- [x] **H2 (high, client)** `renderer.ts` player-snap guard typo `dx*dx + dy + dy` (=> dx²+2·dy) → squared distance; large VERTICAL respawns/teleports failed to snap and slid across the map. Extracted to a pure `exceedsSnapDistance` helper + regression test. (#46)
 - [x] **H3 (high)** WS connection cap (`clients.values.length`→`clients.size`; `throw`→`return`) — fixed. (#12)
 - [x] **H4 (high)** `routerAuthMiddleware` double `next()` on 401 — fixed with `return next(err)`. (#12)
 - [ ] **H5** ping-timeout resolves as a real ~maxPing measurement (poisons lag comp).
@@ -300,4 +300,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 42 | `569b0e6`   | HUD kill feed                                     | `git revert 569b0e6`|
 | 43 | `fc70843`   | HUD minimap radar                                 | `git revert fc70843`|
 | 44 | `6ab9738`   | Persist audio settings to localStorage            | `git revert 6ab9738`|
-| 45 | (latest)    | Opt-in CRT graphics toggle (Settings, persisted)  | `git revert <sha>`  |
+| 45 | `2e1d903`   | Opt-in CRT graphics toggle (Settings, persisted)  | `git revert 2e1d903`|
+| 46 | (latest)    | Fix H2 player-snap distance typo (vertical jumps) | `git revert <sha>`  |
