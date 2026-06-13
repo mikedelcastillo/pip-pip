@@ -1,3 +1,6 @@
+import path from "path"
+import fs from "fs"
+
 import { ExtractSerializerMap } from "@pip-pip/core/src/networking/packets/manager"
 import { LobbyTypeOptions } from "@pip-pip/core/src/networking/lobby"
 import { EventCollector, EventMapOf } from "@pip-pip/core/src/common/events"
@@ -26,13 +29,19 @@ export type PipPipServer = Server<GamePacketManagerSerializerMap, GameConnection
 export type PipPipConnection = ConnectionOf<PipPipServer>
 export type PipPipLobby = LobbyOf<PipPipServer>
 
+const clientDir = process.env.CLIENT_DIR || path.resolve(__dirname, "../../client/dist")
+const serveClient = fs.existsSync(path.join(clientDir, "index.html"))
+const allowedOrigins = (process.env.HRZN_ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean)
+
 const server: PipPipServer = new Server(packetManager, {
     port: getServerPort(8443),
-    connectionIdleLifespan: 1000 * 5, //1000 * 60 * 10, // 10 minutes
-    lobbyIdleLifespan: 1000 * 5, // 5 second
+    connectionIdleLifespan: 1000 * 60 * 10, // 10 minutes
+    lobbyIdleLifespan: 1000 * 60 * 10, // 10 minutes
     verifyTimeLimit: 5000,
     connectionIdLength: CONNECTION_ID_LENGTH,
     lobbyIdLength: LOBBY_ID_LENGTH,
+    ...(serveClient ? { clientDir } : {}),
+    ...(allowedOrigins.length > 0 ? { allowedOrigins } : {}),
 })
 
 const defaultLobbyOptions: LobbyTypeOptions = {

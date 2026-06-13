@@ -1,7 +1,8 @@
-import { Router as createRouter, Request, Response, NextFunction } from "express"
+import express, { Router as createRouter, Request, Response, NextFunction } from "express"
 import createHttpError from "http-errors"
 import bodyParser from "body-parser"
 import cors from "cors"
+import path from "path"
 
 import { asyncHandler, handle404Error, handleError } from "../../lib/express"
 import { PacketManagerSerializerMap } from "../packets/manager"
@@ -14,7 +15,11 @@ export function initializeRoutes<
     R extends Record<string, any>,
     P extends Record<string, any>,
 >(server: Server<T, R, P>){
-    server.app.use(cors())
+    if(Array.isArray(server.options.allowedOrigins) && server.options.allowedOrigins.length > 0){
+        server.app.use(cors({ origin: server.options.allowedOrigins }))
+    } else {
+        server.app.use(cors())
+    }
     server.app.use(bodyParser.json())
 
     const router = createRouter()
@@ -142,6 +147,14 @@ export function initializeRoutes<
     server.start = () => new Promise<void>((resolve) => {
         // TODO: Register debugging routes if enabled in options
         server.app.use(server.options.baseRoute, router)
+        if(typeof server.options.clientDir === "string"){
+            server.app.use(express.static(server.options.clientDir))
+            server.app.use((req: Request, res: Response, next: NextFunction) => {
+                if(req.method !== "GET") return next()
+                if(req.path.startsWith(server.options.baseRoute)) return next()
+                res.sendFile(path.join(server.options.clientDir as string, "index.html"))
+            })
+        }
         server.app.use(handle404Error)
         server.app.use(handleError)
         server.server.listen(server.options.port, () => {

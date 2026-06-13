@@ -51,6 +51,12 @@ yarn client dev      # client at localhost:5173
 
 Latency simulation: `yarn server dev:latency` (30 ms) or `yarn server dev:jitter` (30 ms + 5 ms jitter).
 
+## Deployment (Railway)
+
+pip-pip ships as a **single combined Railway service**. One service builds the repo via the root `Dockerfile` and runs the Node server, which serves both the game (HTTP REST under `/hrzn` plus the WebSocket on the same port) and the built React client as static files with SPA fallback. The browser connects same-origin, so there is no server URL to configure, and Railway's injected `PORT` is honored automatically. The service must run as a single replica, since connection and lobby state live in memory.
+
+See [docs/deploy-railway.md](docs/deploy-railway.md) for the full guide.
+
 ## License
 
 MIT

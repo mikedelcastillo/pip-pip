@@ -42,10 +42,12 @@ export class GameContext {
 
     initializeClient() {
         this.client?.disconnect()
-        const useSecure = window.location.protocol.includes("s")
+        const loc = window.location
+        const useSecure = loc.protocol === "https:"
+        const port = import.meta.env.DEV ? 8443 : (loc.port ? Number(loc.port) : undefined)
         this.client = new Client(packetManager, {
-            host: window.location.hostname,
-            port: 8443,
+            host: loc.hostname,
+            port,
             https: useSecure,
             wss: useSecure,
         })
