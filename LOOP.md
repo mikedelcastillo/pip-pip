@@ -74,7 +74,7 @@ Requested across the session (incl. follow-up ideas). Done = shipped to main.
 Engine / gameplay:
 - [x] **Test infrastructure** (vitest) — foundational, enables the rest. (#1)
 - [x] **Secondary/tactical weapon** — implemented the stubbed cannon. (#2)
-- [ ] Procedural audio system (Web Audio synthesis; SFX on game events; mute toggle). *(implemented, integrating)*
+- [x] **Procedural audio system** — Web Audio SFX synth on game events + mute toggle + canonical "pip pip" chirp. (#7)
 - [x] **Particle + screen-shake juice** — explosions, hit sparks, thruster trails. (#3)
 - [ ] More weapons: grenades, different bullet/projectile types, more ship-specific kits.
 - [ ] Different bullet **spray patterns** per weapon (spread/shotgun/burst); distinct projectiles per player/ship.
@@ -185,4 +185,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 3  | `8300290`   | Particle + screen-shake juice system          | `git revert 8300290`|
 | 4  | `aa8a98e`   | Fix variable-length packet framing (>=256 bytes) | `git revert aa8a98e`|
 | 5  | `17539f0`   | Fix player damage misses (lag-comp + swept collision) | `git revert 17539f0`|
-| 6  | (latest)    | Particle refinement: wall bounce, pixel squares, local-only shake | `git revert <sha>`|
+| 6  | `95aa379`   | Particle refinement: wall bounce, pixel squares, local-only shake | `git revert 95aa379`|
+| 7  | (latest)    | Procedural Web-Audio SFX system + mute toggle | `git revert <sha>`  |

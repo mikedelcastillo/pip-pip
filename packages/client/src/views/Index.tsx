@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import GameButton from "../components/GameButton"
 import GameInput from "../components/GameInput"
+import AudioVolumeToggle from "../components/AudioVolumeToggle"
 import { hostGame } from "../game"
 import logoUrl from "../assets/logo.png"
 import styles from "./Index.module.sass"
@@ -28,6 +29,7 @@ export default function Index() {
                     <GameButton onClick={notYetImplemented}>Join Game</GameButton>
                     <GameButton accent onClick={notYetImplemented}>Settings</GameButton>
                     <GameButton accent onClick={notYetImplemented}>Credits</GameButton>
+                    <AudioVolumeToggle />
                 </div>
             </div>
         </div>

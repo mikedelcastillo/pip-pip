@@ -4,6 +4,8 @@ import { useGameStore } from "../game/store"
 import GameButton from "./GameButton"
 import GamePlayerList from "./GamePlayerList"
 import GameChat from "./GameChat"
+import AudioVolumeToggle from "./AudioVolumeToggle"
+import audioStyles from "./AudioVolumeToggle.module.sass"
 import styles from "./GameOverlaySetup.module.sass"
 
 type SetupTab = {
@@ -35,6 +37,7 @@ export default function GameOverlaySetup() {
 
     return (
         <div className="game-overlay">
+            <AudioVolumeToggle className={audioStyles.corner} />
             <div className={styles.overlayContainer}>
                 <div className={styles.setupContainer}>
                     <div className={styles.setupTabsNav}>

@@ -14,6 +14,7 @@ import { processPackets, sendPackets } from "./client"
 import { processInputs } from "./ui"
 import { processChat } from "./chat"
 import { CACHE_NAME_KEY } from "@pip-pip/game/src/logic/utils"
+import { AudioManager } from "./audio"
 
 export class GameContext {
     game!: PipPipGame
@@ -31,6 +32,9 @@ export class GameContext {
 
     container!: HTMLDivElement
 
+    audio = new AudioManager()
+    private audioResumeBound = false
+
     initialized = false
 
     // The store hook itself — call .getState() / .setState() from non-React contexts.
@@ -38,6 +42,15 @@ export class GameContext {
 
     initialize() {
         this.initializeClient()
+
+        // Browsers require a user gesture before an AudioContext can produce
+        // sound — resume it on the first click or keypress (once is enough).
+        if (!this.audioResumeBound) {
+            this.audioResumeBound = true
+            const resume = () => this.audio.resume()
+            document.addEventListener("click", resume)
+            document.addEventListener("keydown", resume)
+        }
     }
 
     initializeClient() {
@@ -76,6 +89,43 @@ export class GameContext {
         this.mouse.setTarget(document.body)
 
         this.renderer.mount(container)
+
+        // Procedural SFX driven by game events. The AudioManager stays silent
+        // until its context is resumed by a user gesture (see initialize()).
+        this.audio.init()
+        const isLocalPlayer = (id: string) => id === this.game.clientPlayerId
+
+        this.game.events.on("addBullet", ({ bullet }) => {
+            this.audio.play(bullet.type === "tactical" ? "shootTactical" : "shoot", {
+                pitchSeed: this.game.tickNumber,
+                pitchSemitones: 0.5,
+            })
+        })
+        this.game.events.on("dealDamage", ({ target }) => {
+            // Non-fatal hits get the "hit" blip; fatal hits are handled by playerKill.
+            if (target.ship.capacities.health > 0) {
+                this.audio.play("hit", {
+                    pitchSeed: this.game.tickNumber,
+                    pitchSemitones: 1,
+                })
+            }
+        })
+        this.game.events.on("playerKill", () => {
+            this.audio.play("explosion")
+        })
+        this.game.events.on("playerSpawned", ({ player }) => {
+            // The local player's spawn earns the signature "pip" chirp.
+            this.audio.play(isLocalPlayer(player.id) ? "pip" : "spawn")
+        })
+        this.game.events.on("playerReloadStart", ({ player }) => {
+            if (isLocalPlayer(player.id)) this.audio.play("reloadStart")
+        })
+        this.game.events.on("playerReloadEnd", ({ player }) => {
+            if (isLocalPlayer(player.id)) this.audio.play("reloadEnd")
+        })
+        this.game.events.on("phaseChange", () => {
+            this.audio.play("phaseChange")
+        })
 
         this.renderTick.on("tick", ({ deltaMs }) => {
             this.renderer.render(this, deltaMs)
@@ -139,6 +189,7 @@ export class GameContext {
         this.gameEvents?.destroy()
         this.renderTick?.destroy()
         this.updateTick?.destroy()
+        this.audio.dispose()
     }
 
     destory() {

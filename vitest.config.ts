@@ -15,6 +15,7 @@ export default defineConfig({
             "@pip-pip/core": resolve(root, "packages/core"),
             "@pip-pip/game": resolve(root, "packages/game"),
             "@pip-pip/server": resolve(root, "packages/server"),
+            "@pip-pip/client": resolve(root, "packages/client"),
         },
     },
     test: {
