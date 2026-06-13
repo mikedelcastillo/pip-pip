@@ -33,5 +33,7 @@ export function processInputs(context: GameContext){
     
     // shooting
     clientPlayer.inputs.useWeapon = (mouse.state.left.down || keyboard.state.Space) === true
+    // secondary / tactical cannon: right mouse button or left shift
+    clientPlayer.inputs.useTactical = (mouse.state.right.down || keyboard.state.ShiftLeft) === true
     clientPlayer.inputs.doReload = keyboard.state.KeyR === true
 }

@@ -525,16 +525,22 @@ export class PipPipRenderer{
             }
             graphic.graphic.clear()
 
+            // Tactical cannon rounds draw a thicker amber trail so they read as
+            // distinct heavy shots; primary fire stays the thin white streak.
+            const isTactical = graphic.bullet?.type === "tactical"
+            const trailWidth = isTactical ? 11 : 5
+            const trailColor = isTactical ? 0xFFAA33 : 0xFFFFFF
+
             for(let i = 1; i < graphic.positions.length; i++){
                 const prev = graphic.positions[i - 1]
                 const cur = graphic.positions[i]
-                
+
                 const CT = Math.pow(i / graphic.positions.length, 2)
                 const PT = Math.pow((i - 1) / graphic.positions.length, 2)
 
                 graphic.graphic.lineStyle({
-                    width: CT * 5,
-                    color: 0xFFFFFF,
+                    width: CT * trailWidth,
+                    color: trailColor,
                     alpha: Math.max(0.1, CT),
                 })
                 graphic.graphic.moveTo(

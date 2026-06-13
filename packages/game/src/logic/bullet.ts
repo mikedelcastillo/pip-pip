@@ -5,14 +5,22 @@ import { PipPlayer } from "./player"
 import { PipPipGame } from "."
 import { tickDown } from "./utils"
 
+export type BulletType = "primary" | "tactical"
+
 export type BulletParams = {
-    position: Vector2, 
-    velocity?: Vector2, 
+    position: Vector2,
+    velocity?: Vector2,
     owner?: PipPlayer,
 
     speed: number,
     radius: number,
     rotation: number,
+
+    // Damage this bullet deals on impact. Resolved by the firing weapon at
+    // creation time so primary and tactical shots can hit for different
+    // amounts. Damage is only ever applied server-side (in dealDamage).
+    damage?: number,
+    type?: BulletType,
 }
 
 export const BULLET_DEFAULT_LIFESPAN = 20 * 8 // eight seconds
@@ -23,6 +31,9 @@ export class Bullet{
     id = "bullet" + generateId(4)
     physics: PointPhysicsObject = new PointPhysicsObject()
     lifespan = BULLET_DEFAULT_LIFESPAN
+
+    damage = 0
+    type: BulletType = "primary"
 
     owner?: PipPlayer
 
@@ -53,6 +64,8 @@ export class Bullet{
 
         this.owner = params.owner
         this.lifespan = BULLET_DEFAULT_LIFESPAN
+        this.damage = params.damage ?? 0
+        this.type = params.type ?? "primary"
 
         this.dead = false
         this.pool.game.physics.addObject(this.physics)
@@ -63,6 +76,8 @@ export class Bullet{
         this.pool.game.events.emit("removeBullet", { bullet: this })
         this.dead = true
         this.lifespan = 0
+        this.damage = 0
+        this.type = "primary"
         this.owner = undefined
         this.physics.position.x = 0
         this.physics.position.y = 0

@@ -55,8 +55,9 @@ export const processPackets = (gameContext: GameContext) => {
                     velocity: new Vector2(packet.velocityX, packet.velocityY),
                     owner: player,
                     speed: player.ship.stats.bullet.velocity,
-                    radius: player.ship.stats.bullet.radius,
+                    radius: packet.radius,
                     rotation: 0,
+                    type: packet.bulletType === 1 ? "tactical" : "primary",
                 })
             }
         }

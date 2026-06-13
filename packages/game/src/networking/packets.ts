@@ -86,6 +86,8 @@ export const packetManager = new PacketManager({
         positionY: $worldPos,
         velocityX: $float16,
         velocityY: $float16,
+        radius: $float16,
+        bulletType: $uint8,
     }),
 
     // One global header prepended once per outgoing message carrying the
@@ -301,6 +303,8 @@ export const encode = {
         positionY: bullet.physics.position.y,
         velocityX: bullet.physics.velocity.x,
         velocityY: bullet.physics.velocity.y,
+        radius: bullet.physics.radius,
+        bulletType: bullet.type === "tactical" ? 1 : 0,
     }),
 
     serverTickHeader: (game: PipPipGame) => packetManager.serializers.serverTickHeader.encode({

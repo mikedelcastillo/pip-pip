@@ -69,27 +69,70 @@ ids (e.g. `"ship_1"`, `"tile_default"`) bridge the game logic and the renderer.
 
 ## Feature backlog (prioritized; ordered to build foundations first)
 
-Requested across the session (incl. follow-up ideas):
+Requested across the session (incl. follow-up ideas). Done = shipped to main.
 
-- [x] **Test infrastructure** (vitest) — foundational, enables the rest.
-- [ ] Procedural audio system (Web Audio synthesis; SFX on game events; mute toggle).
-- [ ] Particle system + screen shake + hit/juice animations (explosions, thruster trails).
-- [ ] Secondary/tactical weapon (implement the stubbed system) + additional weapon types.
-- [ ] Grenades / different bullet types / projectile variety.
-- [ ] Map power-ups (pickups on the map).
-- [ ] New maps + new backgrounds/themes + map selection screen.
-- [ ] Public-lobby foundation: lobby metadata + implement `GET /lobbies` listing.
+Engine / gameplay:
+- [x] **Test infrastructure** (vitest) — foundational, enables the rest. (#1)
+- [x] **Secondary/tactical weapon** — implemented the stubbed cannon. (#2)
+- [ ] Procedural audio system (Web Audio synthesis; SFX on game events; mute toggle). *(blueprint ready)*
+- [ ] Particle system + screen shake + hit/juice animations. *(blueprint ready; Pixi is v6)*
+- [ ] More weapons: grenades, different bullet/projectile types, more ship-specific kits.
+- [ ] Map power-ups (pickups: health, ammo, speed, shield).
+- [ ] AI enemies / "training grounds" mode (the `calculateAi`/`shootAiBullets` flags exist, no brain yet). *(Apex training-grounds inspired)*
+- [ ] Health regeneration (stats exist, not yet applied).
+- [ ] Game-loop & movement polish — lean into fluid, skill-based **Apex-style movement** (the game's north star).
+
+Maps:
+- [ ] New maps + new backgrounds/themes; map selection screen (over existing `setMap`).
+
+Networking / lobbies / multiplayer:
+- [ ] Public-lobby foundation: lobby metadata + implement `GET /lobbies` listing. *(blueprint ready)*
 - [ ] Hosting settings screen (name, public/private, map, max players).
 - [ ] Share-to-public toggle for hosts.
 - [ ] Homepage "Join public match" button + public match browser screen.
-- [ ] Character selection screen (UI over existing `setShip`).
-- [ ] Improved in-game UI modes (kill feed, minimap, scoreboard polish).
-- [ ] Multiplayer experience/features (reconnect, spectator, emotes).
-- [ ] Game-loop & animation polish; health regeneration.
+- [ ] Spectator mode (spectate lobbies; `spectator`/`spectating` fields partly exist).
+- [ ] Promote another player to admin/op of a lobby.
+- [ ] Multiplayer experience: reconnect, emotes, lobby chat polish.
+
+UI / UX:
+- [ ] Character selection screen (UI over existing `setShip`; ships are named after the dev's birds).
+- [ ] Homepage Settings content + Credits (dev **Mike Del Castillo**, art **Meg Del Castillo**).
+- [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
+- [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
+
+## Design north-star & lore (from the author)
+
+- **Movement is the soul.** Inspiration is **Apex Legends movement** — fluid, fast,
+  skill-expressive. Author also loves Minecraft, Stardew, Starbound; enjoyed Overwatch;
+  less into Fortnite/Valorant. Bias feel/controls toward fluid momentum over twitchy.
+- **The name & the ships.** "Pip-Pip" comes from a 2-week-old lovebird that loved the
+  double "pip pip" beep of an infrared thermometer; the bird "Blu" mimicked it. **Every
+  ship is named after one of the author's birds** (Mono, Hugo, Gotchi, Blu, Flora,
+  Djibouti). Keep audio/art faithful — the spawn/UI "pip pip" chirp is canonical.
+- **Credits:** game developer **Mike Del Castillo**, art **Meg Del Castillo**.
 
 ## Decision log
 
+- **D3 — parallel design, serial integration.** To get throughput without risking the
+  "one complete, tested feature per commit" rule, design work is fanned out to
+  background architect subagents (audio, particles, public-lobby blueprints are done and
+  stored), while implementation + tests + the atomic commit stay serial and owned here.
+  Parallel file edits in a yarn-workspace monorepo (shared root `node_modules`,
+  cross-cutting files like `renderer.ts`/`router.tsx`) would create merge/test-env
+  friction that endangers commit atomicity, so we trade a little parallelism for clean,
+  revertible commits. The client also has tracked compiled `.js.map` artifacts in
+  `src/`; always `git status` before committing and revert any artifact churn.
+- **D2 — tactical weapon is server-authoritative + headless-testable.** The second
+  weapon reuses the existing fire path: the server independently creates authoritative
+  bullets from each player's already-networked `useTactical` input, so no new
+  client-trust surface. Bullets now carry their own `damage` + `type` (set by the firing
+  weapon) and `dealDamage` uses the bullet's damage, so primary (4) and tactical (40)
+  hit differently. `playerShootBullet` gained `radius`+`bulletType` so remote clients
+  render the heavy cannon as a thick amber trail. Bound to right-click / Left-Shift.
+  Validated by a headless `PipPipGame` integration test (two players in an empty arena)
+  plus pure cooldown/reload unit tests — no browser needed. Fixed the `tactical.capcity`
+  typo while there.
 - **D1 — vitest at the repo root, tests under `/tests`.** Chose vitest (Vite-native,
   fast, TS out of the box) over jest. Tests live at the repo root (not inside any
   package `src/`) so they are never swept into a package's `tsc` build or emitted into
@@ -101,6 +144,7 @@ Requested across the session (incl. follow-up ideas):
 
 ## Commit log
 
-| #  | Short SHA   | Feature                                  | Revert with            |
-| -- | ----------- | ---------------------------------------- | ---------------------- |
-| 1  | (latest)    | Add vitest test infra + first unit tests | `git revert <sha>`     |
+| #  | Short SHA   | Feature                                       | Revert with         |
+| -- | ----------- | --------------------------------------------- | ------------------- |
+| 1  | `d5a6969`   | Add vitest test infra + first unit tests      | `git revert d5a6969`|
+| 2  | (latest)    | Secondary/tactical cannon weapon              | `git revert <sha>`  |

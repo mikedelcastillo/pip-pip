@@ -30,11 +30,15 @@ export type ShipStats = {
         },
     },
     tactical: {
-        capcity: number,
+        capacity: number,
         rate: number,
         damage: StatRange,
         reload: {
             ticks: number,
+        },
+        bullet: {
+            velocity: number,
+            radius: number,
         },
     },
     bullet: {
@@ -89,11 +93,15 @@ export const DEFAULT_SHIP_STATS: ShipStats = {
         },
     },
     tactical: {
-        capcity: 3,
+        capacity: 3,
         rate: 20,
         damage: createRange(40),
         reload: {
             ticks: 20 * 5,
+        },
+        bullet: {
+            velocity: 60,
+            radius: 14,
         },
     },
     bullet: {
@@ -209,7 +217,7 @@ export class PipShip{
 
     reset(){
         this.capacities.health = this.stats.health.capacity.normal
-        this.capacities.tactical = this.stats.tactical.capcity
+        this.capacities.tactical = this.stats.tactical.capacity
         this.capacities.weapon = this.stats.weapon.capacity
 
     }
@@ -289,8 +297,54 @@ export class PipShip{
         }
     }
 
+    get isTacticalReloading(){
+        return this.timings.tacticalReload !== 0
+    }
+
+    get tacticalEmpty(){
+        return this.capacities.tactical === 0
+    }
+
+    get tacticalFull(){
+        return this.capacities.tactical === this.stats.tactical.capacity
+    }
+
+    get canReloadTactical(){
+        if(this.isTacticalReloading) return false
+        if(this.tacticalFull) return false
+        return true
+    }
+
+    get canUseTactical(){
+        if(this.isTacticalReloading === true) return false
+        if(this.tacticalEmpty === true) return false
+        if(this.timings.tacticalRate !== 0) return false
+        return true
+    }
+
+    // The secondary weapon: a slow, heavy, high-damage cannon. Mirrors the
+    // primary weapon's ammo/rate/reload model but on its own timings so the
+    // two fire independently.
+    shootTactical(){
+        if(this.canUseTactical){
+            this.capacities.tactical = tickDown(this.capacities.tactical, 1)
+            this.timings.tacticalRate = this.stats.tactical.rate
+            return true
+        } else if(this.tacticalEmpty){
+            this.reloadTactical()
+        }
+        return false
+    }
+
+    reloadTactical(){
+        if(this.canReloadTactical){
+            this.timings.tacticalReload = this.stats.tactical.reload.ticks
+        }
+    }
+
     update(){
         const wasReloading = this.isReloading
+        const wasTacticalReloading = this.isTacticalReloading
 
         this.timings.invincibility = tickDown(this.timings.invincibility)
         this.timings.healthRegenerationHeal = tickDown(this.timings.healthRegenerationHeal)
@@ -312,6 +366,11 @@ export class PipShip{
             if(typeof this.player !== "undefined"){
                 this.game.events.emit("playerReloadEnd", { player: this.player })
             }
+        }
+
+        // check if the tactical reload is done
+        if(wasTacticalReloading && !this.isTacticalReloading){
+            this.capacities.tactical = this.stats.tactical.capacity
         }
 
         this.rotation += radianDifference(this.rotation, this.targetRotation) / (1 + 8 * (1 - this.stats.aim.accuracy))

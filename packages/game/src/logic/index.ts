@@ -373,10 +373,41 @@ export class PipPipGame{
                             speed: player.ship.stats.bullet.velocity,
                             radius: player.ship.stats.bullet.radius,
                             rotation,
+                            damage: player.ship.stats.bullet.damage.normal,
+                            type: "primary",
                         })
                     }
                 }
-                
+
+                // tactical / secondary weapon: a slow, heavy cannon on its own
+                // ammo + cooldown. Same authority + ping-rewind handling as the
+                // primary weapon, driven by the useTactical input.
+                if(authorizedToShootBullet && player.inputs.useTactical === true && player.spawned === true){
+                    if(player.ship.shootTactical()){
+                        let positionX = player.ship.physics.position.x
+                        let positionY = player.ship.physics.position.y
+                        let rotation = player.ship.rotation
+
+                        if(this.options.considerPlayerPing){
+                            const lookbackRaw = (player.ping / 2) / this.deltaMs
+                            const prev = player.getLastTickState(lookbackRaw)
+                            positionX = prev.positionX
+                            positionY = prev.positionY
+                            rotation = prev.rotation
+                        }
+
+                        this.bullets.new({
+                            position: new Vector2(positionX, positionY),
+                            owner: player,
+                            speed: player.ship.stats.tactical.bullet.velocity,
+                            radius: player.ship.stats.tactical.bullet.radius,
+                            rotation,
+                            damage: player.ship.stats.tactical.damage.normal,
+                            type: "tactical",
+                        })
+                    }
+                }
+
                 // accelerate players (shared with the client-side replay step)
                 const accel = this.computeMovementAcceleration(player, player.inputs)
                 player.ship.physics.velocity.x += accel.x
@@ -476,11 +507,11 @@ export class PipPipGame{
         }
     }
 
-    dealDamage(dealer: PipPlayer, target: PipPlayer){
+    dealDamage(dealer: PipPlayer, target: PipPlayer, weaponDamage = dealer.ship.stats.bullet.damage.normal){
         if(this.options.triggerDamage === false) return
 
         // decrease health
-        const dealerDamage = dealer.ship.stats.bullet.damage.normal
+        const dealerDamage = weaponDamage
         const defenseRatio = 2 - target.ship.defense
         const rawDamage = Math.max(1, Math.round(defenseRatio * dealerDamage))
         const damage = Math.min(rawDamage, target.ship.capacities.health)
@@ -587,7 +618,7 @@ export class PipPipGame{
 
                 if(tValid === false) continue
                 if(bullet.owner instanceof PipPlayer){
-                    this.dealDamage(bullet.owner, player)
+                    this.dealDamage(bullet.owner, player, bullet.damage)
                 }
                 this.bullets.unset(bullet)
             }
