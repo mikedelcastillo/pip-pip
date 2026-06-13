@@ -12,6 +12,8 @@ export default function GameOverlayMatch() {
     const stats = useGameStore((s) => s.clientPlayerStats)
     const ping = useGameStore((s) => s.ping)
     const isHost = useGameStore((s) => s.isHost)
+    const spectating = useGameStore((s) => s.clientSpectating)
+    const spectateTargetName = useGameStore((s) => s.spectateTargetName)
 
     const [hostOpen, setHostOpen] = useState(false)
     const [chatOpen, setChatOpen] = useState(true)
@@ -47,42 +49,53 @@ export default function GameOverlayMatch() {
                 </div>
             )}
 
-            {/* Compact combat HUD: health, ammo/reload, ping. */}
-            <div className={styles.hud}>
-                <div className={styles.stat}>
-                    <div className={styles.statLabel}>
-                        <span>HP</span>
-                        <span className={styles.statValue}>
-                            {Math.ceil(stats.health)} / {stats.healthMax}
-                        </span>
-                    </div>
-                    <div className={styles.bar}>
-                        <div
-                            className={`${styles.barFill} ${styles.health} ${lowHealth ? styles.low : ""}`}
-                            style={{ width: `${healthPct}%` }}
-                        />
-                    </div>
+            {/* Spectating: a spectator has no ship, so the combat HUD is hidden
+                and replaced with a banner naming the watched player + the keys
+                to switch targets. */}
+            {spectating ? (
+                <div className={styles.spectateBanner}>
+                    <span className={styles.label}>Spectating</span>
+                    <span className={styles.target}>{spectateTargetName || "—"}</span>
+                    <span className={styles.hint}>← / → to switch</span>
                 </div>
+            ) : (
+                /* Compact combat HUD: health, ammo/reload, ping. */
+                <div className={styles.hud}>
+                    <div className={styles.stat}>
+                        <div className={styles.statLabel}>
+                            <span>HP</span>
+                            <span className={styles.statValue}>
+                                {Math.ceil(stats.health)} / {stats.healthMax}
+                            </span>
+                        </div>
+                        <div className={styles.bar}>
+                            <div
+                                className={`${styles.barFill} ${styles.health} ${lowHealth ? styles.low : ""}`}
+                                style={{ width: `${healthPct}%` }}
+                            />
+                        </div>
+                    </div>
 
-                <div className={styles.stat}>
-                    <div className={styles.statLabel}>
-                        <span>AMMO</span>
-                        <span className={styles.statValue}>
-                            {stats.reloading
-                                ? "RELOADING"
-                                : `${stats.ammo} / ${stats.ammoMax}`}
-                        </span>
+                    <div className={styles.stat}>
+                        <div className={styles.statLabel}>
+                            <span>AMMO</span>
+                            <span className={styles.statValue}>
+                                {stats.reloading
+                                    ? "RELOADING"
+                                    : `${stats.ammo} / ${stats.ammoMax}`}
+                            </span>
+                        </div>
+                        <div className={styles.bar}>
+                            <div
+                                className={`${styles.barFill} ${styles.ammo} ${stats.reloading ? styles.reloading : ""}`}
+                                style={{ width: `${stats.reloading ? 100 : ammoPct}%` }}
+                            />
+                        </div>
                     </div>
-                    <div className={styles.bar}>
-                        <div
-                            className={`${styles.barFill} ${styles.ammo} ${stats.reloading ? styles.reloading : ""}`}
-                            style={{ width: `${stats.reloading ? 100 : ammoPct}%` }}
-                        />
-                    </div>
+
+                    <div className={styles.ping}>{ping}ms</div>
                 </div>
-
-                <div className={styles.ping}>{ping}ms</div>
-            </div>
+            )}
 
             {/* Chat: collapsible so it stays out of the way on small screens. */}
             <div className={`${styles.chat} ${chatOpen ? "" : styles.collapsed}`}>

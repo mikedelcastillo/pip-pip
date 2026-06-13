@@ -206,6 +206,20 @@ export class PipPlayer{
         this.game.events.emit("playerIdleChange", { player: this })
     }
 
+    // Toggle this player into/out of spectator mode. A spectator can never
+    // spawn (canSpawn already returns false while spectator === true); if it is
+    // currently spawned, becoming a spectator despawns it immediately so it
+    // leaves play at once. Emits playerSpectateChange so the renderer/UI and the
+    // per-player broadcast can react (mirrors setIdle).
+    setSpectator(spectator: boolean){
+        if(this.spectator === spectator) return
+        this.spectator = spectator
+        if(spectator === true && this.spawned === true){
+            this.setSpawned(false)
+        }
+        this.game.events.emit("playerSpectateChange", { player: this })
+    }
+
     setSpawned(state: boolean){
         if(typeof this.ship !== "undefined"){
             if(state === true){

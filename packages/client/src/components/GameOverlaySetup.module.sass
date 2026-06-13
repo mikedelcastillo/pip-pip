@@ -53,8 +53,15 @@
             justify-items: center
             align-items: center
 
-            &.players > *
-                width: 100%
+            &.players
+                align-content: start
+                > *
+                    width: 100%
+
+                .spectateRow
+                    display: flex
+                    justify-content: flex-end
+                    margin-bottom: 0.8em
 
             &.ship
                 align-items: start

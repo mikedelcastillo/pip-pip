@@ -50,6 +50,7 @@ export function getFullGameState(context: ConnectionContext): number[][] {
         messages.push(encode.addPlayer(player))
         messages.push(encode.playerName(player))
         messages.push(encode.playerIdle(player))
+        messages.push(encode.playerSpectate(player))
         messages.push(encode.playerSetShip(player))
         messages.push(encode.playerPositionSync(player))
         messages.push(encode.playerPosition(player))
@@ -122,6 +123,7 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
         messages.push(encode.addPlayer(player))
         messages.push(encode.playerName(player))
         messages.push(encode.playerIdle(player))
+        messages.push(encode.playerSpectate(player))
         playerUpdates.track(player.id, "playerScores")
         playerUpdates.track(player.id, "playerTimings")
         playerUpdates.track(player.id, "shipCapacities")
@@ -132,6 +134,14 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
     for(const event of gameEvents.filter("playerIdleChange")){
         const { player } = event.playerIdleChange
         messages.push(encode.playerIdle(player))
+    }
+
+    // Send player spectator changes to everyone (player lists reflect it). The
+    // setSpectator that fired this already despawned the player if needed, and
+    // that despawn separately queued a despawnPlayer packet via playerSpawned.
+    for(const event of gameEvents.filter("playerSpectateChange")){
+        const { player } = event.playerSpectateChange
+        messages.push(encode.playerSpectate(player))
     }
 
     // Send player details to other players

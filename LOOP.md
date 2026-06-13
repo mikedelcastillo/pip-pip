@@ -93,7 +93,7 @@ Networking / lobbies / multiplayer:
 - [x] **Hosting settings screen** — modal: lobby name, public/private, max players → `createLobby` with options. (#20)
 - [x] **Share-to-public** — public/private toggle in the hosting settings modal. (#20)
 - [x] **Join public match button + public match browser** — homepage button → browser listing `listPublicLobbies()` → join. (#20)
-- [ ] Spectator mode (spectate lobbies; `spectator`/`spectating` fields partly exist).
+- [x] **Spectator mode** — `/spectate` toggle + lobby UI; server spawn-gating + `playerSpectate` broadcast; camera follows a cyclable target (←/→); HUD shows a spectating banner; "Spec" tag in the player list. (#34)
 - [x] **Promote another player to host (lobby admin/op)** — host-only `/op`/`/makehost <name|id>`, server-handled like `/bot` (echo-suppressed), registered in `/help`. (#33)
 - [ ] Multiplayer experience: reconnect, emotes, lobby chat polish.
 
@@ -256,4 +256,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 30 | `4331f35`   | Mobile twin-stick touch controls                  | `git revert 4331f35`|
 | 31 | `810374a`   | Debug overlay (entities/multiplayer state)        | `git revert 810374a`|
 | 32 | `21ec1b1`   | Polish: input a11y name/id + drop redundant bg.png | `git revert 21ec1b1`|
-| 33 | (latest)    | Lobby host promotion (/op, /makehost)             | `git revert <sha>`  |
+| 33 | `198f0c0`   | Lobby host promotion (/op, /makehost)             | `git revert 198f0c0`|
+| 34 | (latest)    | Spectator mode (toggle, camera follow, broadcast) | `git revert <sha>`  |

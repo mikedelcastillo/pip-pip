@@ -97,6 +97,40 @@
         color: $color-text
         opacity: 0.7
 
+// Spectator banner pinned bottom-center. Shown instead of the combat HUD while
+// the local player is spectating: names the watched player and the keys to
+// switch targets. On-brand: same panel chrome as the HUD.
+.spectateBanner
+    position: absolute
+    left: 50%
+    bottom: $screen-margin-dynamic
+    transform: translateX(-50%)
+    z-index: 10
+    display: flex
+    align-items: baseline
+    gap: 0.5em
+    padding: 0.5em 0.9em
+    font-size: clamp(13px, 3.6vw, 18px)
+    line-height: 1
+    text-align: center
+    white-space: nowrap
+    background-color: transparentize($color-dark-2, 0.2)
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    pointer-events: none
+
+    .label
+        color: $color-accent
+        text-transform: uppercase
+        letter-spacing: 0.05em
+
+    .target
+        color: $color-main
+
+    .hint
+        color: $color-text
+        opacity: 0.7
+
 // Chat pinned bottom-left, collapsible so it never blocks the action on small
 // touch screens. The toggle is a touch-friendly hit target.
 .chat

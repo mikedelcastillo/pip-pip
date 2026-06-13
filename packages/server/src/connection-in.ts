@@ -116,6 +116,17 @@ export function processLobbyPackets(context: GameTickContext){
             }
         }
 
+        // Set player spectator state. Only honoured for the connection's OWN
+        // player; setSpectator despawns it if currently spawned, and the
+        // re-broadcast in connection-out tells every other client (so their
+        // player lists reflect who is spectating).
+        for(const { playerId, spectating } of packets.playerSpectate || []){
+            const player = game.players[connection.id]
+            if(typeof player !== "undefined" && connection.id === playerId){
+                player.setSpectator(spectating)
+            }
+        }
+
         // set player name
         for(const { playerId, name } of packets.playerName || []){
             const player = game.players[playerId]

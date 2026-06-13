@@ -334,6 +334,11 @@ export class PipPipRenderer{
     private gameEventSubscriptions: Array<() => void> = []
     private destroyed = false
 
+    // Edge-detect arrow keys so each press cycles the spectate target exactly
+    // once (held keys do not rapid-cycle).
+    private prevSpectateLeft = false
+    private prevSpectateRight = false
+
     camera = {
         position: {
             x: 0, y: 0,
@@ -571,6 +576,25 @@ export class PipPipRenderer{
         // camera
         const cameraSmoothing = deltaTime / SMOOTHING.CAMERA_MOVEMENT
 
+        // Resolve the camera follow target up front. Normally the local player
+        // follows their own ship; a spectator (no ship of their own) follows a
+        // chosen spawned player instead. Cycling is handled below.
+        const clientPlayer = gameContext.getClientPlayer()
+        const isSpectating = typeof clientPlayer !== "undefined" && clientPlayer.spectator === true
+
+        if(isSpectating){
+            // Edge-triggered target cycling with the left/right arrow keys.
+            const left = gameContext.keyboard.state.ArrowLeft === true
+            const right = gameContext.keyboard.state.ArrowRight === true
+            if(left && this.prevSpectateLeft === false) gameContext.cycleSpectateTarget(-1)
+            if(right && this.prevSpectateRight === false) gameContext.cycleSpectateTarget(1)
+            this.prevSpectateLeft = left
+            this.prevSpectateRight = right
+        }
+
+        // The player whose interpolated position the camera tracks this frame.
+        const followPlayer = isSpectating ? gameContext.getSpectateTarget() : clientPlayer
+
         // update players
         const players = Object.values(this.players)
         const playerRotationSmoothing = deltaTime / SMOOTHING.PLAYER_ROTATION
@@ -614,16 +638,22 @@ export class PipPipRenderer{
             const h = graphic.player.ship.capacities.health / graphic.player.ship.maxHealth
             graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH * h - (DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
 
-            if(isClient && typeof graphic.player.spectating === "undefined"){
-                if(graphic.player.spawned){
-                    this.camera.target.x = tx
-                    this.camera.target.y = ty
-                } else{
-                    this.camera.target.x = 0
-                    this.camera.target.y = 0
-                }
+            // Track whichever player the camera should follow this frame (the
+            // local player normally; the spectate target when spectating). Use
+            // the smoothed/interpolated tx,ty so the camera rides the same
+            // visual position as the ship sprite.
+            if(graphic.player === followPlayer && graphic.player.spawned){
+                this.camera.target.x = tx
+                this.camera.target.y = ty
             }
         }
+
+        // Nothing to follow this frame — the local player is briefly dead /
+        // respawning, or a spectator has no live target yet. HOLD the camera at
+        // its last target instead of snapping to the world origin, so dying
+        // doesn't yank the view away for the respawn window. The camera target
+        // initializes at the origin, so a cold start (before anyone spawns)
+        // still sits sensibly at 0,0.
 
         // update bullets
         for(const graphic of this.bullets.active){

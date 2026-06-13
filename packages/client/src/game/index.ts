@@ -2,6 +2,7 @@ import type { NavigateFunction } from "react-router-dom"
 import { useGameStore } from "./store"
 import { useUiStore } from "../store/ui"
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { KeyboardListener } from "@pip-pip/core/src/client/keyboard"
 import { MouseListener } from "@pip-pip/core/src/client/mouse"
 import { PipPipRenderer } from "./renderer"
@@ -31,6 +32,11 @@ export class GameContext {
     mouse!: MouseListener
 
     container!: HTMLDivElement
+
+    // When the local player is spectating, the renderer follows this player id
+    // (the chosen spectate target). Empty string means "no target chosen yet";
+    // the renderer falls back to the first spawned non-spectator player.
+    spectateTargetId = ""
 
     audio = new AudioManager()
     // The document-level audio-resume handler. Stored so unmountGameView can
@@ -262,6 +268,55 @@ export class GameContext {
     // automatically. Centralised here so the UI and chat share one path.
     setShip(index: number) {
         this.getClientPlayer()?.setShip(index)
+    }
+
+    // Toggle the local player's spectator state and tell the server. The local
+    // setSpectator gives instant feedback (camera/HUD react at once); the
+    // server is authoritative — it sets the flag, despawns the player if needed,
+    // and re-broadcasts playerSpectate to everyone. Centralised so the UI toggle
+    // and the /spectate chat command share one path.
+    setSpectator(spectator: boolean) {
+        const player = this.getClientPlayer()
+        if (typeof player === "undefined") return
+        player.setSpectator(spectator)
+        this.sendCode(encode.playerSpectate(player))
+    }
+
+    toggleSpectator() {
+        const player = this.getClientPlayer()
+        if (typeof player === "undefined") return
+        this.setSpectator(!player.spectator)
+    }
+
+    // Cycle the camera's spectate target among spawned non-spectator players,
+    // in id order. `dir` is +1 (next) or -1 (previous). No-op if nobody is
+    // spawned to watch.
+    cycleSpectateTarget(dir: number) {
+        const targets = Object.values(this.game.players)
+            .filter((p) => p.spawned === true && p.spectator === false)
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        if (targets.length === 0) {
+            this.spectateTargetId = ""
+            return
+        }
+        const current = targets.findIndex((p) => p.id === this.spectateTargetId)
+        const step = dir < 0 ? -1 : 1
+        const nextIndex = ((current + step) % targets.length + targets.length) % targets.length
+        this.spectateTargetId = targets[current === -1 ? 0 : nextIndex].id
+    }
+
+    // The player the spectate camera should follow: the chosen target if it is
+    // still spawned & not spectating, otherwise the first spawned non-spectator.
+    getSpectateTarget(): PipPlayer | undefined {
+        const chosen = this.game.players[this.spectateTargetId]
+        if (typeof chosen !== "undefined" && chosen.spawned === true && chosen.spectator === false) {
+            return chosen
+        }
+        const fallback = Object.values(this.game.players)
+            .filter((p) => p.spawned === true && p.spectator === false)
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
+        if (typeof fallback !== "undefined") this.spectateTargetId = fallback.id
+        return fallback
     }
 }
 

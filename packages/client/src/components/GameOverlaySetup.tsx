@@ -20,6 +20,7 @@ type SetupTab = {
 export default function GameOverlaySetup() {
     const isHost = useGameStore((s) => s.isHost)
     const playerCount = useGameStore((s) => s.players.length)
+    const spectating = useGameStore((s) => s.clientSpectating)
     const [activeIndex, setActiveIndex] = useState(0)
 
     const displayTabs = useMemo<SetupTab[]>(() => {
@@ -38,6 +39,7 @@ export default function GameOverlaySetup() {
     const displayTab = displayTabs[activeIndex] ?? displayTabs[0]
 
     const startGame = () => GAME_CONTEXT.startGame()
+    const toggleSpectate = () => GAME_CONTEXT.toggleSpectator()
 
     return (
         <div className="game-overlay">
@@ -79,6 +81,11 @@ export default function GameOverlaySetup() {
 
                     {displayTab?.id === "players" && (
                         <div className={`${styles.setupTab} ${styles.players}`}>
+                            <div className={styles.spectateRow}>
+                                <GameButton accent={spectating} onClick={toggleSpectate}>
+                                    {spectating ? "Spectating ✓" : "Spectate"}
+                                </GameButton>
+                            </div>
                             <GamePlayerList />
                         </div>
                     )}

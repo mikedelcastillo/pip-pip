@@ -253,6 +253,27 @@ GAME_COMMANDS.push({
     },
 })
 
+// Toggle the local player's spectator state. setSpectator flips the flag
+// locally for instant feedback and sends the playerSpectate packet; the server
+// is authoritative (despawns if needed and re-broadcasts to everyone). Mirrors
+// /ship in routing through a GameContext method.
+GAME_COMMANDS.push({
+    command: "spectate",
+    name: "Toggle spectate",
+    inputs: [],
+    description: "Watch the match without playing (toggle)",
+    callback() {
+        GAME_CONTEXT.toggleSpectator()
+        const spectating = GAME_CONTEXT.getClientPlayer()?.spectator === true
+        return {
+            text: [{
+                style: "info",
+                text: spectating ? "Spectating." : "No longer spectating.",
+            }],
+        }
+    },
+})
+
 GAME_COMMANDS.push({
     command: "clear",
     name: "Clear Chat",

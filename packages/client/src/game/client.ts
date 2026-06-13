@@ -40,6 +40,13 @@ export const processPackets = (gameContext: GameContext) => {
             game.players[playerId]?.setIdle(idle)
         }
 
+        // Set player spectator state (server-broadcast for every player, so the
+        // player list / camera can reflect who is spectating). setSpectator also
+        // despawns the player locally if it was spawned.
+        for (const { playerId, spectating } of packets.playerSpectate || []) {
+            game.players[playerId]?.setSpectator(spectating)
+        }
+
         // Set player ping
         for (const { playerId, ping } of packets.playerPing || []) {
             const player = game.players[playerId]
@@ -242,6 +249,7 @@ export const processPackets = (gameContext: GameContext) => {
             "playerPositionSync",
             "playerPosition", "playerInputs",
             "gameCountdown",
+            "playerSpectate",
             "ping", "playerPing"]
         for (const key of Object.keys(packets)) {
             if (ignorePacket.includes(key)) continue

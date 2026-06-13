@@ -17,6 +17,7 @@ export type PipPipGameEventMap = {
     addPlayer: { player: PipPlayer },
     removePlayer: { player: PipPlayer },
     playerIdleChange: { player: PipPlayer },
+    playerSpectateChange: { player: PipPlayer },
 
     playerDetailsChange: { player: PipPlayer },
 

@@ -78,6 +78,9 @@ export default function GamePlayerList() {
                                 {player.isHost && (
                                     <span className={`${styles.tag} ${styles.host}`}>Host</span>
                                 )}
+                                {player.spectator && (
+                                    <span className={styles.tag}>Spec</span>
+                                )}
                             </td>
                             <td className={`${styles.ping} ${player.idle ? "" : getPingClass(player.ping)}`}>
                                 {player.idle ? "DC" : `${player.ping}ms`}

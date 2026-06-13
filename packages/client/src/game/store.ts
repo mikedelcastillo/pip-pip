@@ -10,6 +10,7 @@ export type GameStorePlayer = {
     id: string,
     name: string,
     idle: boolean,
+    spectator: boolean,
     ping: number,
     score: PlayerScores,
     shipIndex: number,
@@ -23,6 +24,7 @@ export function playerToGameStore(player: PipPlayer): GameStorePlayer {
         id: player.id,
         name: player.name,
         idle: player.idle,
+        spectator: player.spectator,
         ping: player.ping,
         score: player.score,
         shipIndex: player.shipIndex,
@@ -54,6 +56,10 @@ export interface GameStoreState {
     clientPlayerShipIndex: number
     clientPlayerShipType: ShipType
     clientPlayerStats: ClientPlayerStats
+
+    // Spectator UI state for the local player.
+    clientSpectating: boolean
+    spectateTargetName: string
 
     players: GameStorePlayer[]
 
@@ -87,6 +93,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         ammo: 0, ammoMax: 0,
         health: 0, healthMax: 0,
     },
+
+    clientSpectating: false,
+    spectateTargetName: "",
 
     players: [],
 
@@ -131,6 +140,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
                 health: gameClientPlayer.ship.capacities.health,
                 healthMax: gameClientPlayer.ship.maxHealth,
             }
+            next.clientSpectating = gameClientPlayer.spectator
+            next.spectateTargetName = gameClientPlayer.spectator
+                ? (GAME_CONTEXT.getSpectateTarget()?.name ?? "")
+                : ""
         }
 
         set(next)

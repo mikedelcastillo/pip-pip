@@ -47,6 +47,10 @@ export const packetManager = new PacketManager({
         playerId: $string(CONNECTION_ID_LENGTH),
         idle: $bool
     }),
+    playerSpectate: new Packet({
+        playerId: $string(CONNECTION_ID_LENGTH),
+        spectating: $bool,
+    }),
     playerPing: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
         ping: $uint16,
@@ -229,6 +233,10 @@ export const encode = {
     playerIdle: (player: PipPlayer) => packetManager.serializers.playerIdle.encode({
         playerId: player.id,
         idle: player.idle,
+    }),
+    playerSpectate: (player: PipPlayer) => packetManager.serializers.playerSpectate.encode({
+        playerId: player.id,
+        spectating: player.spectator,
     }),
     playerPing: (player: PipPlayer) => packetManager.serializers.playerPing.encode({
         playerId: player.id,

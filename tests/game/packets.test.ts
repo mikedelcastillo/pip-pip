@@ -12,6 +12,18 @@ describe("game packetManager wire format", () => {
         expect(decoded.playerSetShip?.[0]).toEqual({ playerId: "ab", shipIndex: 5 })
     })
 
+    it("round-trips playerSpectate exactly (string id + bool)", () => {
+        const on = packetManager.decode(
+            packetManager.encode("playerSpectate", { playerId: "ab", spectating: true }),
+        )
+        expect(on.playerSpectate?.[0]).toEqual({ playerId: "ab", spectating: true })
+
+        const off = packetManager.decode(
+            packetManager.encode("playerSpectate", { playerId: "cd", spectating: false }),
+        )
+        expect(off.playerSpectate?.[0]).toEqual({ playerId: "cd", spectating: false })
+    })
+
     it("round-trips a chat message of arbitrary length", () => {
         const message = "gg wp everyone 🚀"
         const decoded = packetManager.decode(packetManager.encode("sendChat", { message }))
