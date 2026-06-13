@@ -145,6 +145,21 @@ Verified, prioritized. `[x]` = fixed and shipped.
 - [ ] **M5/M6** `$quant16` can't represent exact 0 (asymmetric); `$string` pads by char not byte.
 - [ ] **misc** EventEmitter `destroy()` doesn't clear `subscribers`; `BulletGraphic.cleanUp` keeps stale trail; 20Hz debug `console.log` spam; dead/typo cleanups (`SHIP_DAIMETER`, `normalizeToPositiveRadians`, etc.).
 
+### Round-2 audit (this session's new code)
+
+A second read-only audit verified the new code is largely correct (bullet pooling,
+grenade ordering, wire mappings, powerup pool, spectator safety, bot ids, branding/sass,
+listener cleanup, touch-vs-desktop all confirmed). Findings:
+
+- [x] `/map` used a 0-based index while `/ship` is 1-based — players picked the wrong map. Unified to 1-based + range check. (#36)
+- [x] HostSettings public/private toggle highlighted the UNSELECTED option (off-brand vs the app's `accent`=active convention) — fixed. (#37)
+- [x] Homepage "Join Game" by code was a dead button (`notYetImplemented`) — now navigates to `/:code` (Enter works too). (#37)
+- [x] Per-tick packet `console.log` now gated behind `import.meta.env.DEV` (was spamming the prod console). (#37)
+- [ ] Bots never fire the tactical/grenade weapon (`ai.ts` never sets `useTactical`) — training-grounds bots only use the primary. (follow-up)
+- [ ] Particle wall-list is rebuilt every frame in `renderer.ts` — cache it and rebuild only on `setMap`. (follow-up)
+- [ ] (latent) grenade client decode passes primary `speed` (inert today — the velocity vector wins).
+- [ ] (info) `friendlyFire`/`useTeams` ship over the wire but no damage path enforces them (FFA by design); `invincibility` timing gates nothing (both pre-existing).
+
 ## Decision log
 
 - **D9 — the asset workflow is now real (pixel-mcp/Aseprite).** Exercised the author's
@@ -258,4 +273,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 32 | `21ec1b1`   | Polish: input a11y name/id + drop redundant bg.png | `git revert 21ec1b1`|
 | 33 | `198f0c0`   | Lobby host promotion (/op, /makehost)             | `git revert 198f0c0`|
 | 34 | `e76603b`   | Spectator mode (toggle, camera follow, broadcast) | `git revert e76603b`|
-| 35 | (latest)    | Map power-ups (health/ammo pickups)               | `git revert <sha>`  |
+| 35 | `8e9b83a`   | Map power-ups (health/ammo pickups)               | `git revert 8e9b83a`|
+| 36 | (latest)    | Fix /map to be 1-based like /ship                 | `git revert <sha>`  |

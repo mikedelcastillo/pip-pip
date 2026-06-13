@@ -161,9 +161,14 @@ GAME_COMMANDS.push({
     callback(message, [nameIndex]) {
         if (!useGameStore.getState().isHost) return MESSAGE_ERROR_NOT_HOST
         let index = -1
-        const forcedNumber = Number(nameIndex)
-        if (typeof forcedNumber === "number" && !Number.isNaN(forcedNumber)) {
-            index = forcedNumber
+        // 1-based numeric index to match /ship (so "/map 1" picks the FIRST
+        // map, not the second), otherwise resolve by id/name.
+        if (typeof nameIndex === "string" && nameIndex.trim().length !== 0 && !Number.isNaN(Number(nameIndex))) {
+            const seekIndex = Number(nameIndex)
+            if (seekIndex <= 0 || seekIndex > PIP_MAPS.length) {
+                return createErrorChatMessage("OUT_OF_BOUNDS", `Map index ${seekIndex} not within range (1..=${PIP_MAPS.length}).`)
+            }
+            index = seekIndex - 1
         } else if (typeof nameIndex === "string") {
             index = PIP_MAPS.findIndex(mapType =>
                 mapType.id === nameIndex ||
