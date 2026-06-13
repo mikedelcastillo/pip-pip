@@ -11,6 +11,12 @@ const MAX_SNAPSHOTS = 24
 // after a TCP stall eases in over several frames instead of teleporting.
 const MAX_RENDER_ERROR = 400
 
+// Reconciliation deadzone: if the server's authoritative position is within
+// this many units of what the client predicted for that input, the prediction
+// is trusted and the local ship is NOT corrected at all. This is what keeps
+// normal movement crisp — we only snap-and-replay on a genuine divergence.
+const RECONCILE_TOLERANCE = 40
+
 // Wrap-safe "a comes after b" comparison for uint16 input sequence numbers.
 const seqGreater = (a: number, b: number) => ((a - b) & 0xFFFF) !== 0 && ((a - b) & 0xFFFF) < 0x8000
 
@@ -172,28 +178,44 @@ export const processPackets = (gameContext: GameContext) => {
             }
         }
 
-        //  Reconcile the local player against authoritative owner state, then
-        //  replay the unacknowledged input tail and fold the residual into a
-        //  decaying render offset so the correction eases in (no teleport).
+        //  Reconcile the local player ONLY when its prediction has genuinely
+        //  diverged from the server. In normal play the prediction is accurate
+        //  (within the deadzone), so the ship is left completely untouched —
+        //  no reset, no replay, no visible correction. This is what removes the
+        //  "heavy"/constantly-corrected feel. On a real divergence we reset to
+        //  truth, replay the unacknowledged inputs, and ease the residual out
+        //  via the decaying render offset.
         for(const state of packets.ownPlayerState || []){
             const player = getClientPlayer(game)
             if(typeof player === "undefined") continue
 
+            // What did we predict for the input the server just acknowledged?
+            const predicted = player.predictedStates.find(s => s.seq === state.lastInputSeq)
+
+            // Drop acknowledged inputs regardless of whether we correct.
+            player.predictedStates = player.predictedStates.filter(s => seqGreater(s.seq, state.lastInputSeq))
+
+            if(typeof predicted !== "undefined"){
+                const errorX = state.positionX - predicted.positionX
+                const errorY = state.positionY - predicted.positionY
+                if(errorX * errorX + errorY * errorY < RECONCILE_TOLERANCE * RECONCILE_TOLERANCE){
+                    // Prediction was good — trust it, correct nothing.
+                    continue
+                }
+            }
+
             const beforeX = player.ship.physics.position.x
             const beforeY = player.ship.physics.position.y
 
-            // Snap the simulation to authoritative truth...
+            // Snap the simulation to authoritative truth and replay the
+            // unacknowledged input tail (positions kept as the original
+            // predictions, so the deadzone check above stays meaningful).
             player.ship.physics.position.x = state.positionX
             player.ship.physics.position.y = state.positionY
             player.ship.physics.velocity.x = state.velocityX
             player.ship.physics.velocity.y = state.velocityY
-
-            // ...drop acknowledged inputs and replay the rest in send order.
-            player.predictedStates = player.predictedStates.filter(s => seqGreater(s.seq, state.lastInputSeq))
             for(const pending of player.predictedStates){
                 game.stepLocalPlayer(player, pending.inputs)
-                pending.positionX = player.ship.physics.position.x
-                pending.positionY = player.ship.physics.position.y
             }
 
             // The visible ship stays put and eases to the corrected position.
