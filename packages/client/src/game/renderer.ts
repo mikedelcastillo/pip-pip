@@ -387,6 +387,12 @@ export class PipPipRenderer{
     glitchFilter = new GlitchFilter()
     pixelateFilter = new PixelateFilter()
     buldgePinchFilter = new BulgePinchFilter()
+
+    // Opt-in retro CRT post-processing, toggled from Settings and persisted via
+    // the ui store (OFF by default). Membership in app.stage.filters is the
+    // on/off switch — when off the CRT pass is simply not in the array, so it
+    // costs nothing. See setCrtEnabled / rebuildStageFilters below.
+    crtEnabled = false
     
     displacementSprite: PIXI.Sprite
     displacementFilter: DisplacementFilter
@@ -433,8 +439,17 @@ export class PipPipRenderer{
         this.damages = new GraphicPool(this.damagesContainer, DamageGraphic)
         this.particles = new GraphicPool(this.particlesContainer, ParticleGraphic)
 
+        // CRT post-processing tuned to a tasteful retro look (the toggle adds it
+        // on top of the always-on bulge). Curvature/vignette stay gentle so the
+        // HUD corners remain legible; scanlines animate via crtFilter.time in
+        // the render loop.
         this.crtFilter.enabled = true
-        this.crtFilter.curvature = 100
+        this.crtFilter.curvature = 2
+        this.crtFilter.lineWidth = 1
+        this.crtFilter.lineContrast = 0.2
+        this.crtFilter.vignetting = 0.3
+        this.crtFilter.vignettingAlpha = 0.7
+        this.crtFilter.noise = 0.08
         this.glitchFilter.enabled = true
         this.glitchFilter.resolution = 5
         this.glitchFilter.offset = 25
@@ -457,13 +472,7 @@ export class PipPipRenderer{
         this.displacementFilter.enabled = true
         this.app.stage.addChild(this.displacementSprite)
 
-        this.app.stage.filters = [
-            // this.crtFilter,
-            // this.glitchFilter,
-            // this.pixelateFilter,
-            this.buldgePinchFilter,
-            // this.displacementFilter,
-        ]
+        this.rebuildStageFilters()
 
         // initialize stars
         for(let i = 0; i < STAR_BG.COUNT; i++){
@@ -896,6 +905,11 @@ export class PipPipRenderer{
         
         // Compute the filters
         this.buldgePinchFilter.radius = this.getViewportRadius()
+        if(this.crtEnabled){
+            // Advance scanline/noise animation only while the effect is on.
+            this.crtFilter.time += deltaMs * 0.01
+            this.crtFilter.seed = Math.random()
+        }
         this.displacementSprite.position.x = this.app.view.width / 2
         this.displacementSprite.position.y = this.app.view.height / 2
         // set displacement scale
@@ -923,6 +937,25 @@ export class PipPipRenderer{
         }
 
         this.app.render()
+    }
+
+    // Rebuild the stage filter stack. The bulge is always on; the CRT pass is
+    // appended only when enabled, so toggling it off removes it entirely (no
+    // wasted GPU pass).
+    rebuildStageFilters(){
+        const filters: PIXI.Filter[] = [this.buldgePinchFilter]
+        if(this.crtEnabled){
+            filters.push(this.crtFilter)
+        }
+        this.app.stage.filters = filters
+    }
+
+    // Toggle the opt-in retro CRT effect. Driven by the ui store (Settings →
+    // Graphics) and the persisted graphics settings applied on mount.
+    setCrtEnabled(enabled: boolean){
+        if(this.crtEnabled === enabled) return
+        this.crtEnabled = enabled
+        this.rebuildStageFilters()
     }
 
     // Tear everything down so a remount doesn't leak a WebGL context, the Pixi

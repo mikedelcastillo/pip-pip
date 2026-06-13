@@ -90,6 +90,10 @@ export class GameContext {
 
         this.renderer.mount(container)
 
+        // Apply the persisted opt-in CRT graphics setting to the freshly-created
+        // renderer (the ui store seeds it from localStorage). Default is OFF.
+        this.renderer.setCrtEnabled(useUiStore.getState().crtEnabled)
+
         // Procedural SFX driven by game events. The AudioManager stays silent
         // until its context is resumed by a user gesture.
         this.audio.init()

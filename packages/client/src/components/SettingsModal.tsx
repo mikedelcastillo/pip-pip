@@ -1,6 +1,7 @@
 import { useUiStore } from "../store/ui"
 import Modal from "./Modal"
 import AudioVolumeToggle from "./AudioVolumeToggle"
+import GameButton from "./GameButton"
 import styles from "./SettingsModal.module.sass"
 
 interface Props {
@@ -19,6 +20,8 @@ const CONTROLS: [string, string][] = [
 export default function SettingsModal({ onClose }: Props) {
     const audioVolume = useUiStore((s) => s.audioVolume)
     const setAudioVolume = useUiStore((s) => s.setAudioVolume)
+    const crtEnabled = useUiStore((s) => s.crtEnabled)
+    const toggleCrtEnabled = useUiStore((s) => s.toggleCrtEnabled)
 
     const volumePercent = Math.round(audioVolume * 100)
 
@@ -38,6 +41,13 @@ export default function SettingsModal({ onClose }: Props) {
                     <div className={styles.volumeValue}>{volumePercent}%</div>
                 </div>
                 <AudioVolumeToggle />
+            </div>
+
+            <div className={styles.section}>
+                <div className={styles.sectionTitle}>Graphics</div>
+                <GameButton onClick={toggleCrtEnabled} accent={crtEnabled}>
+                    {crtEnabled ? "CRT ON" : "CRT OFF"}
+                </GameButton>
             </div>
 
             <div className={styles.section}>

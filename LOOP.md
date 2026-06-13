@@ -166,6 +166,19 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 
 ## Decision log
 
+- **D10 — opt-in graphics effects are persisted + OFF by default.** The renderer already
+  constructed CRT/Glitch/Pixelate/Bulge filters but only the bulge was wired into
+  `app.stage.filters`; CRT was configured with an untested `curvature = 100` (extreme).
+  Shipped a player-facing CRT toggle in Settings → Graphics, mirroring the audio-settings
+  persistence pattern exactly: a pure, import-free `store/graphicsSettings.ts`
+  (`pip-pip:graphics` key, `parse`/`serialize`/`read`/`write`, `crt: false` default) +
+  ui-store `crtEnabled`/`setCrtEnabled`/`toggleCrtEnabled` that persists and calls
+  `renderer.setCrtEnabled`. The renderer owns the on/off mechanism via
+  `rebuildStageFilters()` — CRT is *appended* to the filter array only when enabled, so OFF
+  costs zero GPU passes (not a disabled-filter-in-array). Retuned CRT to a tasteful
+  curvature 2 / gentle vignette / animated scanlines so the HUD corners stay legible.
+  Default OFF because it is a stylistic choice, not the baseline look. In-game-only change
+  (no homepage), so no prod smoke-test re-run. 9 new pure tests.
 - **D9 — the asset workflow is now real (pixel-mcp/Aseprite).** Exercised the author's
   requested pipeline for the homepage bg: Aseprite master under repo-root `assets/`
   (`*.aseprite`) → export PNGs to `packages/client/src/assets/art/` → register in
@@ -286,4 +299,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 41 | `2c3fcd2`   | Per-map background themes                         | `git revert 2c3fcd2`|
 | 42 | `569b0e6`   | HUD kill feed                                     | `git revert 569b0e6`|
 | 43 | `fc70843`   | HUD minimap radar                                 | `git revert fc70843`|
-| 44 | (latest)    | Persist audio settings to localStorage            | `git revert <sha>`  |
+| 44 | `6ab9738`   | Persist audio settings to localStorage            | `git revert 6ab9738`|
+| 45 | (latest)    | Opt-in CRT graphics toggle (Settings, persisted)  | `git revert <sha>`  |
