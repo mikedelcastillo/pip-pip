@@ -146,7 +146,8 @@ Verified, prioritized. `[x]` = fixed and shipped.
 - [x] **H7** score kills/assists/deaths widened `$uint8`→`$uint16` (no wrap at 256) + test. (#19)
 - [x] **M1** Sanitize incoming `playerInputs` floats (finite + clamp amount + wrap angles) before queueing — fixed + test. (#13)
 - [x] **M2** Map bounds now include `wall_segment` endpoints + fall back to a default box for empty maps + test. (#19)
-- [ ] **M5/M6** `$quant16` can't represent exact 0 (asymmetric); `$string` pads by char not byte.
+- [x] **M6** `$string` now pads/truncates to exactly `length` BYTES (was chars → UTF-8 encode, so a multi-byte value overflowed its fixed slot and desynced the packet, C1 class). Wire-compatible for the ASCII connection/powerup ids that use it; byte-length invariant pinned by tests. (#47)
+- [ ] **M5** `$quant16` can't represent exact 0 (round(0.5·0xFFFF)=32768 → decodes to ≈range·1.5e-5). Negligible numerically; deferred (changing the lattice is wire-format risk for ~zero visible gain).
 - [ ] **misc** EventEmitter `destroy()` doesn't clear `subscribers`; `BulletGraphic.cleanUp` keeps stale trail; 20Hz debug `console.log` spam; dead/typo cleanups (`SHIP_DAIMETER`, `normalizeToPositiveRadians`, etc.).
 
 ### Round-2 audit (this session's new code)
@@ -301,4 +302,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 43 | `fc70843`   | HUD minimap radar                                 | `git revert fc70843`|
 | 44 | `6ab9738`   | Persist audio settings to localStorage            | `git revert 6ab9738`|
 | 45 | `2e1d903`   | Opt-in CRT graphics toggle (Settings, persisted)  | `git revert 2e1d903`|
-| 46 | (latest)    | Fix H2 player-snap distance typo (vertical jumps) | `git revert <sha>`  |
+| 46 | `576f962`   | Fix H2 player-snap distance typo (vertical jumps) | `git revert 576f962`|
+| 47 | (latest)    | Harden $string to fixed byte width (M6, C1 class) | `git revert <sha>`  |

@@ -107,8 +107,17 @@ export const $json = <T extends Record<string, any>>(): PacketSerializer<T> => (
 export const $string = (length: number): PacketSerializer<string> => ({
     length,
     encode(value){
-        const safeValue = String(value + " ".repeat(length)).substring(0, length)
-        return internalTextEncoder.encode(safeValue)
+        // Pad/truncate to exactly `length` BYTES, not characters. The old code
+        // substring'd to `length` chars THEN UTF-8 encoded, so a multi-byte
+        // value (emoji/CJK) emitted more than `length` bytes and overflowed its
+        // fixed slot — desyncing every following field in the packet (the same
+        // class of bug as the C1 $varstring fix). Space-padding (0x20) and the
+        // output bytes are identical to before for ASCII inputs (1 char = 1
+        // byte), so this is wire-compatible for the connection/powerup ids that
+        // actually use $string; only the multi-byte overflow path changes.
+        const out = new Uint8Array(length).fill(0x20)
+        out.set(internalTextEncoder.encode(String(value)).subarray(0, length))
+        return out
     },
     decode(value){
         return internalTextDecoder.decode(new Uint8Array(value))

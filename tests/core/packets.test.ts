@@ -43,6 +43,25 @@ describe("primitive serializers round-trip", () => {
     it("$string of fixed length round-trips an exact-width value", () => {
         expect($string(4).decode($string(4).encode("abcd"))).toBe("abcd")
     })
+
+    it("$string encodes to EXACTLY `length` bytes regardless of input", () => {
+        // The framing relies on this invariant — a fixed-length field must
+        // occupy exactly its declared byte width or it desyncs the packet.
+        expect($string(4).encode("ab").length).toBe(4)        // short → padded
+        expect($string(4).encode("abcdef").length).toBe(4)    // long → truncated
+        expect($string(4).encode("").length).toBe(4)          // empty → padded
+        expect($string(2).encode("🙂").length).toBe(2)        // multi-byte (4 UTF-8 bytes) → truncated, never overflows
+        expect($string(8).encode("café").length).toBe(8)      // é is 2 bytes → still exactly 8
+    })
+
+    it("$string space-pads a short value (wire-compatible with the old encoder)", () => {
+        expect(Array.from($string(4).encode("ab"))).toEqual([0x61, 0x62, 0x20, 0x20])
+    })
+
+    it("$string round-trips a multi-byte value that fits within the byte width", () => {
+        // "café" is 5 UTF-8 bytes; a width of 5 holds it exactly.
+        expect($string(5).decode($string(5).encode("café"))).toBe("café")
+    })
 })
 
 describe("$quant16 fixed-point", () => {
