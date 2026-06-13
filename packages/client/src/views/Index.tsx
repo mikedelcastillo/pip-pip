@@ -1,18 +1,17 @@
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
 import GameButton from "../components/GameButton"
 import GameInput from "../components/GameInput"
 import AudioVolumeToggle from "../components/AudioVolumeToggle"
 import SettingsModal from "../components/SettingsModal"
 import CreditsModal from "../components/CreditsModal"
-import { hostGame } from "../game"
+import HostSettingsModal from "../components/HostSettingsModal"
+import PublicMatchBrowser from "../components/PublicMatchBrowser"
 import logoUrl from "../assets/logo.png"
 import styles from "./Index.module.sass"
 
-type Panel = "settings" | "credits" | null
+type Panel = "settings" | "credits" | "host" | "browse" | null
 
 export default function Index() {
-    const navigate = useNavigate()
     const [joinValue, setJoinValue] = useState("")
     const [panel, setPanel] = useState<Panel>(null)
 
@@ -31,7 +30,8 @@ export default function Index() {
                 </div>
 
                 <div className={styles.buttons}>
-                    <GameButton onClick={() => hostGame(navigate)}>Host Game</GameButton>
+                    <GameButton onClick={() => setPanel("host")}>Host Game</GameButton>
+                    <GameButton onClick={() => setPanel("browse")}>Join Public Match</GameButton>
                     <GameInput value={joinValue} onChange={setJoinValue} />
                     <GameButton onClick={notYetImplemented}>Join Game</GameButton>
                     <GameButton accent onClick={() => setPanel("settings")}>Settings</GameButton>
@@ -42,6 +42,8 @@ export default function Index() {
 
             {panel === "settings" && <SettingsModal onClose={closePanel} />}
             {panel === "credits" && <CreditsModal onClose={closePanel} />}
+            {panel === "host" && <HostSettingsModal onClose={closePanel} />}
+            {panel === "browse" && <PublicMatchBrowser onClose={closePanel} />}
         </div>
     )
 }

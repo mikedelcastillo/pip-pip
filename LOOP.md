@@ -88,9 +88,9 @@ Maps:
 
 Networking / lobbies / multiplayer:
 - [x] **Public-lobby foundation** — lobby metadata + `GET /lobbies` listing + create-with-options + `client.listPublicLobbies()`. (#9)
-- [ ] Hosting settings screen (name, public/private, map, max players).
-- [ ] Share-to-public toggle for hosts.
-- [ ] Homepage "Join public match" button + public match browser screen.
+- [x] **Hosting settings screen** — modal: lobby name, public/private, max players → `createLobby` with options. (#20)
+- [x] **Share-to-public** — public/private toggle in the hosting settings modal. (#20)
+- [x] **Join public match button + public match browser** — homepage button → browser listing `listPublicLobbies()` → join. (#20)
 - [ ] Spectator mode (spectate lobbies; `spectator`/`spectating` fields partly exist).
 - [ ] Promote another player to admin/op of a lobby.
 - [ ] Multiplayer experience: reconnect, emotes, lobby chat polish.
@@ -210,4 +210,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 16 | `8fa7cd4`   | Fix renderer/input/WebGL leak on unmount (C2)     | `git revert 8fa7cd4`|
 | 17 | `ab3f4b4`   | Character selection screen (lobby ship picker)    | `git revert ab3f4b4`|
 | 18 | `5a50d96`   | AI training-grounds bots (host commands + brain)  | `git revert 5a50d96`|
-| 19 | (latest)    | Audit fixes: score widths (H7) + map bounds (M2)  | `git revert <sha>`  |
+| 19 | `02e0c65`   | Audit fixes: score widths (H7) + map bounds (M2)  | `git revert 02e0c65`|
+| 20 | (latest)    | Public matches: hosting settings + browser + join | `git revert <sha>`  |

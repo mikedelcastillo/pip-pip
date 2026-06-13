@@ -1,0 +1,63 @@
+@import "../styles/variables"
+
+.toolbar
+    display: flex
+    justify-content: flex-end
+    padding-bottom: 0.6em
+
+.message
+    text-align: center
+    color: $color-text
+    opacity: 0.8
+    padding: 1.2em 0
+
+.list
+    display: grid
+    gap: 0.4em
+    min-width: 18em
+
+.row
+    cursor: pointer
+    display: flex
+    align-items: center
+    justify-content: space-between
+    gap: 1em
+    padding: 0.4em 0.6em
+    background-color: $color-dark-3
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+
+    &:hover
+        border-color: $color-accent
+
+    .info
+        overflow: hidden
+
+        .name
+            color: $color-main
+            line-height: 1.1
+            white-space: nowrap
+            overflow: hidden
+            text-overflow: ellipsis
+
+        .meta
+            color: $color-text
+            opacity: 0.7
+            font-size: 0.7em
+            line-height: 1.2
+            white-space: nowrap
+            overflow: hidden
+            text-overflow: ellipsis
+
+            .dot
+                padding: 0 0.4em
+
+    .right
+        display: flex
+        align-items: center
+        gap: 0.6em
+        flex-shrink: 0
+
+        .count
+            color: $color-text
+            line-height: 1
