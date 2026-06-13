@@ -5,6 +5,7 @@ import GameButton from "./GameButton"
 import GamePlayerList from "./GamePlayerList"
 import GameChat from "./GameChat"
 import ShipSelect from "./ShipSelect"
+import MapSelect from "./MapSelect"
 import AudioVolumeToggle from "./AudioVolumeToggle"
 import audioStyles from "./AudioVolumeToggle.module.sass"
 import styles from "./GameOverlaySetup.module.sass"
@@ -25,6 +26,7 @@ export default function GameOverlaySetup() {
         const tabs: SetupTab[] = []
         if (isHost) tabs.push({ id: "host", name: "Host" })
         tabs.push({ id: "ship", name: "Ship" })
+        tabs.push({ id: "map", name: "Map" })
         tabs.push({ id: "players", name: "Players", notifCount: playerCount.toString() })
         return tabs
     }, [isHost, playerCount])
@@ -66,6 +68,12 @@ export default function GameOverlaySetup() {
                     {displayTab?.id === "ship" && (
                         <div className={`${styles.setupTab} ${styles.ship}`}>
                             <ShipSelect />
+                        </div>
+                    )}
+
+                    {displayTab?.id === "map" && (
+                        <div className={`${styles.setupTab} ${styles.map}`}>
+                            <MapSelect />
                         </div>
                     )}
 

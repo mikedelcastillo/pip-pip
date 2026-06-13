@@ -84,7 +84,8 @@ Engine / gameplay:
 - [ ] Game-loop & movement polish — lean into fluid, skill-based **Apex-style movement** (the game's north star).
 
 Maps:
-- [ ] New maps + new backgrounds/themes; map selection screen (over existing `setMap`).
+- [x] **Map selection screen** — host-only "Map" tab in the lobby SETUP overlay, over `setMap` (live highlight via synced `mapIndex`). (#25)
+- [ ] New maps + new backgrounds/themes (more map variety).
 
 Networking / lobbies / multiplayer:
 - [x] **Public-lobby foundation** — lobby metadata + `GET /lobbies` listing + create-with-options + `client.listPublicLobbies()`. (#9)
@@ -99,12 +100,14 @@ UI / UX:
 - [x] **Character selection screen** — ship picker tab in the lobby SETUP overlay (sprite + stats, live highlight), over the existing setShip/`/ship` path. (#17)
 - [x] **Homepage Settings + Credits** — volume + controls reference panel; credits (dev Mike Del Castillo, art Meg Del Castillo) + lore. (#10)
 - [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
+- [ ] **Revamp the in-game HUD** — mobile-friendly + less cluttered; surface hosting settings IN-GAME (during a match, not just SETUP); add a host "Stop Game" control (there is a `/stop` command; needs a button). Pairs with mobile twin-stick controls.
 - [ ] Surface ping in the in-match HUD / player stats (ping already shows in the player list; show the local player's ping in the HUD too).
 - [x] **Slash-command autocomplete** — suggestion list as you type `/`, Arrow/Tab/Enter/click to complete. (#23)
 - [x] **Improved players screen** — ship icons, ping color-coding, you/host chips, K/D, sorting, on-brand panel. (#22)
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
 - [ ] a11y: form inputs (`GameInput` / join-code box) are missing `id`/`name` — add them (flagged by the production smoke test).
 - [ ] Full mobile support: twin on-screen thumbsticks (left=move, right=aim) + fire/tactical/reload buttons.
+- [ ] Revamp the homepage to be mobile / small-screen friendly (responsive layout, touch-sized buttons, scales down cleanly).
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
 
 Art / assets (use the pixel-mcp Aseprite workflow → export → map):
@@ -112,9 +115,11 @@ Art / assets (use the pixel-mcp Aseprite workflow → export → map):
 
 ## Design north-star & lore (from the author)
 
-- **Movement is the soul.** Inspiration is **Apex Legends movement** — fluid, fast,
-  skill-expressive. Author also loves Minecraft, Stardew, Starbound; enjoyed Overwatch;
-  less into Fortnite/Valorant. Bias feel/controls toward fluid momentum over twitchy.
+- **Movement is the soul.** Biggest inspirations: **Apex Legends movement** (fluid, fast,
+  skill-expressive) and **Krunker** (fast, web-first, instant-play browser arena shooter).
+  Bias feel/controls toward fluid momentum over twitchy, and toward low-friction
+  instant play that runs great in the browser / on small screens. Author also loves
+  Minecraft, Stardew, Starbound; enjoyed Overwatch; less into Fortnite/Valorant.
 - **The name & the ships.** "Pip-Pip" comes from a 2-week-old lovebird that loved the
   double "pip pip" beep of an infrared thermometer; the bird "Blu" mimicked it. **Every
   ship is named after one of the author's birds** (Mono, Hugo, Gotchi, Blu, Flora,
@@ -232,4 +237,6 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 20 | `3e8899a`   | Public matches: hosting settings + browser + join | `git revert 3e8899a`|
 | 21 | `a3ba1c3`   | Register /bot commands in slash help (+reachable) | `git revert a3ba1c3`|
 | 22 | `ae4f6ee`   | Improved players screen (scoreboard)              | `git revert ae4f6ee`|
-| 23 | (latest)    | Slash-command autocomplete in chat                | `git revert <sha>`  |
+| 23 | `2c09b70`   | Slash-command autocomplete in chat                | `git revert 2c09b70`|
+| 24 | `df27462`   | docs(loop): production verification + cadence     | `git revert df27462`|
+| 25 | (latest)    | Map selection screen (lobby Map tab)              | `git revert <sha>`  |

@@ -49,6 +49,8 @@ export interface GameStoreState {
     isHost: boolean
     ping: number
 
+    mapIndex: number
+
     clientPlayerShipIndex: number
     clientPlayerShipType: ShipType
     clientPlayerStats: ClientPlayerStats
@@ -75,6 +77,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
     isHost: false,
     ping: 0,
+
+    mapIndex: 0,
 
     clientPlayerShipIndex: 0,
     clientPlayerShipType: PIP_SHIPS[0],
@@ -110,6 +114,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         const next: Partial<GameStoreState> = {
             phase: game.phase,
             countdownMs: game.countdown / game.tps * 1000,
+            mapIndex: game.mapIndex,
             showPlayerList: GAME_CONTEXT.keyboard.state.Tab === true,
             players: Object.values(game.players).map(playerToGameStore),
         }

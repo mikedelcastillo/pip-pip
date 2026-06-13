@@ -1,0 +1,90 @@
+@import "../styles/variables"
+
+.mapSelect
+    width: 100%
+    display: flex
+    flex-direction: column
+    gap: 1em
+
+    &.disabled
+        .card
+            cursor: default
+            opacity: 0.6
+            &:hover
+                border-color: $color-border
+                transform: none
+
+    .grid
+        display: grid
+        grid-template-columns: repeat(auto-fill, minmax(13em, 1fr))
+        gap: 1em
+
+    .card
+        position: relative
+        cursor: pointer
+        display: flex
+        flex-direction: column
+        align-items: center
+        gap: 0.4em
+        padding: 1em
+        background-color: $color-dark-2
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        transition: all 0.1s
+
+        &:hover
+            border-color: $color-accent
+            transform: translateY(-3px)
+
+        &.active
+            border-color: $color-main
+            background-color: $color-dark-3
+
+        .preview
+            display: flex
+            align-items: center
+            justify-content: center
+            width: 4em
+            height: 4em
+            font-size: 1.5em
+            color: $color-accent
+            background-color: $color-dark-1
+            border: $border-size solid $color-border
+            border-radius: $border-radius
+
+        .name
+            font-size: 2em
+            line-height: 1
+            color: $color-main
+
+        .stats
+            width: 100%
+            display: flex
+            flex-direction: column
+            gap: 0.1em
+            margin-top: 0.4em
+            font-size: 1.2em
+            .stat
+                display: flex
+                justify-content: space-between
+                gap: 1em
+                .statLabel
+                    opacity: 0.7
+                .statValue
+                    color: $color-accent
+
+        .selectedTag
+            position: absolute
+            top: 0.4em
+            right: 0.4em
+            font-size: 1em
+            line-height: 1
+            padding: 0.1em 0.3em
+            color: $color-dark-3
+            background-color: $color-main
+            border-radius: $border-radius
+
+    .hint
+        text-align: center
+        font-size: 1.2em
+        opacity: 0.7
