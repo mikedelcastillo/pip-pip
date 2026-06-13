@@ -2,7 +2,8 @@ import { PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PING_REFRESH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { encode } from "@pip-pip/game/src/networking/packets"
-import { ConnectionContext } from "."
+import type { ConnectionContext } from "."
+import { isBotCommand } from "./connection-in"
 
 export function sendPacketToConnection(context: ConnectionContext){
     const { connection, gameEvents, game } = context
@@ -239,12 +240,13 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
     for(const events of lobbyEvents.filter("packetMessage")){
         const { packets, connection } = events.packetMessage
 
-        // Broadcast chat message
+        // Broadcast chat message. Recognized host bot-commands (handled in
+        // connection-in) are not echoed back into the chat log.
         for(const { message } of packets.sendChat || []){
             const player = game.players[connection.id]
-            if(typeof player !== "undefined"){
-                messages.push(encode.receiveChat(player, message))
-            }
+            if(typeof player === "undefined") continue
+            if(game.host?.id === connection.id && isBotCommand(message)) continue
+            messages.push(encode.receiveChat(player, message))
         }
     }
 

@@ -4,6 +4,8 @@ import { distanceBetweenSegments, radianDifference } from "@pip-pip/core/src/mat
 
 import { Bullet, BulletPool, BulletType } from "./bullet"
 import { PipPlayer, PlayerInputs } from "./player"
+import { updateBotInputs } from "./ai"
+import { generateId } from "@pip-pip/core/src/lib/utils"
 import { PipShip } from "./ship"
 import { PipGameMap } from "./map"
 import { PipMapType, PIP_MAPS } from "../maps"
@@ -187,6 +189,52 @@ export class PipPipGame{
         return new PipPlayer(this, id)
     }
 
+    // Bots are players keyed by a 2-char id whose FIRST char is "~" (0x7E), e.g.
+    // "~0".."~z". The connection-id pool is alphanumerics only (see
+    // generateId), so a "~"-prefixed id can never collide with a real
+    // connection id, and it is exactly 2 chars so it round-trips through the
+    // $string(CONNECTION_ID_LENGTH=2) playerId serializer like any player id.
+    nextBotId(){
+        const taken = Object.keys(this.players)
+        let id = "~" + generateId(1)
+        while(taken.includes(id)){
+            id = "~" + generateId(1)
+        }
+        return id
+    }
+
+    // Add one training-grounds bot. It self-registers into game.players (like
+    // any PipPlayer) and is broadcast to every real client by the normal
+    // per-player broadcast, since that iterates all players. During a live
+    // MATCH the bot is spawned immediately so it joins the fight at once.
+    addBot(){
+        const bot = this.createPlayer(this.nextBotId())
+        bot.isBot = true
+        bot.setName("BOT-" + bot.id.slice(1).toUpperCase())
+        this.addPlayerMidGame(bot)
+        return bot
+    }
+
+    addBots(count: number){
+        const bots: PipPlayer[] = []
+        const safeCount = Math.max(0, Math.floor(count))
+        for(let i = 0; i < safeCount; i++){
+            bots.push(this.addBot())
+        }
+        return bots
+    }
+
+    clearBots(){
+        let removed = 0
+        for(const player of Object.values(this.players)){
+            if(player.isBot === true){
+                player.remove()
+                removed++
+            }
+        }
+        return removed
+    }
+
     destroy(){
         this.players = {}
         this.ships = {}
@@ -314,6 +362,20 @@ export class PipPipGame{
 
     updateSystems(){
         if(this.phase === PipPipGamePhase.MATCH){
+
+            // Drive AI bots before inputs are consumed. The brain writes each
+            // bot's inputs directly (their inputQueue is always empty, so the
+            // consume step below is a no-op for them and leaves these inputs
+            // intact). Gated by calculateAi so a non-authoritative client
+            // instance never re-derives bot behaviour locally.
+            if(this.options.calculateAi === true){
+                const allPlayers = Object.values(this.players)
+                for(const player of allPlayers){
+                    if(player.isBot === true && player.spawned === true){
+                        updateBotInputs(player, allPlayers)
+                    }
+                }
+            }
 
             // Consume one queued input per player per tick, in seq order. This
             // is a no-op on the client and for AI (their queues are empty);

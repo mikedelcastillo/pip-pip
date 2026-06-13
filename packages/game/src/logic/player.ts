@@ -92,6 +92,11 @@ export class PipPlayer{
     idle = false
     ping = 0
 
+    // True for server-simulated "training-grounds" bots (no connection). The AI
+    // brain drives a bot's inputs each tick; connection-specific code uses this
+    // to tell bots apart from real, connection-backed players.
+    isBot = false
+
     team = 0
 
     score: PlayerScores = {

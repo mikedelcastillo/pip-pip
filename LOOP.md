@@ -79,7 +79,7 @@ Engine / gameplay:
 - [ ] More weapons: grenades, different bullet/projectile types, more ship-specific kits.
 - [x] **Bullet spray patterns** per weapon (count+angle cone, pellet-damage split; Mono=twin-barrel, Flora=5-pellet scatter). (#15)
 - [ ] Map power-ups (pickups: health, ammo, speed, shield).
-- [ ] AI enemies / "training grounds" mode (the `calculateAi`/`shootAiBullets` flags exist, no brain yet). *(Apex training-grounds inspired)*
+- [x] **AI / training-grounds bots** — host adds bots (`/bot`, `/bots N`, `/clearbots`); server brain chases/aims/shoots nearest; bots broadcast to clients as normal players. (#18)
 - [ ] Health regeneration (stats exist, not yet applied).
 - [ ] Game-loop & movement polish — lean into fluid, skill-based **Apex-style movement** (the game's north star).
 
@@ -206,4 +206,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 14 | `65cf503`   | Brand the SFX toggle as a GameButton              | `git revert 65cf503`|
 | 15 | `2f37b01`   | Per-weapon bullet spray patterns                  | `git revert 2f37b01`|
 | 16 | `8fa7cd4`   | Fix renderer/input/WebGL leak on unmount (C2)     | `git revert 8fa7cd4`|
-| 17 | (latest)    | Character selection screen (lobby ship picker)    | `git revert <sha>`  |
+| 17 | `ab3f4b4`   | Character selection screen (lobby ship picker)    | `git revert ab3f4b4`|
+| 18 | (latest)    | AI training-grounds bots (host commands + brain)  | `git revert <sha>`  |

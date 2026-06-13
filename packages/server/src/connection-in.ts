@@ -1,8 +1,44 @@
-import { PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { sanitize } from "@pip-pip/game/src/logic/utils"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
-import { GameTickContext } from "."
+import type { GameTickContext } from "."
 import { sanitizePlayerInputs } from "./input-sanitize"
+
+// Max bots a single command may add, to bound server work. The default lobby
+// caps at 16 connections; this keeps a bot flood from blowing past that idea.
+const MAX_BOTS_PER_COMMAND = 16
+
+// True if `message` is a recognized host bot-command. Used by both the
+// command processor (to act on it) and the outgoing chat broadcast (to avoid
+// echoing the raw command back into the chat log). Only the lobby host's
+// commands are honoured; everyone else's "/bot" is treated as plain chat.
+export function isBotCommand(message: string){
+    const word = message.trim().toLowerCase().split(/\s+/)[0]
+    return word === "/bot" || word === "/bots" || word === "/clearbots"
+}
+
+// Execute a host bot-command. No-op (returns false) if the text is not a
+// recognized command. Centralised here so the chat path stays declarative.
+function runBotCommand(game: PipPipGame, message: string){
+    const parts = message.trim().split(/\s+/)
+    const command = parts[0].toLowerCase()
+
+    if(command === "/bot"){
+        game.addBot()
+        return true
+    }
+    if(command === "/bots"){
+        const requested = Number.parseInt(parts[1] ?? "1", 10)
+        const count = Number.isFinite(requested) ? requested : 1
+        game.addBots(Math.min(Math.max(1, count), MAX_BOTS_PER_COMMAND))
+        return true
+    }
+    if(command === "/clearbots"){
+        game.clearBots()
+        return true
+    }
+    return false
+}
 
 export function processLobbyPackets(context: GameTickContext){
     const { game, lobbyEvents } = context
@@ -89,6 +125,20 @@ export function processLobbyPackets(context: GameTickContext){
                     doReload: inputs.doReload,
                     spawn: false,
                 })
+            }
+        }
+
+        // Host-only bot commands sent through the chat channel:
+        //   /bot        add one training-grounds bot
+        //   /bots N     add N bots (clamped to MAX_BOTS_PER_COMMAND)
+        //   /clearbots  remove all bots
+        // Recognized commands are NOT echoed back to chat (connection-out skips
+        // them via isBotCommand). Only the host may run them.
+        if(game.host?.id === connection.id){
+            for(const { message } of packets.sendChat || []){
+                if(isBotCommand(message)){
+                    runBotCommand(game, message)
+                }
             }
         }
     }
