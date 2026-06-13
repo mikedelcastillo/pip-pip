@@ -167,6 +167,8 @@ export const processPackets = (gameContext: GameContext) => {
                 player.ship.timings.healthRegenerationRest = values.healthRegenerationRest
                 player.ship.timings.healthRegenerationHeal = values.healthRegenerationHeal
                 player.ship.timings.invincibility = values.invincibility
+                player.ship.timings.haste = values.haste
+                player.ship.timings.shield = values.shield
             }
         }
 

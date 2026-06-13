@@ -4,9 +4,10 @@ import { generateId } from "@pip-pip/core/src/lib/utils"
 import { PipPlayer } from "./player"
 import { PipPipGame } from "."
 
-// Instant-effect map pickups. Extensible union: add timed buffs (haste/shield)
-// later by extending this type and the effect switch in applyPowerupEffect.
-export type PowerupType = "health" | "ammo"
+// Map pickups. "health"/"ammo" are instant-effect; "haste"/"shield" are timed
+// buffs applied to the ship's timings (ticked down in ship.update). Extend this
+// union plus the effect switch in applyPowerupEffect to add more.
+export type PowerupType = "health" | "ammo" | "haste" | "shield"
 
 // Wire mapping for PowerupType. The powerupSpawn packet carries the type as a
 // uint8; this is the single source of truth both sides share so a client can
@@ -14,11 +15,15 @@ export type PowerupType = "health" | "ammo"
 export const POWERUP_TYPE_TO_CODE: Record<PowerupType, number> = {
     health: 0,
     ammo: 1,
+    haste: 2,
+    shield: 3,
 }
 
 export const POWERUP_CODE_TO_TYPE: Record<number, PowerupType> = {
     0: "health",
     1: "ammo",
+    2: "haste",
+    3: "shield",
 }
 
 // Powerup ids are exactly POWERUP_ID_LENGTH chars from generateId so they
@@ -34,8 +39,19 @@ export const POWERUP_RADIUS = 24
 // How much health a "health" pickup restores (capped at the ship's max).
 export const POWERUP_HEALTH_AMOUNT = 50
 
-// Apply a powerup's instant effect to a player's ship. Single decision point so
-// new types slot in here (add a branch; e.g. timed haste/shield later).
+// Timed-buff durations, in ticks (game runs at 20 tps). Both are networked as
+// $uint8 in playerShipTimings, so they MUST stay <= 255. HASTE ~6s, SHIELD ~5s.
+export const HASTE_TICKS = 20 * 6 // 120 ticks (~6s)
+export const SHIELD_TICKS = 20 * 5 // 100 ticks (~5s)
+
+// While hasted, movement acceleration (and the speed cap that derives from it)
+// is multiplied by this factor. Applied in computeMovementAcceleration so the
+// shared client-prediction + server step stay consistent for the local player.
+export const HASTE_MULTIPLIER = 1.5
+
+// Apply a powerup's effect to a player's ship. Single decision point so new
+// types slot in here. Instant types ("health"/"ammo") mutate capacities; timed
+// types ("haste"/"shield") set a ship timing that ticks down in ship.update.
 // Server-authoritative callers gate this (see PipPipGame.pickupPowerup); this
 // function itself only mutates the ship.
 export function applyPowerupEffect(type: PowerupType, player: PipPlayer){
@@ -45,6 +61,10 @@ export function applyPowerupEffect(type: PowerupType, player: PipPlayer){
     } else if(type === "ammo"){
         ship.capacities.weapon = ship.stats.weapon.capacity
         ship.capacities.tactical = ship.stats.tactical.capacity
+    } else if(type === "haste"){
+        ship.timings.haste = HASTE_TICKS
+    } else if(type === "shield"){
+        ship.timings.shield = SHIELD_TICKS
     }
 }
 

@@ -79,7 +79,8 @@ Engine / gameplay:
 - [x] **Grenades** — AoE explosion projectile (linear distance falloff, owner self-damage) fired via Djibouti's tactical (`bulletKind: "grenade"`, radius 220). (#28)
 - [ ] More projectile types / more ship-specific kits.
 - [x] **Bullet spray patterns** per weapon (count+angle cone, pellet-damage split; Mono=twin-barrel, Flora=5-pellet scatter). (#15)
-- [x] **Map power-ups** — server-spawned health/ammo pickups (gated by `spawnPowerups`, MATCH-scoped, capped), collected on overlap, networked (`powerupSpawn`/`powerupPickup`) + rendered as a glowing diamond. (#35) Speed/shield are easy follow-ups via the same effect switch.
+- [x] **Map power-ups** — server-spawned health/ammo pickups (gated by `spawnPowerups`, MATCH-scoped, capped), collected on overlap, networked (`powerupSpawn`/`powerupPickup`) + rendered as a glowing diamond. (#35)
+- [x] **Speed (haste) + shield power-ups** — timed ship buffs: haste ×1.5 movement (applied in the shared client/server prediction step), shield zeroes damage (and finally gives the dormant `invincibility` timer a purpose; grenades blocked too); networked via `playerShipTimings`; shield-ring + haste-halo visuals. (#40)
 - [x] **AI / training-grounds bots** — host adds bots (`/bot`, `/bots N`, `/clearbots`); server brain chases/aims/shoots nearest; bots broadcast to clients as normal players. (#18)
 - [ ] Health regeneration (stats exist, not yet applied).
 - [ ] Game-loop & movement polish — lean into fluid, skill-based **Apex-style movement** (the game's north star).
@@ -277,4 +278,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 36 | `55108fd`   | Fix /map to be 1-based like /ship                 | `git revert 55108fd`|
 | 37 | `416166e`   | Polish: host toggle highlight, join-by-code, dev log | `git revert 416166e`|
 | 38 | `a0efae8`   | Bots use their tactical/grenade weapon            | `git revert a0efae8`|
-| 39 | (latest)    | Cache particle wall-list (rebuild on setMap)      | `git revert <sha>`  |
+| 39 | `c0cc86b`   | Cache particle wall-list (rebuild on setMap)      | `git revert c0cc86b`|
+| 40 | (latest)    | Speed/shield power-ups (timed buffs)              | `git revert <sha>`  |

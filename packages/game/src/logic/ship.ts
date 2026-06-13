@@ -191,6 +191,11 @@ export type ShipTimings = {
     healthRegenerationRest: number,
     healthRegenerationHeal: number,
     invincibility: number,
+    // Timed buffs from powerups. While > 0 the ship is hasted (faster
+    // acceleration) / shielded (takes no damage). Set by applyPowerupEffect,
+    // ticked down each tick in update(), networked via playerShipTimings.
+    haste: number,
+    shield: number,
 }
 
 export type ShipCapacities = {
@@ -227,6 +232,9 @@ export class PipShip{
 
         tacticalReload: 0,
         tacticalRate: 0,
+
+        haste: 0,
+        shield: 0,
     }
 
     capacities: ShipCapacities = {
@@ -248,6 +256,10 @@ export class PipShip{
         this.capacities.tactical = this.stats.tactical.capacity
         this.capacities.weapon = this.stats.weapon.capacity
 
+        // Clear timed buffs on (re)spawn so a fresh ship starts un-hasted and
+        // unshielded; everything else respawns clean already.
+        this.timings.haste = 0
+        this.timings.shield = 0
     }
 
     setPlayer(player: PipPlayer){
@@ -277,6 +289,14 @@ export class PipShip{
     get isDead(){
         if(this.capacities.health === 0) return true
         return false
+    }
+
+    // Fully damage-immune this tick: either a "shield" buff is active, or the
+    // legacy invincibility timer is running (folded in here so it finally gates
+    // something). Server-authoritative damage (dealDamage / detonateGrenade)
+    // checks this and deals zero to a shielded target.
+    get isShielded(){
+        return this.timings.shield > 0 || this.timings.invincibility > 0
     }
 
     get isReloading(){
@@ -381,6 +401,8 @@ export class PipShip{
         this.timings.weaponRate = tickDown(this.timings.weaponRate)
         this.timings.tacticalReload = tickDown(this.timings.tacticalReload)
         this.timings.tacticalRate = tickDown(this.timings.tacticalRate)
+        this.timings.haste = tickDown(this.timings.haste)
+        this.timings.shield = tickDown(this.timings.shield)
 
         // take input from player
         if(typeof this.player !== "undefined"){

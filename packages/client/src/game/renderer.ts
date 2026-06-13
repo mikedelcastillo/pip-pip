@@ -215,12 +215,15 @@ export class DamageGraphic extends PoolableGraphic {
 }
 
 // On-brand procedural powerup pickup: a small glowing diamond (rotated square)
-// with a soft outer halo, colour per type (green = health, amber = ammo). No
-// art assets — drawn with Pixi Graphics and pulsed/spun in render().
+// with a soft outer halo, colour per type (green = health, amber = ammo, cyan =
+// haste, purple = shield). No art assets — drawn with Pixi Graphics and
+// pulsed/spun in render().
 export class PowerupGraphic extends PoolableGraphic {
     static COLORS: Record<string, number> = {
         health: 0x33DD55,
         ammo: 0xFFAA33,
+        haste: 0x33CCFF,
+        shield: 0xAA66FF,
     }
 
     powerup?: Powerup
@@ -727,6 +730,27 @@ export class PipPipRenderer{
             graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
             const h = graphic.player.ship.capacities.health / graphic.player.ship.maxHealth
             graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH * h - (DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
+
+            // Buff cues, drawn on the same overlay (centred on the ship). A
+            // pulsing purple ring around a shielded ship; a subtle cyan halo for
+            // a hasted one. Both are cheap (one stroke / one fill) and read at a
+            // glance without art assets.
+            const buffPulse = (Math.sin(Date.now() / 150) + 1) / 2
+            if(graphic.player.ship.timings.shield > 0){
+                const ringRadius = SHIP_DAIMETER * 0.7 + buffPulse * 4
+                graphic.overlayGraphic.lineStyle({
+                    width: 3,
+                    color: PowerupGraphic.COLORS.shield,
+                    alpha: 0.5 + buffPulse * 0.35,
+                })
+                graphic.overlayGraphic.drawCircle(0, 0, ringRadius)
+            }
+            if(graphic.player.ship.timings.haste > 0){
+                graphic.overlayGraphic.lineStyle(0)
+                graphic.overlayGraphic.beginFill(PowerupGraphic.COLORS.haste, 0.12 + buffPulse * 0.08)
+                graphic.overlayGraphic.drawCircle(0, 0, SHIP_DAIMETER * 0.55)
+                graphic.overlayGraphic.endFill()
+            }
 
             // Track whichever player the camera should follow this frame (the
             // local player normally; the spectate target when spectating). Use

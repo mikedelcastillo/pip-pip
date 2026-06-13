@@ -63,6 +63,26 @@ describe("game packetManager wire format", () => {
         expect(decoded.powerupPickup?.[0]).toEqual({ id: "wxyz", playerId: "ab" })
     })
 
+    it("round-trips playerShipTimings including haste/shield (uint8)", () => {
+        const timings = {
+            playerId: "ab",
+            weaponReload: 12,
+            weaponRate: 3,
+            tacticalReload: 100,
+            tacticalRate: 20,
+            healthRegenerationRest: 99,
+            healthRegenerationHeal: 5,
+            invincibility: 60,
+            haste: 120,
+            shield: 100,
+        }
+        const out = packetManager.decode(packetManager.encode("playerShipTimings", timings)).playerShipTimings?.[0]
+        expect(out).toEqual(timings)
+        // Durations must fit uint8 (<= 255) so they survive the wire untouched.
+        expect(out?.haste).toBe(120)
+        expect(out?.shield).toBe(100)
+    })
+
     it("round-trips playerInputs within float16 precision", () => {
         const input = {
             playerId: "cd",

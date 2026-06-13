@@ -3,7 +3,7 @@ import { PointPhysicsWorld, Vector2, airResistanceMultiplier, limitSpeed, WALL_R
 import { distanceBetweenSegments, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool, BulletType } from "./bullet"
-import { Powerup, PowerupPool, PowerupType, applyPowerupEffect } from "./powerup"
+import { Powerup, PowerupPool, PowerupType, applyPowerupEffect, HASTE_MULTIPLIER } from "./powerup"
 import { PipPlayer, PlayerInputs } from "./player"
 import { updateBotInputs } from "./ai"
 import { generateId } from "@pip-pip/core/src/lib/utils"
@@ -529,9 +529,9 @@ export class PipPipGame{
         const position = this.randomPowerupPosition()
         if(typeof position === "undefined") return
 
-        // Alternate types deterministically by active count so a fresh field has
-        // a mix of both. Extend with more PowerupType entries as they are added.
-        const types: PowerupType[] = ["health", "ammo"]
+        // Pick uniformly among ALL powerup types so haste/shield actually appear
+        // on the field alongside health/ammo. Extend this pool as types are added.
+        const types: PowerupType[] = ["health", "ammo", "haste", "shield"]
         const type = types[Math.floor(Math.random() * types.length)]
 
         this.powerups.new({ position, type })
@@ -635,8 +635,14 @@ export class PipPipGame{
         const phys = player.ship.physics
         const vel = Math.sqrt(phys.velocity.x * phys.velocity.x + phys.velocity.y * phys.velocity.y)
         const movementInput = Math.max(0, Math.min(1, inputs.movementAmount))
-        const accelerationInput = player.ship.stats.movement.acceleration.normal * movementInput
-        const speedLimitTip = Math.max(0, (vel + accelerationInput) - player.ship.stats.movement.speed.normal / (1 - phys.airResistance))
+        // HASTE buff: scale both acceleration and the speed cap by the same
+        // factor so a hasted ship both accelerates harder AND tops out faster.
+        // This lives in the shared movement step, so the local player's
+        // prediction uses it too (the timing is networked, see playerShipTimings).
+        const hasteFactor = player.ship.timings.haste > 0 ? HASTE_MULTIPLIER : 1
+        const accelerationInput = player.ship.stats.movement.acceleration.normal * movementInput * hasteFactor
+        const speedCap = (player.ship.stats.movement.speed.normal * hasteFactor) / (1 - phys.airResistance)
+        const speedLimitTip = Math.max(0, (vel + accelerationInput) - speedCap)
         const cappedAccelerationInput = accelerationInput - speedLimitTip
 
         if(cappedAccelerationInput <= 0) return { x: 0, y: 0 }
@@ -708,6 +714,11 @@ export class PipPipGame{
 
     dealDamage(dealer: PipPlayer, target: PipPlayer, weaponDamage = dealer.ship.stats.bullet.damage.normal){
         if(this.options.triggerDamage === false) return
+
+        // SHIELD buff (or legacy invincibility): the target takes ZERO health
+        // loss. It still exists and collides — only the health hit is blocked.
+        // Covers grenades too, since detonateGrenade routes through dealDamage.
+        if(target.ship.isShielded) return
 
         // decrease health
         const dealerDamage = weaponDamage
