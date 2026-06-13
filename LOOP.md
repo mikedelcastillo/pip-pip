@@ -99,6 +99,7 @@ UI / UX:
 - [x] **Character selection screen** — ship picker tab in the lobby SETUP overlay (sprite + stats, live highlight), over the existing setShip/`/ship` path. (#17)
 - [x] **Homepage Settings + Credits** — volume + controls reference panel; credits (dev Mike Del Castillo, art Meg Del Castillo) + lore. (#10)
 - [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
+- [ ] Surface ping in the in-match HUD / player stats (ping already shows in the player list; show the local player's ping in the HUD too).
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
 - [ ] Full mobile support: twin on-screen thumbsticks (left=move, right=aim) + fire/tactical/reload buttons.
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
@@ -127,9 +128,10 @@ Verified, prioritized. `[x]` = fixed and shipped.
 - [ ] **H2 (high, client)** `renderer.ts` far-distance snap guard typo `dx*dx + dy + dy` → `dy*dy`.
 - [x] **H3 (high)** WS connection cap (`clients.values.length`→`clients.size`; `throw`→`return`) — fixed. (#12)
 - [x] **H4 (high)** `routerAuthMiddleware` double `next()` on 401 — fixed with `return next(err)`. (#12)
-- [ ] **H5/H7** ping-timeout resolves as a real ~maxPing measurement (poisons lag comp); score kills/deaths are `$uint8` (wrap at 256).
+- [ ] **H5** ping-timeout resolves as a real ~maxPing measurement (poisons lag comp).
+- [x] **H7** score kills/assists/deaths widened `$uint8`→`$uint16` (no wrap at 256) + test. (#19)
 - [x] **M1** Sanitize incoming `playerInputs` floats (finite + clamp amount + wrap angles) before queueing — fixed + test. (#13)
-- [ ] **M2** Map bounds ignore `wall_segments`; empty/segment-only maps get inverted bounds.
+- [x] **M2** Map bounds now include `wall_segment` endpoints + fall back to a default box for empty maps + test. (#19)
 - [ ] **M5/M6** `$quant16` can't represent exact 0 (asymmetric); `$string` pads by char not byte.
 - [ ] **misc** EventEmitter `destroy()` doesn't clear `subscribers`; `BulletGraphic.cleanUp` keeps stale trail; 20Hz debug `console.log` spam; dead/typo cleanups (`SHIP_DAIMETER`, `normalizeToPositiveRadians`, etc.).
 
@@ -207,4 +209,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 15 | `2f37b01`   | Per-weapon bullet spray patterns                  | `git revert 2f37b01`|
 | 16 | `8fa7cd4`   | Fix renderer/input/WebGL leak on unmount (C2)     | `git revert 8fa7cd4`|
 | 17 | `ab3f4b4`   | Character selection screen (lobby ship picker)    | `git revert ab3f4b4`|
-| 18 | (latest)    | AI training-grounds bots (host commands + brain)  | `git revert <sha>`  |
+| 18 | `5a50d96`   | AI training-grounds bots (host commands + brain)  | `git revert 5a50d96`|
+| 19 | (latest)    | Audit fixes: score widths (H7) + map bounds (M2)  | `git revert <sha>`  |

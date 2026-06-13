@@ -97,14 +97,30 @@ export class JSONPipGameMap extends PipGameMap{
         }
 
         for(const [sx, sy, ex, ey] of this.source.wall_segments){
-            const segWall = new PointPhysicsSegmentWall(undefined, 
-                sx * TILE_SIZE, 
-                sy * TILE_SIZE, 
-                ex * TILE_SIZE, 
+            const segWall = new PointPhysicsSegmentWall(undefined,
+                sx * TILE_SIZE,
+                sy * TILE_SIZE,
+                ex * TILE_SIZE,
                 ey * TILE_SIZE,
             )
             segWall.radius = TILE_SIZE / 2
             this.segWalls.push(segWall)
+            // Wall segments can extend past any tile, so both endpoints must
+            // contribute to the bounds. Otherwise a segment-only map would clamp
+            // ships well inside its own walls.
+            compare(sx * TILE_SIZE, sy * TILE_SIZE)
+            compare(ex * TILE_SIZE, ey * TILE_SIZE)
+        }
+
+        // If the map had no tiles and no segments at all, compare() never ran and
+        // the extents are still inverted (min=+Infinity, max=-Infinity). That would
+        // make every position both below min and above max in applyMapBounds, so
+        // fall back to a sane default box centred on the origin.
+        if(minX > maxX || minY > maxY){
+            minX = -PIP_MAP_DEFAULT_BOUNDS
+            minY = -PIP_MAP_DEFAULT_BOUNDS
+            maxX = PIP_MAP_DEFAULT_BOUNDS
+            maxY = PIP_MAP_DEFAULT_BOUNDS
         }
 
         this.bounds.min.x = minX - TILE_SIZE / 2

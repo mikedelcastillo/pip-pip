@@ -18,6 +18,21 @@ describe("game packetManager wire format", () => {
         expect(decoded.sendChat?.[0]?.message).toBe(message)
     })
 
+    it("round-trips playerScores with values above 255 (no uint8 wrap)", () => {
+        // Long matches push kills/assists/deaths past 255. These fields are
+        // uint16, so a 300-kill score must survive the wire untouched (uint8
+        // would have wrapped 300 -> 44).
+        const scores = {
+            playerId: "ef",
+            kills: 300,
+            assists: 512,
+            deaths: 1000,
+            damage: 5_000_000,
+        }
+        const out = packetManager.decode(packetManager.encode("playerScores", scores)).playerScores?.[0]
+        expect(out).toEqual(scores)
+    })
+
     it("round-trips playerInputs within float16 precision", () => {
         const input = {
             playerId: "cd",

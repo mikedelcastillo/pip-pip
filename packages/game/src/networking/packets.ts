@@ -133,9 +133,9 @@ export const packetManager = new PacketManager({
 
     playerScores: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
-        kills: $uint8,
-        assists: $uint8,
-        deaths: $uint8,
+        kills: $uint16,
+        assists: $uint16,
+        deaths: $uint16,
         damage: $uint32,
     }),
 
