@@ -77,6 +77,7 @@ Engine / gameplay:
 - [ ] Procedural audio system (Web Audio synthesis; SFX on game events; mute toggle). *(implemented, integrating)*
 - [x] **Particle + screen-shake juice** — explosions, hit sparks, thruster trails. (#3)
 - [ ] More weapons: grenades, different bullet/projectile types, more ship-specific kits.
+- [ ] Different bullet **spray patterns** per weapon (spread/shotgun/burst); distinct projectiles per player/ship.
 - [ ] Map power-ups (pickups: health, ammo, speed, shield).
 - [ ] AI enemies / "training grounds" mode (the `calculateAi`/`shootAiBullets` flags exist, no brain yet). *(Apex training-grounds inspired)*
 - [ ] Health regeneration (stats exist, not yet applied).
@@ -111,6 +112,22 @@ UI / UX:
   ship is named after one of the author's birds** (Mono, Hugo, Gotchi, Blu, Flora,
   Djibouti). Keep audio/art faithful — the spawn/UI "pip pip" chirp is canonical.
 - **Credits:** game developer **Mike Del Castillo**, art **Meg Del Castillo**.
+
+## Code audit backlog (from a read-only audit pass)
+
+Verified, prioritized. `[x]` = fixed and shipped.
+
+- [x] **C1 (critical)** `$varstring`/packet length prefix decoded only the LOW byte (`new Uint16Array(number[])`), so any payload ≥256 bytes was truncated AND desynced every following packet in the batch — chat/names are user input (emoji/CJK trip it). Fixed in core `serializer.ts` + `packet.ts` (3 sites), with regression tests. (#4)
+- [ ] **C2 (critical, client)** Renderer/PIXI `Application` + input/audio document listeners never destroyed on `GameView` unmount → WebGL-context + listener leak (blank canvas after a few navigations). Needs `PipPipRenderer.destroy()`, real unmount teardown, the `destory`→`destroy` typo, and a fix to core keyboard/mouse `destroy()` (`.bind` makes `removeEventListener` a no-op).
+- [ ] **H1 (high)** Physics collision relative-velocity sign error (`core/physics` ~278): should be `(a.vel - b.vel)`.
+- [ ] **H2 (high, client)** `renderer.ts` far-distance snap guard typo `dx*dx + dy + dy` → `dy*dy`.
+- [ ] **H3 (high)** WS connection cap uses `clients.values.length` (always 0) → uncapped sockets (DoS); use `clients.size`; `throw`→`return` after close.
+- [ ] **H4 (high)** `routerAuthMiddleware` calls `next()` twice on 401 → unauth handler still runs (crash/bypass): `return next(err)`.
+- [ ] **H5/H7** ping-timeout resolves as a real ~maxPing measurement (poisons lag comp); score kills/deaths are `$uint8` (wrap at 256).
+- [ ] **M1** No finite/range validation on incoming `playerInputs` → a crafted `NaN` poisons other clients' sim.
+- [ ] **M2** Map bounds ignore `wall_segments`; empty/segment-only maps get inverted bounds.
+- [ ] **M5/M6** `$quant16` can't represent exact 0 (asymmetric); `$string` pads by char not byte.
+- [ ] **misc** EventEmitter `destroy()` doesn't clear `subscribers`; `BulletGraphic.cleanUp` keeps stale trail; 20Hz debug `console.log` spam; dead/typo cleanups (`SHIP_DAIMETER`, `normalizeToPositiveRadians`, etc.).
 
 ## Decision log
 
@@ -148,4 +165,5 @@ UI / UX:
 | -- | ----------- | --------------------------------------------- | ------------------- |
 | 1  | `d5a6969`   | Add vitest test infra + first unit tests      | `git revert d5a6969`|
 | 2  | `fb9205a`   | Secondary/tactical cannon weapon              | `git revert fb9205a`|
-| 3  | (latest)    | Particle + screen-shake juice system          | `git revert <sha>`  |
+| 3  | `8300290`   | Particle + screen-shake juice system          | `git revert 8300290`|
+| 4  | (latest)    | Fix variable-length packet framing (>=256 bytes) | `git revert <sha>`|

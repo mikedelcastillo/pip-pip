@@ -84,9 +84,12 @@ export const $varstring: PacketSerializer<string> = {
             ...encoded,
         ])
     },
-    decode(value){ 
+    decode(value){
         const arr = Array.from(value)
-        const length = new Uint16Array(arr.slice(0, 2))[0]
+        // Little-endian 2-byte length. Building Uint16Array from a number[] would
+        // treat each byte as its own element and read only the low byte, so any
+        // payload >= 256 bytes was truncated and desynced the batch.
+        const length = (arr[0] | (arr[1] << 8)) >>> 0
         const stringCode = arr.slice(2, 2 + length)
         return internalTextDecoder.decode(new Uint8Array(stringCode))
     },

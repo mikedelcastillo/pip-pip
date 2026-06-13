@@ -71,7 +71,7 @@ export class Packet<T extends PacketSerializerMap>{
                 index += serializer.length
             } else{
                 const lenCode = value.slice(index, index + 2)
-                const length = new Uint8Array(new Uint16Array(lenCode).buffer)[0]
+                const length = (lenCode[0] | (lenCode[1] << 8)) >>> 0
                 const totalLength = length + 2
                 const slice = value.slice(index, index + totalLength)
                 output[key as keyof typeof output] = serializer.decode(slice)
@@ -101,7 +101,7 @@ export class Packet<T extends PacketSerializerMap>{
                 sum += serializer.length
             } else{
                 const lenCode = value.slice(sum, sum + 2)
-                const length = new Uint8Array(new Uint16Array(lenCode).buffer)[0]
+                const length = (lenCode[0] | (lenCode[1] << 8)) >>> 0
                 sum += length + 2
             }
         }

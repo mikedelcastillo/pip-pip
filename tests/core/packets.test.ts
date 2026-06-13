@@ -33,6 +33,13 @@ describe("primitive serializers round-trip", () => {
         expect($varstring.decode($varstring.encode("ünïcödé ✦"))).toBe("ünïcödé ✦")
     })
 
+    it("$varstring round-trips payloads of 256+ bytes (2-byte length prefix)", () => {
+        const big = "x".repeat(300)
+        expect($varstring.decode($varstring.encode(big))).toBe(big)
+        const huge = "y".repeat(1000)
+        expect($varstring.decode($varstring.encode(huge))).toBe(huge)
+    })
+
     it("$string of fixed length round-trips an exact-width value", () => {
         expect($string(4).decode($string(4).encode("abcd"))).toBe("abcd")
     })
@@ -92,5 +99,16 @@ describe("PacketManager encode/decode", () => {
             { count: 9, label: "bb", flag: true },
         ])
         expect(decoded.tag).toEqual([{ id: 42 }])
+    })
+
+    it("keeps batch framing intact when a varstring field exceeds 255 bytes", () => {
+        const label = "z".repeat(500)
+        const bytes = [
+            ...manager.encode("sample", { count: 1, label, flag: true }),
+            ...manager.encode("tag", { id: 4242 }),
+        ]
+        const decoded = manager.decode(bytes)
+        expect(decoded.sample?.[0]).toEqual({ count: 1, label, flag: true })
+        expect(decoded.tag).toEqual([{ id: 4242 }])
     })
 })
