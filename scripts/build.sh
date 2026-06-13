@@ -8,4 +8,4 @@ yarn server build
 node scripts/fix-tsc-paths
 
 # Build client
-yarn client:vue build
+yarn client build

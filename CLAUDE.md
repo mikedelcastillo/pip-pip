@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repo layout
 
-Yarn workspaces monorepo. All packages share root `node_modules`. The five packages under `packages/*`:
+Yarn workspaces monorepo. All packages share root `node_modules`. The packages under `packages/*`:
 
 - `@pip-pip/core` — shared library: networking primitives (`Server`, `Client`, packet manager, lobby, websockets), physics (`PointPhysicsWorld`), math, event emitter, ticker, keyboard/mouse listeners. No game-specific code.
 - `@pip-pip/game` — pure game logic built on `core` (no rendering, no IO). Exports `PipPipGame` (the world), ships, bullets, players, maps, and the typed packet manager shared by client and server.
 - `@pip-pip/server` — thin Node entry. Creates a `Server` from `core`, registers the `default` lobby, runs a 20Hz `updateTick` that calls `processLobbyPackets` → `game.update()` → `sendPacketToConnection`. Separate `pingTick` updates per-player ping.
-- `@pip-pip/client-vue` — Vue 3 + Vite + Pixi.js client. `src/game/index.ts` holds `GameContext`, which wires the `Client`, `PipPipGame`, `PipPipRenderer`, input listeners, and tickers. Vue/Pinia handle UI/store; Pixi handles the canvas.
+- `@pip-pip/client` — React + Vite + Pixi.js client. `src/game/index.ts` holds `GameContext`, which wires the `Client`, `PipPipGame`, `PipPipRenderer`, input listeners, and tickers. React/Zustand handle UI/store; Pixi handles the canvas. The bulk of the client (`src/game/*`) is framework-agnostic TS; React only renders the thin HUD (chat, player list, overlays) and routing.
 - `@pip-pip/map-maker` — separate Vite/Vue app for authoring maps.
 
 Plus `tools/game_maps` — Rust CLI (`cargo run`) that converts source images into `*.map.json` files consumed by `@pip-pip/game/src/maps`.
@@ -22,8 +22,7 @@ Run from repo root unless noted. Workspace scripts are proxied via `yarn <name> 
 yarn server dev      # nodemon server, watches core/game/server src
 yarn server dev:latency   # simulated 30ms latency
 yarn server dev:jitter    # 30ms latency + 5ms jitter
-yarn client:vue dev  # vite dev server for the Vue client
-yarn client:react dev  # vite dev server for the React client
+yarn client dev      # vite dev server for the client
 yarn map dev         # vite dev server for the map maker
 yarn build           # full prod build: clear → core → game → server → fix-tsc-paths → client
 yarn deploy          # reinstall, build, restart pm2 (server + client preview)
@@ -34,7 +33,7 @@ yarn clear           # remove all dist/ and tsbuildinfo
 yarn uninstall       # remove all node_modules
 ```
 
-Per-package lint: `yarn core lint`, `yarn game lint`, `yarn server lint`, `yarn client:vue lint`.
+Per-package lint: `yarn core lint`, `yarn game lint`, `yarn server lint`, `yarn client lint`.
 
 There is **no test runner configured** — the entry files in `core` and `game` currently say `// TODO: Add tests`. Don't claim tests pass; there are none to run.
 
@@ -56,4 +55,4 @@ Communication uses a typed packet manager (`@pip-pip/game/src/networking/packets
 
 - TS target `es2016`, `module: commonjs`, `strict: true`. Decorators are enabled.
 - Cross-package imports use the full `@pip-pip/<pkg>/src/<path>` form (not bare package imports). Preserve this convention or the `fix-tsc-paths` rewrite won't catch it.
-- Client (`client-vue`, `map-maker`) is ESM (`"type": "module"`) and uses `vite-tsconfig-paths` for resolution.
+- Client (`client`, `map-maker`) is ESM (`"type": "module"`) and uses `vite-tsconfig-paths` for resolution.

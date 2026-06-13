@@ -15,7 +15,7 @@ pip-pip is a top-down multiplayer shooter where players pilot ships across hand-
 - **Authoritative server, predictive client** — the same `PipPipGame` class runs on both sides, controlled by `PipPipGameOptions` flags. The server owns damage, spawns, and scoring; the client predicts locally and reconciles from server state.
 - **20 Hz tick loop** — WebSocket server processes packets, steps physics, and broadcasts state 20 times per second. Ping compensation is factored into hit detection.
 - **Rust map compiler** — source images are compiled into optimized `.map.json` geometry by a Rust CLI (`tools/game_maps`). Maps live in the game package as typed data, not loose assets.
-- **Dual-client architecture** — Vue 3 + Pixi.js client for production; a second React client in development. Shared game and core packages power both with zero duplication.
+- **Framework-agnostic client core** — the bulk of the client (`src/game/*`: renderer, networking, ticker, state) is plain TypeScript built on the shared `core`/`game` packages. React only renders a thin HUD and routing on top, so the rendering and netcode are decoupled from the UI framework.
 
 ## Stack
 
@@ -25,7 +25,7 @@ pip-pip is a top-down multiplayer shooter where players pilot ships across hand-
 | Monorepo | Yarn workspaces |
 | Server | Node.js, `ws` |
 | Rendering | Pixi.js |
-| Client framework | Vue 3, Vite |
+| Client framework | React, Vite |
 | Map tooling | Rust (image → geometry) |
 
 ## Project structure
@@ -35,8 +35,7 @@ packages/
   core/        — physics, networking primitives, event emitter, math
   game/        — game logic, ships, bullets, maps, packet definitions
   server/      — Node entry: lobby management, tick loop, WebSocket I/O
-  client-vue/  — Pixi.js renderer + Vue 3 UI
-  client-react/— React client (in progress)
+  client/      — Pixi.js renderer + React UI
   map-maker/   — in-browser map authoring tool
 tools/
   game_maps/   — Rust CLI: converts images to map geometry
@@ -47,7 +46,7 @@ tools/
 ```sh
 yarn install
 yarn server dev      # game server with hot reload
-yarn client:vue dev  # client at localhost:5173
+yarn client dev      # client at localhost:5173
 ```
 
 Latency simulation: `yarn server dev:latency` (30 ms) or `yarn server dev:jitter` (30 ms + 5 ms jitter).
