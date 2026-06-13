@@ -103,6 +103,7 @@ UI / UX:
 - [x] **Slash-command autocomplete** — suggestion list as you type `/`, Arrow/Tab/Enter/click to complete. (#23)
 - [x] **Improved players screen** — ship icons, ping color-coding, you/host chips, K/D, sorting, on-brand panel. (#22)
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
+- [ ] a11y: form inputs (`GameInput` / join-code box) are missing `id`/`name` — add them (flagged by the production smoke test).
 - [ ] Full mobile support: twin on-screen thumbsticks (left=move, right=aim) + fire/tactical/reload buttons.
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
 
@@ -139,6 +140,14 @@ Verified, prioritized. `[x]` = fixed and shipped.
 
 ## Decision log
 
+- **D8 — production smoke-testing runs in the loop.** Production is
+  https://pippip.mikedc.io and `main` AUTO-DEPLOYS there — a smoke test confirmed the
+  session's commits are already live. A read-only browser smoke-test subagent runs
+  occasionally (homepage renders, no console errors / blank-screen, recent features
+  present). First run (after 23 commits): PASS — homepage renders, all menu modals work,
+  the only console message is a cosmetic a11y warning (a form input missing id/name).
+  Since main → prod is live and unreviewed, keep commits atomic/revertible and lean on
+  this smoke test + the audit pass to catch regressions.
 - **D7 — every added command must be registered in the client `/help` (rule).** The client
   (`GameChat`) rejects any `/command` not in `GAME_COMMANDS` as "Command not found" and
   never forwards it, so a server-only command is both invisible in `/help` AND unreachable
