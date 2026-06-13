@@ -1,6 +1,6 @@
 import { EventEmitter } from "@pip-pip/core/src/common/events"
 import { PointPhysicsWorld, Vector2 } from "@pip-pip/core/src/physics"
-import { distanceBetweenSegments, radianDifference } from "@pip-pip/core/src/math"
+import { distanceBetweenSegments, nearestPointFromSegment, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool } from "./bullet"
 import { PipPlayer, PlayerInputs } from "./player"
@@ -448,7 +448,52 @@ export class PipPipGame{
         phys.position.x += phys.velocity.x * dt
         phys.position.y += phys.velocity.y * dt
 
+        // Push the ship back out of walls so the replay stops at a wall the way
+        // the authoritative sim does, instead of tunnelling through it (which
+        // is what made the local player rubber-band on contact).
+        this.resolvePlayerWalls(player)
         this.applyMapBounds(player)
+    }
+
+    // Approximate static-wall push-out for a single ship, used by the
+    // client-side replay (stepLocalPlayer). It only needs to keep the ship
+    // outside walls; the small difference from the full physics resolution is
+    // absorbed by the render-error smoothing.
+    resolvePlayerWalls(player: PipPlayer){
+        const phys = player.ship.physics
+        const r = phys.radius
+
+        for(const segWall of Object.values(this.physics.segWalls)){
+            const near = nearestPointFromSegment(
+                segWall.start.x, segWall.start.y,
+                segWall.end.x, segWall.end.y,
+                phys.position.x, phys.position.y,
+            )
+            const dx = phys.position.x - near.x
+            const dy = phys.position.y - near.y
+            const dist = Math.max(0.0001, Math.sqrt(dx * dx + dy * dy))
+            const minDist = r + segWall.radius
+            if(dist < minDist){
+                const push = (minDist - dist) / dist
+                phys.position.x += dx * push
+                phys.position.y += dy * push
+            }
+        }
+
+        for(const rectWall of Object.values(this.physics.rectWalls)){
+            const halfW = rectWall.width / 2
+            const halfH = rectWall.height / 2
+            const nearestX = Math.max(rectWall.center.x - halfW, Math.min(rectWall.center.x + halfW, phys.position.x))
+            const nearestY = Math.max(rectWall.center.y - halfH, Math.min(rectWall.center.y + halfH, phys.position.y))
+            const dx = phys.position.x - nearestX
+            const dy = phys.position.y - nearestY
+            const dist = Math.sqrt(dx * dx + dy * dy)
+            if(dist > 0.0001 && dist < r){
+                const push = (r - dist) / dist
+                phys.position.x += dx * push
+                phys.position.y += dy * push
+            }
+        }
     }
 
     applyMapBounds(player: PipPlayer){
