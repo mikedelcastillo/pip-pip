@@ -102,3 +102,6 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Stray compiled JS in the client source tree
+packages/client/src/**/*.js

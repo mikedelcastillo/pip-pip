@@ -29,6 +29,9 @@ export type ServerOptions = {
     maxConnections: number,
     maxLobbies: number,
     maxPing: number,
+
+    clientDir?: string,
+    allowedOrigins?: string[],
 }
 
 export type ConnectionOf<T> = T extends Server<infer A, infer B, infer C> ? Connection<A, B, C> : never
@@ -82,7 +85,16 @@ export class Server<
 
         this.app = express()
         this.server = http.createServer(this.app)
-        this.wss = new WebSocketServer({ server: this.server })
+        this.wss = new WebSocketServer({
+            server: this.server,
+            verifyClient: (info, done) => {
+                if(!this.options.allowedOrigins || this.options.allowedOrigins.length === 0){
+                    done(true)
+                    return
+                }
+                done(this.options.allowedOrigins.includes(info.origin))
+            },
+        })
 
         initializeRoutes(this)
         initializeWebSockets(this)

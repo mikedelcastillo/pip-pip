@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.gitignore
+tools
+docs
+npm-debug.log*
+.DS_Store

@@ -13,7 +13,7 @@ import { ClientEventMap } from "./events"
 export type ClientOptions = {
     authHeader: string,
     baseRoute: string,
-    port: number,
+    port?: number,
     host: string,
     https: boolean,
     wss: boolean,
@@ -71,19 +71,13 @@ export class Client<T extends PacketManagerSerializerMap>{
     }
 
     get wsUrl(){
-        return [
-            this.options.wss ? "wss" : "ws",
-            "://", this.options.host, ":",
-            this.options.port,
-        ].join("")
+        const portPart = typeof this.options.port === "number" ? ":" + this.options.port : ""
+        return [this.options.wss ? "wss" : "ws", "://", this.options.host, portPart].join("")
     }
 
     get httpUrl(){
-        return [
-            this.options.https ? "https" : "http",
-            "://", this.options.host, ":",
-            this.options.port, this.options.baseRoute,
-        ].join("")
+        const portPart = typeof this.options.port === "number" ? ":" + this.options.port : ""
+        return [this.options.https ? "https" : "http", "://", this.options.host, portPart, this.options.baseRoute].join("")
     }
 
     get hasIdAndTokens(){
