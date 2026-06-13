@@ -155,8 +155,8 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 - [x] HostSettings public/private toggle highlighted the UNSELECTED option (off-brand vs the app's `accent`=active convention) — fixed. (#37)
 - [x] Homepage "Join Game" by code was a dead button (`notYetImplemented`) — now navigates to `/:code` (Enter works too). (#37)
 - [x] Per-tick packet `console.log` now gated behind `import.meta.env.DEV` (was spamming the prod console). (#37)
-- [ ] Bots never fire the tactical/grenade weapon (`ai.ts` never sets `useTactical`) — training-grounds bots only use the primary. (follow-up)
-- [ ] Particle wall-list is rebuilt every frame in `renderer.ts` — cache it and rebuild only on `setMap`. (follow-up)
+- [x] Bots now fire their tactical/grenade when aimed + in range + `canUseTactical` (`ai.ts`) + tests. (#38)
+- [x] Particle wall-list cached and rebuilt only on `setMap` (was per-frame in `renderer.ts`). (#39)
 - [ ] (latent) grenade client decode passes primary `speed` (inert today — the velocity vector wins).
 - [ ] (info) `friendlyFire`/`useTeams` ship over the wire but no damage path enforces them (FFA by design); `invincibility` timing gates nothing (both pre-existing).
 
@@ -275,4 +275,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 34 | `e76603b`   | Spectator mode (toggle, camera follow, broadcast) | `git revert e76603b`|
 | 35 | `8e9b83a`   | Map power-ups (health/ammo pickups)               | `git revert 8e9b83a`|
 | 36 | `55108fd`   | Fix /map to be 1-based like /ship                 | `git revert 55108fd`|
-| 37 | (latest)    | Polish: host toggle highlight, join-by-code, dev log | `git revert <sha>`|
+| 37 | `416166e`   | Polish: host toggle highlight, join-by-code, dev log | `git revert 416166e`|
+| 38 | (latest)    | Bots use their tactical/grenade weapon            | `git revert <sha>`  |

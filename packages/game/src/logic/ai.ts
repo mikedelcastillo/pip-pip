@@ -107,6 +107,12 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined): 
     const aimedWithinTolerance = Math.abs(radianDifference(angle, bot.ship.rotation)) <= BOT_FIRE_AIM_TOLERANCE
     if(distance <= BOT_FIRE_RANGE && aimedWithinTolerance === true){
         inputs.useWeapon = true
+        // Also lob the tactical/grenade when one is ready. The tactical's own
+        // ammo + cooldown (shootTactical) rate-limits it, so gating on
+        // canUseTactical is enough — no separate brain timer needed.
+        if(bot.ship.canUseTactical === true){
+            inputs.useTactical = true
+        }
     }
 
     return inputs

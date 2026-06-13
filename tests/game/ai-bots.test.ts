@@ -9,6 +9,8 @@ import {
 import { radianDifference } from "@pip-pip/core/src/math"
 
 const BLU = 3
+// Djibouti: the grenadier whose tactical weapon fires "grenade" bullets.
+const DJIBOUTI = 5
 
 // A clean, wall-free, very large arena so bots move and bullets fly
 // unobstructed. Matches the setup used by weapons.test.ts.
@@ -89,6 +91,28 @@ describe("AI brain targeting (pure)", () => {
         // Aim points along +x (atan2(0, +) === 0) within tolerance.
         expect(Math.abs(radianDifference(inputs.aimRotation, 0))).toBeLessThan(0.01)
         expect(inputs.useWeapon).toBe(true)
+        // The bot's tactical is loaded, so an aimed in-range shot also fires it.
+        expect(inputs.useTactical).toBe(true)
+    })
+
+    it("does not use the tactical when it is not ready", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(enemy, 300, 0)
+        bot.ship.rotation = 0
+
+        // Drain the tactical ammo so canUseTactical is false this tick.
+        bot.ship.capacities.tactical = 0
+
+        const found = findNearestEnemy(bot, Object.values(game.players))
+        const inputs = computeBotInputs(bot, found)
+        // Primary still fires, but the empty tactical is held.
+        expect(inputs.useWeapon).toBe(true)
+        expect(inputs.useTactical).toBe(false)
     })
 
     it("faces and approaches a far enemy, holding fire is allowed but it moves", () => {
@@ -140,6 +164,7 @@ describe("AI brain targeting (pure)", () => {
         const inputs = computeBotInputs(bot, found)
         expect(inputs.movementAmount).toBe(0)
         expect(inputs.useWeapon).toBe(false)
+        expect(inputs.useTactical).toBe(false)
     })
 })
 
@@ -173,6 +198,35 @@ describe("AI brain integration (brain -> inputs -> fire -> collision)", () => {
         expect(dealt[0].dealer).toBe(bot.id)
         expect(dealt[0].target).toBe(enemy.id)
         expect(enemy.ship.capacities.health).toBeLessThan(startHealth)
+    })
+
+    it("a grenadier bot eventually fires its tactical (a grenade)", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        bot.setShip(DJIBOUTI)
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(enemy, 250, 0)
+        // Pre-aim the bot so it can fire from tick one.
+        bot.ship.rotation = 0
+        bot.ship.targetRotation = 0
+
+        const bulletTypes: string[] = []
+        game.events.on("addBullet", ({ bullet }) => {
+            bulletTypes.push(bullet.type)
+        })
+
+        // The enemy never gets inputs, so it sits still. Tick long enough for
+        // the bot to aim and squeeze off a tactical shot (its own cooldown is
+        // slower than the primary, so give it room).
+        for(let i = 0; i < 40; i++) game.update()
+
+        // It still fires its primary...
+        expect(bulletTypes.includes("primary")).toBe(true)
+        // ...and now also lobs a grenade from the tactical weapon.
+        expect(bulletTypes.includes("grenade")).toBe(true)
     })
 
     it("a real player can damage a bot (bots are normal hittable players)", () => {
