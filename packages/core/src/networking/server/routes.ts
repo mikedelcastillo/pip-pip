@@ -27,7 +27,7 @@ export function initializeRoutes<
     server.routerAuthMiddleware = (req: Request, res: Response, next: NextFunction) => {
         const connection = server.getConnectionFromRequest(req)
         if(typeof connection === "undefined"){
-            next(createHttpError(401, "Connection not authorized."))
+            return next(createHttpError(401, "Connection not authorized."))
         }
         next()
     }

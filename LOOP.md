@@ -121,8 +121,8 @@ Verified, prioritized. `[x]` = fixed and shipped.
 - [ ] **C2 (critical, client)** Renderer/PIXI `Application` + input/audio document listeners never destroyed on `GameView` unmount → WebGL-context + listener leak (blank canvas after a few navigations). Needs `PipPipRenderer.destroy()`, real unmount teardown, the `destory`→`destroy` typo, and a fix to core keyboard/mouse `destroy()` (`.bind` makes `removeEventListener` a no-op).
 - [x] **H1 (high)** Physics collision relative-velocity sign error (`core/physics` ~278) — fixed + regression test. (#11)
 - [ ] **H2 (high, client)** `renderer.ts` far-distance snap guard typo `dx*dx + dy + dy` → `dy*dy`.
-- [ ] **H3 (high)** WS connection cap uses `clients.values.length` (always 0) → uncapped sockets (DoS); use `clients.size`; `throw`→`return` after close.
-- [ ] **H4 (high)** `routerAuthMiddleware` calls `next()` twice on 401 → unauth handler still runs (crash/bypass): `return next(err)`.
+- [x] **H3 (high)** WS connection cap (`clients.values.length`→`clients.size`; `throw`→`return`) — fixed. (#12)
+- [x] **H4 (high)** `routerAuthMiddleware` double `next()` on 401 — fixed with `return next(err)`. (#12)
 - [ ] **H5/H7** ping-timeout resolves as a real ~maxPing measurement (poisons lag comp); score kills/deaths are `$uint8` (wrap at 256).
 - [ ] **M1** No finite/range validation on incoming `playerInputs` → a crafted `NaN` poisons other clients' sim.
 - [ ] **M2** Map bounds ignore `wall_segments`; empty/segment-only maps get inverted bounds.
@@ -190,4 +190,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 8  | `f1f5b01`   | chore: stop tracking compiled .js.map in client src | `git revert f1f5b01`|
 | 9  | `b94a9de`   | Public-lobby foundation (metadata + GET /lobbies + create opts) | `git revert b94a9de`|
 | 10 | `7b04254`   | Homepage Settings + Credits modals                | `git revert 7b04254`|
-| 11 | (latest)    | Fix physics collision relative-velocity sign (H1) | `git revert <sha>`  |
+| 11 | `bbb52bb`   | Fix physics collision relative-velocity sign (H1) | `git revert bbb52bb`|
+| 12 | (latest)    | Harden server: WS connection cap + auth short-circuit (H3/H4) | `git revert <sha>`|

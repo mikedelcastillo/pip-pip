@@ -12,9 +12,10 @@ export function initializeWebSockets<
     P extends Record<string, any>,
 >(server: Server<T, R, P>){
     server.wss.on("connection", (ws: WebSocket) => {
-        if(server.wss.clients.values.length >= server.options.maxConnections){
+        if(server.wss.clients.size >= server.options.maxConnections){
             ws.close()
-            throw new Error("WebSocket connected but max connections has already been reached.")
+            console.warn("WebSocket connected but max connections has already been reached.")
+            return
         }
 
         const verifyTimeout = setTimeout(() => {
