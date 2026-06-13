@@ -33,7 +33,10 @@ export class GameContext {
     container!: HTMLDivElement
 
     audio = new AudioManager()
-    private audioResumeBound = false
+    // The document-level audio-resume handler. Stored so unmountGameView can
+    // remove the exact same reference it registered (a fresh arrow each mount
+    // would otherwise leak a click+keydown listener per navigation).
+    private audioResumeHandler?: () => void
 
     initialized = false
 
@@ -42,15 +45,6 @@ export class GameContext {
 
     initialize() {
         this.initializeClient()
-
-        // Browsers require a user gesture before an AudioContext can produce
-        // sound — resume it on the first click or keypress (once is enough).
-        if (!this.audioResumeBound) {
-            this.audioResumeBound = true
-            const resume = () => this.audio.resume()
-            document.addEventListener("click", resume)
-            document.addEventListener("keydown", resume)
-        }
     }
 
     initializeClient() {
@@ -91,8 +85,20 @@ export class GameContext {
         this.renderer.mount(container)
 
         // Procedural SFX driven by game events. The AudioManager stays silent
-        // until its context is resumed by a user gesture (see initialize()).
+        // until its context is resumed by a user gesture.
         this.audio.init()
+
+        // Browsers require a user gesture before an AudioContext can produce
+        // sound — resume it on the first click or keypress. Registered here (and
+        // removed in unmountGameView) so the listener pair is symmetric across
+        // mount/unmount cycles instead of accumulating one per navigation.
+        if (typeof this.audioResumeHandler === "undefined") {
+            const resume = () => this.audio.resume()
+            this.audioResumeHandler = resume
+            document.addEventListener("click", resume)
+            document.addEventListener("keydown", resume)
+        }
+
         const isLocalPlayer = (id: string) => id === this.game.clientPlayerId
 
         this.game.events.on("addBullet", ({ bullet }) => {
@@ -185,15 +191,36 @@ export class GameContext {
     }
 
     unmountGameView() {
-        this.game?.destroy()
-        this.gameEvents?.destroy()
+        // Stop the loops first so nothing touches the renderer/game while we
+        // tear them down.
         this.renderTick?.destroy()
         this.updateTick?.destroy()
+
+        // Release the WebGL context, Pixi app, pooled graphics and game-event
+        // subscriptions. Without this each remount leaks a WebGL context and the
+        // browser blanks the canvas after a handful of navigations.
+        this.renderer?.destroy()
+
+        // Detach the document-bound input listeners (their bound handlers are
+        // now removed correctly — see core keyboard/mouse).
+        this.keyboard?.destroy()
+        this.mouse?.destroy()
+
+        // Tear down the game world and its event collector.
+        this.game?.destroy()
+        this.gameEvents?.destroy()
+
+        // Audio: close the context and remove the document-level resume listeners.
         this.audio.dispose()
+        if (typeof this.audioResumeHandler !== "undefined") {
+            document.removeEventListener("click", this.audioResumeHandler)
+            document.removeEventListener("keydown", this.audioResumeHandler)
+            this.audioResumeHandler = undefined
+        }
     }
 
-    destory() {
-        // this.renderer?.destroy()
+    destroy() {
+        this.unmountGameView()
         this.client?.disconnect()
         this.clientEvents?.destroy()
     }

@@ -78,6 +78,14 @@ export class MouseListener extends EventEmitter<MouseListenerEventMap>{
         },
     }
 
+    // Bound once so addEventListener and removeEventListener share the identical
+    // function reference — `.bind()` returns a new function each call, so binding
+    // inline would make removeEventListener a no-op and leak the listener on
+    // every setTarget/destroy cycle.
+    private boundMouseHandler = this.mouseHandler.bind(this)
+    private boundPreventHandler = this.preventHandler.bind(this)
+    private boundWheelHandler = this.wheelHandler.bind(this)
+
     constructor(id = "Mouse"){
         super(id)
         this.id = id
@@ -194,21 +202,21 @@ export class MouseListener extends EventEmitter<MouseListenerEventMap>{
     setTarget(element: HTMLElement){
         this.destroy()
         this.element = element
-        this.element.addEventListener("mousedown", this.mouseHandler.bind(this))
-        this.element.addEventListener("mousemove", this.mouseHandler.bind(this))
-        this.element.addEventListener("contextmenu", this.preventHandler.bind(this))
-        this.element.addEventListener("wheel", this.wheelHandler.bind(this))
-        window.addEventListener("mouseup", this.mouseHandler.bind(this))
+        this.element.addEventListener("mousedown", this.boundMouseHandler)
+        this.element.addEventListener("mousemove", this.boundMouseHandler)
+        this.element.addEventListener("contextmenu", this.boundPreventHandler)
+        this.element.addEventListener("wheel", this.boundWheelHandler)
+        window.addEventListener("mouseup", this.boundMouseHandler)
     }
 
     destroy(){
         super.destroy()
         if(typeof this.element !== "undefined"){
-            this.element.removeEventListener("mousedown", this.mouseHandler.bind(this))
-            this.element.removeEventListener("mousemove", this.mouseHandler.bind(this))
-            this.element.removeEventListener("contextmenu", this.preventHandler.bind(this))
-            this.element.removeEventListener("wheel", this.wheelHandler.bind(this))
-            window.removeEventListener("mouseup", this.mouseHandler.bind(this))
+            this.element.removeEventListener("mousedown", this.boundMouseHandler)
+            this.element.removeEventListener("mousemove", this.boundMouseHandler)
+            this.element.removeEventListener("contextmenu", this.boundPreventHandler)
+            this.element.removeEventListener("wheel", this.boundWheelHandler)
+            window.removeEventListener("mouseup", this.boundMouseHandler)
         }
     }
 }

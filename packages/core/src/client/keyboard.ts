@@ -16,6 +16,13 @@ export class KeyboardListener extends EventEmitter<KeyboardListenerEventMap>{
     element!: HTMLElement
     state: Record<string, boolean> = {}
 
+    // Bound once in the constructor so addEventListener and removeEventListener
+    // share the identical function reference — `.bind()` returns a new function
+    // each call, so binding inline would make removeEventListener a no-op and
+    // leak the listener on every setTarget/destroy cycle.
+    private boundDownHandler = this.downHandler.bind(this)
+    private boundUpHandler = this.upHandler.bind(this)
+
     constructor(id = "Keyboard"){
         super(id)
         this.id = id
@@ -45,15 +52,15 @@ export class KeyboardListener extends EventEmitter<KeyboardListenerEventMap>{
     setTarget(element: HTMLElement){
         this.destroy()
         this.element = element
-        this.element.addEventListener("keydown", this.downHandler.bind(this))
-        window.addEventListener("keyup", this.upHandler.bind(this))
+        this.element.addEventListener("keydown", this.boundDownHandler)
+        window.addEventListener("keyup", this.boundUpHandler)
     }
 
     destroy(){
         super.destroy()
         if(typeof this.element !== "undefined"){
-            this.element.removeEventListener("keydown", this.downHandler.bind(this))
-            window.removeEventListener("keyup", this.upHandler.bind(this))
+            this.element.removeEventListener("keydown", this.boundDownHandler)
+            window.removeEventListener("keyup", this.boundUpHandler)
         }
     }
 }

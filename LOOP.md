@@ -122,7 +122,7 @@ Art / assets (use the pixel-mcp Aseprite workflow → export → map):
 Verified, prioritized. `[x]` = fixed and shipped.
 
 - [x] **C1 (critical)** `$varstring`/packet length prefix decoded only the LOW byte (`new Uint16Array(number[])`), so any payload ≥256 bytes was truncated AND desynced every following packet in the batch — chat/names are user input (emoji/CJK trip it). Fixed in core `serializer.ts` + `packet.ts` (3 sites), with regression tests. (#4)
-- [ ] **C2 (critical, client)** Renderer/PIXI `Application` + input/audio document listeners never destroyed on `GameView` unmount → WebGL-context + listener leak (blank canvas after a few navigations). Needs `PipPipRenderer.destroy()`, real unmount teardown, the `destory`→`destroy` typo, and a fix to core keyboard/mouse `destroy()` (`.bind` makes `removeEventListener` a no-op).
+- [x] **C2 (critical, client)** Renderer/PIXI app + input + audio-resume listeners now fully torn down on unmount (`PipPipRenderer.destroy()`, rewritten `unmountGameView`, `destory`→`destroy`); core keyboard/mouse store bound handlers so `removeEventListener` matches. Regression test asserts add/remove symmetry. (#16)
 - [x] **H1 (high)** Physics collision relative-velocity sign error (`core/physics` ~278) — fixed + regression test. (#11)
 - [ ] **H2 (high, client)** `renderer.ts` far-distance snap guard typo `dx*dx + dy + dy` → `dy*dy`.
 - [x] **H3 (high)** WS connection cap (`clients.values.length`→`clients.size`; `throw`→`return`) — fixed. (#12)
@@ -204,4 +204,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 12 | `dd89c90`   | Harden server: WS connection cap + auth short-circuit (H3/H4) | `git revert dd89c90`|
 | 13 | `8958fee`   | Sanitize hostile player inputs (M1)               | `git revert 8958fee`|
 | 14 | `65cf503`   | Brand the SFX toggle as a GameButton              | `git revert 65cf503`|
-| 15 | (latest)    | Per-weapon bullet spray patterns                  | `git revert <sha>`  |
+| 15 | `2f37b01`   | Per-weapon bullet spray patterns                  | `git revert 2f37b01`|
+| 16 | (latest)    | Fix renderer/input/WebGL leak on unmount (C2)     | `git revert <sha>`  |

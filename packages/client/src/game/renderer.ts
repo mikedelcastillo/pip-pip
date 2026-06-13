@@ -14,6 +14,7 @@ import { COLORS, DIMS } from "./styles"
 import { Bullet } from "@pip-pip/game/src/logic/bullet"
 import { tickDown } from "@pip-pip/game/src/logic/utils"
 import { Vector2 } from "@pip-pip/core/src/physics"
+import { EventCallback, EventMapOf } from "@pip-pip/core/src/common/events"
 import {
     ParticleSystem,
     emitExplosion,
@@ -326,6 +327,13 @@ export class PipPipRenderer{
     displacementSprite: PIXI.Sprite
     displacementFilter: DisplacementFilter
 
+    // Game-event subscriptions registered in the constructor, remembered so
+    // destroy() can detach the exact same references via game.events.off() —
+    // without this every remount would leak another set of subscriptions
+    // (and the closures keep this renderer, and its WebGL context, alive).
+    private gameEventSubscriptions: Array<() => void> = []
+    private destroyed = false
+
     camera = {
         position: {
             x: 0, y: 0,
@@ -404,17 +412,17 @@ export class PipPipRenderer{
 
         this.game = game
 
-        this.game.events.on("addPlayer", ({ player }) => {
+        this.onGameEvent("addPlayer", ({ player }) => {
             const graphic = new PlayerGraphic(player)
             this.players[player.id] = graphic
             this.playersContainer.addChild(graphic.container)
         })
 
-        this.game.events.on("playerSetShip", ({ player }) => {
+        this.onGameEvent("playerSetShip", ({ player }) => {
             this.players[player.id]?.updateShipSprite()
         })
 
-        this.game.events.on("removePlayer", ({ player }) => {
+        this.onGameEvent("removePlayer", ({ player }) => {
             if(player.id in this.players){
                 const graphic = this.players[player.id]
                 delete this.players[player.id]
@@ -423,11 +431,11 @@ export class PipPipRenderer{
         })
 
         this.updateMapGraphics()
-        this.game.events.on("setMap", () => {
+        this.onGameEvent("setMap", () => {
             this.updateMapGraphics()
         })
 
-        this.game.events.on("addBullet", ({ bullet }) => {
+        this.onGameEvent("addBullet", ({ bullet }) => {
             this.bullets.use(graphic => graphic.setup(bullet))
 
             // Muzzle flash fires along the bullet's heading. Guard a zero-velocity
@@ -444,7 +452,7 @@ export class PipPipRenderer{
             }
         })
 
-        this.game.events.on("removeBullet", ({ bullet }) => {
+        this.onGameEvent("removeBullet", ({ bullet }) => {
             const graphic = this.bullets.graphics.find(graphic => graphic.bullet === bullet)
             if(typeof graphic !== "undefined"){
                 graphic.bullet = undefined
@@ -458,7 +466,7 @@ export class PipPipRenderer{
             )
         })
 
-        this.game.events.on("dealDamage", ({ target, damage }) => {
+        this.onGameEvent("dealDamage", ({ target, damage }) => {
             let graphic = this.damages.active.find(g => g.id === target.id)
             if(typeof graphic === "undefined"){
                 graphic = this.damages.use(g => g.setup(target))
@@ -477,7 +485,7 @@ export class PipPipRenderer{
             }
         })
 
-        this.game.events.on("playerKill", ({ killed }) => {
+        this.onGameEvent("playerKill", ({ killed }) => {
             emitExplosion(
                 this.particleSystem,
                 killed.ship.physics.position.x,
@@ -489,6 +497,16 @@ export class PipPipRenderer{
                 this.shake = mergeShake(this.shake, triggerShake(10, 350))
             }
         })
+    }
+
+    // Subscribe to a game event and remember how to detach it, so destroy()
+    // can remove the exact same handler reference.
+    private onGameEvent<K extends keyof EventMapOf<PipPipGame["events"]>>(
+        eventName: K,
+        handler: EventCallback<EventMapOf<PipPipGame["events"]>[K]>,
+    ){
+        this.game.events.on(eventName, handler)
+        this.gameEventSubscriptions.push(() => this.game.events.off(eventName, handler))
     }
 
     updateMapGraphics(){
@@ -739,5 +757,39 @@ export class PipPipRenderer{
         }
 
         this.app.render()
+    }
+
+    // Tear everything down so a remount doesn't leak a WebGL context, the Pixi
+    // ticker/loader, or the game-event subscriptions. Safe to call more than
+    // once. Shared loaded textures/baseTextures are intentionally NOT destroyed
+    // here (assetLoader caches them across mounts) — only this app's own
+    // display objects are released.
+    destroy(){
+        if(this.destroyed) return
+        this.destroyed = true
+
+        // Detach every game-event subscription this renderer added.
+        for(const off of this.gameEventSubscriptions){
+            off()
+        }
+        this.gameEventSubscriptions = []
+
+        // Release pooled graphics (each pool removes its children + destroys).
+        this.bullets.destroy()
+        this.damages.destroy()
+        this.particles.destroy()
+
+        // Remove the canvas from the DOM before destroying the app.
+        if(typeof this.container !== "undefined"){
+            if(this.app.view.parentNode === this.container){
+                this.container.removeChild(this.app.view)
+            }
+            this.container = undefined
+        }
+
+        // Destroy the Pixi application and its WebGL context. children:true so
+        // every stage display object is freed; texture/baseTexture:false so the
+        // shared assetLoader textures survive for the next mount.
+        this.app.destroy(true, { children: true, texture: false, baseTexture: false })
     }
 }
