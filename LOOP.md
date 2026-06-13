@@ -74,8 +74,8 @@ Requested across the session (incl. follow-up ideas). Done = shipped to main.
 Engine / gameplay:
 - [x] **Test infrastructure** (vitest) — foundational, enables the rest. (#1)
 - [x] **Secondary/tactical weapon** — implemented the stubbed cannon. (#2)
-- [ ] Procedural audio system (Web Audio synthesis; SFX on game events; mute toggle). *(blueprint ready)*
-- [ ] Particle system + screen shake + hit/juice animations. *(blueprint ready; Pixi is v6)*
+- [ ] Procedural audio system (Web Audio synthesis; SFX on game events; mute toggle). *(implemented, integrating)*
+- [x] **Particle + screen-shake juice** — explosions, hit sparks, thruster trails. (#3)
 - [ ] More weapons: grenades, different bullet/projectile types, more ship-specific kits.
 - [ ] Map power-ups (pickups: health, ammo, speed, shield).
 - [ ] AI enemies / "training grounds" mode (the `calculateAi`/`shootAiBullets` flags exist, no brain yet). *(Apex training-grounds inspired)*
@@ -147,4 +147,5 @@ UI / UX:
 | #  | Short SHA   | Feature                                       | Revert with         |
 | -- | ----------- | --------------------------------------------- | ------------------- |
 | 1  | `d5a6969`   | Add vitest test infra + first unit tests      | `git revert d5a6969`|
-| 2  | (latest)    | Secondary/tactical cannon weapon              | `git revert <sha>`  |
+| 2  | `fb9205a`   | Secondary/tactical cannon weapon              | `git revert fb9205a`|
+| 3  | (latest)    | Particle + screen-shake juice system          | `git revert <sha>`  |

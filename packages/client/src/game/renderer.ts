@@ -14,6 +14,18 @@ import { COLORS, DIMS } from "./styles"
 import { Bullet } from "@pip-pip/game/src/logic/bullet"
 import { tickDown } from "@pip-pip/game/src/logic/utils"
 import { Vector2 } from "@pip-pip/core/src/physics"
+import {
+    ParticleSystem,
+    emitExplosion,
+    emitSparks,
+    emitThruster,
+    emitMuzzleFlash,
+    computeShake,
+    triggerShake,
+    mergeShake,
+    ShakeState,
+    Particle,
+} from "./particles"
 
 const SMOOTHING = {
     CAMERA_MOVEMENT: 5,
@@ -199,7 +211,34 @@ export class DamageGraphic extends PoolableGraphic {
     }
 }
 
-export class MapTileGraphic { 
+export class ParticleGraphic extends PoolableGraphic {
+    graphic = new PIXI.Graphics()
+
+    constructor(){
+        super()
+        this.container.addChild(this.graphic)
+    }
+
+    draw(p: Particle){
+        const lifeRatio = p.age / p.lifespan
+        const alpha = Math.max(0, 1 - lifeRatio)
+        const drawSize = Math.max(0.5, p.size * (1 - lifeRatio))
+
+        this.graphic.clear()
+        this.graphic.beginFill(p.color, alpha)
+        this.graphic.drawCircle(0, 0, drawSize)
+        this.graphic.endFill()
+
+        this.container.position.x = p.x
+        this.container.position.y = p.y
+    }
+
+    cleanUp(){
+        this.graphic.clear()
+    }
+}
+
+export class MapTileGraphic {
     id: string
     sprite: PIXI.Sprite
 
@@ -260,14 +299,19 @@ export class PipPipRenderer{
     playersContainer = new PIXI.Container()
     bulletsContainer = new PIXI.Container()
     damagesContainer = new PIXI.Container()
+    particlesContainer = new PIXI.Container()
 
     mapBackgroundContainer = new PIXI.Container()
     mapForegroundContainer = new PIXI.Container()
 
     damages: GraphicPool<DamageGraphic>
     bullets: GraphicPool<BulletGraphic>
+    particles: GraphicPool<ParticleGraphic>
     players: Record<string, PlayerGraphic> = {}
     mapTiles: MapTileGraphic[] = []
+
+    particleSystem = new ParticleSystem()
+    shake: ShakeState = triggerShake(0, 1)
 
     container?: HTMLDivElement
 
@@ -300,10 +344,12 @@ export class PipPipRenderer{
         this.viewportContainer.addChild(this.mapBackgroundContainer)
         this.viewportContainer.addChild(this.playersContainer)
         this.viewportContainer.addChild(this.mapForegroundContainer)
+        this.viewportContainer.addChild(this.particlesContainer)
         this.viewportContainer.addChild(this.damagesContainer)
 
         this.bullets = new GraphicPool(this.bulletsContainer, BulletGraphic)
         this.damages = new GraphicPool(this.damagesContainer, DamageGraphic)
+        this.particles = new GraphicPool(this.particlesContainer, ParticleGraphic)
 
         this.crtFilter.enabled = true
         this.crtFilter.curvature = 100
@@ -380,6 +426,19 @@ export class PipPipRenderer{
 
         this.game.events.on("addBullet", ({ bullet }) => {
             this.bullets.use(graphic => graphic.setup(bullet))
+
+            // Muzzle flash fires along the bullet's heading. Guard a zero-velocity
+            // bullet so atan2(0,0) doesn't produce a meaningless direction.
+            const vx = bullet.physics.velocity.x
+            const vy = bullet.physics.velocity.y
+            if(vx !== 0 || vy !== 0){
+                emitMuzzleFlash(
+                    this.particleSystem,
+                    bullet.physics.position.x,
+                    bullet.physics.position.y,
+                    Math.atan2(vy, vx),
+                )
+            }
         })
 
         this.game.events.on("removeBullet", ({ bullet }) => {
@@ -387,6 +446,14 @@ export class PipPipRenderer{
             if(typeof graphic !== "undefined"){
                 graphic.bullet = undefined
             }
+
+            emitExplosion(
+                this.particleSystem,
+                bullet.physics.position.x,
+                bullet.physics.position.y,
+                8,
+            )
+            this.shake = mergeShake(this.shake, triggerShake(4, 150))
         })
 
         this.game.events.on("dealDamage", ({ target, damage }) => {
@@ -395,6 +462,23 @@ export class PipPipRenderer{
                 graphic = this.damages.use(g => g.setup(target))
             }
             graphic.add(target, damage)
+
+            emitSparks(
+                this.particleSystem,
+                target.ship.physics.position.x,
+                target.ship.physics.position.y,
+            )
+            this.shake = mergeShake(this.shake, triggerShake(6, 200))
+        })
+
+        this.game.events.on("playerKill", ({ killed }) => {
+            emitExplosion(
+                this.particleSystem,
+                killed.ship.physics.position.x,
+                killed.ship.physics.position.y,
+                28,
+            )
+            this.shake = mergeShake(this.shake, triggerShake(18, 600))
         })
     }
 
@@ -579,6 +663,30 @@ export class PipPipRenderer{
             }
         }
 
+        // update particles: step the pure simulation, recycle every graphic from
+        // the previous frame, then redraw one graphic per live particle.
+        this.particleSystem.update(deltaMs)
+        for(const g of this.particles.active){
+            this.particles.free(g)
+        }
+        this.particleSystem.forEach(p => this.particles.use(g => g.draw(p)))
+
+        // emit thruster trails behind every spawned, moving ship
+        for(const graphic of players){
+            if(!graphic.player.spawned) continue
+            const vx = graphic.player.ship.physics.velocity.x
+            const vy = graphic.player.ship.physics.velocity.y
+            const speed = Math.hypot(vx, vy)
+            if(speed < 1) continue
+            emitThruster(
+                this.particleSystem,
+                graphic.container.position.x,
+                graphic.container.position.y,
+                Math.atan2(vy, vx),
+                speed,
+            )
+        }
+
         // Compute camera
         const cameraDeltaX = (this.camera.target.x - this.camera.position.x) * cameraSmoothing
         const cameraDeltaY = (this.camera.target.y - this.camera.position.y) * cameraSmoothing
@@ -591,9 +699,10 @@ export class PipPipRenderer{
         this.displacementSprite.position.y = this.app.view.height / 2
         // set displacement scale
 
-        // Center viewport
-        this.viewportContainer.position.x = this.app.view.width / 2 - this.camera.position.x
-        this.viewportContainer.position.y = this.app.view.height / 2 - this.camera.position.y
+        // Center viewport (with screen shake offset applied)
+        const shakeOffset = computeShake(this.shake, deltaMs)
+        this.viewportContainer.position.x = this.app.view.width / 2 - this.camera.position.x + shakeOffset.dx
+        this.viewportContainer.position.y = this.app.view.height / 2 - this.camera.position.y + shakeOffset.dy
 
         // Compute stars
         const starMaxDist = this.getViewportRadius()
