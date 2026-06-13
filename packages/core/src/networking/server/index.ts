@@ -124,6 +124,9 @@ export interface Server<
 
     // lobby.ts
     registerLobby: (type: string, options: LobbyTypeOptions, initializer: LobbyInitializer<T, R, P>) => void
-    createLobby: <K extends keyof Server<T, R, P>["lobbyType"]>(type: K, id?: string) => Lobby<T, R, P>
+    createLobby: <K extends keyof Server<T, R, P>["lobbyType"]>(type: K, id?: string, options?: Record<string, unknown>) => Lobby<T, R, P>
     removeLobby: (lobby: Lobby<T, R, P>) => void
+
+    // optional public-lobby listing hook, populated by the game server (see routes.ts)
+    getPublicLobbies?: () => unknown[]
 }

@@ -21,3 +21,13 @@ export type ConnectionLobbyJSON = {
     lobby: LobbyJSON,
     connection: ConnectionJSON,
 }
+
+export type PublicLobbyJSON = {
+    lobbyId: string,
+    lobbyName: string,
+    mapLabel: string,
+    hostName: string,
+    playerCount: number,
+    maxPlayers: number,
+    createdAt: number,
+}

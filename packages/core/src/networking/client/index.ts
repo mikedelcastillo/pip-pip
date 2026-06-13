@@ -3,7 +3,7 @@ import { WebSocket as NodeWebSocket } from "ws"
 
 import { SERVER_DEFAULT_BASE_ROUTE, SERVER_DEFAULT_HEADER_KEY, SERVER_DEFAULT_MAX_PING } from "../../lib/constants"
 import { ClientPacketManagerEventMap, PacketManager, PacketManagerSerializerMap } from "../packets/manager"
-import { ConnectionJSON, ConnectionLobbyJSON, LobbyJSON } from "../api/types"
+import { ConnectionJSON, ConnectionLobbyJSON, LobbyJSON, PublicLobbyJSON } from "../api/types"
 import { ServerSerializerMap } from "../packets/server"
 import { initializeWebSockets } from "./websockets"
 import { EventEmitter } from "../../common/events"
@@ -100,7 +100,8 @@ export interface Client<T extends PacketManagerSerializerMap>{
     requestConnectionIfNeeded: () => Promise<ConnectionJSON>
     verifyConnection: () => Promise<ConnectionJSON>
 
-    createLobby: (type: string) => Promise<LobbyJSON>
+    createLobby: (type: string, options?: Record<string, unknown>) => Promise<LobbyJSON>
+    listPublicLobbies: () => Promise<PublicLobbyJSON[]>
     joinLobby: (id: string) => Promise<ConnectionLobbyJSON>
     getClientLobby: () => Promise<ConnectionLobbyJSON>
     leaveLobby: () => Promise<ConnectionLobbyJSON>

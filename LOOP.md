@@ -87,7 +87,7 @@ Maps:
 - [ ] New maps + new backgrounds/themes; map selection screen (over existing `setMap`).
 
 Networking / lobbies / multiplayer:
-- [ ] Public-lobby foundation: lobby metadata + implement `GET /lobbies` listing. *(blueprint ready)*
+- [x] **Public-lobby foundation** — lobby metadata + `GET /lobbies` listing + create-with-options + `client.listPublicLobbies()`. (#9)
 - [ ] Hosting settings screen (name, public/private, map, max players).
 - [ ] Share-to-public toggle for hosts.
 - [ ] Homepage "Join public match" button + public match browser screen.
@@ -187,4 +187,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 5  | `17539f0`   | Fix player damage misses (lag-comp + swept collision) | `git revert 17539f0`|
 | 6  | `95aa379`   | Particle refinement: wall bounce, pixel squares, local-only shake | `git revert 95aa379`|
 | 7  | `72d7b18`   | Procedural Web-Audio SFX system + mute toggle | `git revert 72d7b18`|
-| 8  | (latest)    | chore: stop tracking compiled .js.map in client src | `git revert <sha>`|
+| 8  | `f1f5b01`   | chore: stop tracking compiled .js.map in client src | `git revert f1f5b01`|
+| 9  | (latest)    | Public-lobby foundation (metadata + GET /lobbies + create opts) | `git revert <sha>`|

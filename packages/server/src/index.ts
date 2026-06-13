@@ -14,6 +14,7 @@ import { processLobbyPackets } from "./connection-in"
 
 import { PING_REFRESH } from "@pip-pip/game/src/logic/constants"
 import { getServerPort } from "@pip-pip/core/src/lib/server-env"
+import { getPublicLobbies } from "./public-lobbies"
 
 type GamePacketManagerSerializerMap = ExtractSerializerMap<typeof packetManager>
 
@@ -23,6 +24,19 @@ type GameConnectionLocals = {
 
 type GameLobbyLocals = {
     players: string[],
+    lobbyName: string,
+    isPublic: boolean,
+    mapLabel: string,
+    hostName: string,
+    maxPlayers: number,
+    createdAt: number,
+}
+
+export type LobbyCreationOptions = {
+    lobbyName?: string,
+    isPublic?: boolean,
+    mapLabel?: string,
+    maxPlayers?: number,
 }
 
 export type PipPipServer = Server<GamePacketManagerSerializerMap, GameConnectionLocals, GameLobbyLocals>
@@ -72,6 +86,34 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
         triggerDamage: true,
         considerPlayerPing: true,
         setScores: true,
+    })
+
+    // Fill in lobby metadata defaults for any field a caller did not seed via
+    // createLobby options (which were already Object.assign'd onto locals).
+    const requestedMaxPlayers = lobby.locals.maxPlayers
+    const typeMax = lobby.typeOptions.maxConnections
+    lobby.locals.players ??= []
+    lobby.locals.createdAt ??= Date.now()
+    lobby.locals.lobbyName ??= lobby.id
+    lobby.locals.isPublic ??= false
+    lobby.locals.mapLabel ??= game.mapType?.name ?? "Unknown"
+    lobby.locals.hostName ??= "Unknown"
+    lobby.locals.maxPlayers = Math.min(requestedMaxPlayers ?? typeMax, typeMax)
+
+    // Keep the players list and host name in sync with the connections.
+    lobby.events.on("addConnection", ({ connection }) => {
+        const name = connection.locals.name ?? connection.id
+        if(!lobby.locals.players.includes(name)){
+            lobby.locals.players.push(name)
+        }
+        if(Object.keys(lobby.connections).length === 1 || lobby.locals.hostName === "Unknown"){
+            lobby.locals.hostName = name
+        }
+    })
+
+    lobby.events.on("removeConnection", ({ connection }) => {
+        const name = connection.locals.name ?? connection.id
+        lobby.locals.players = lobby.locals.players.filter(player => player !== name)
     })
 
     const lobbyEvents = new EventCollector(lobby.events)
@@ -131,6 +173,10 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
     debugTick.startTick()
     updateTick.startTick()
 })
+
+// Expose the public-lobby listing to core's GET /lobbies route. Core cannot
+// import from @pip-pip/server, so it calls this optional hook instead.
+server.getPublicLobbies = () => getPublicLobbies(server.lobbies)
 
 async function run(){
     await server.start()

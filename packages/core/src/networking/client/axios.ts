@@ -1,6 +1,6 @@
 import axios from "axios"
 
-import { ConnectionJSON, ConnectionLobbyJSON, LobbyJSON } from "../api/types"
+import { ConnectionJSON, ConnectionLobbyJSON, LobbyJSON, PublicLobbyJSON } from "../api/types"
 import { PacketManagerSerializerMap } from "../packets/manager"
 import { Client } from "."
 
@@ -60,8 +60,13 @@ export function initializeAxios<T extends PacketManagerSerializerMap>(client: Cl
         return output
     }
 
-    client.createLobby = async (type: string) => {
-        const { data } = await client.api.post<LobbyJSON>("/lobbies", { type })
+    client.createLobby = async (type: string, options?: Record<string, unknown>) => {
+        const { data } = await client.api.post<LobbyJSON>("/lobbies", { type, options })
+        return data
+    }
+
+    client.listPublicLobbies = async () => {
+        const { data } = await client.api.get<PublicLobbyJSON[]>("/lobbies")
         return data
     }
 

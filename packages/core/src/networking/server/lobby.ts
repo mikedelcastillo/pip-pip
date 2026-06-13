@@ -15,7 +15,7 @@ export function initializeLobbyMethods<
         }
     }
 
-    server.createLobby = <K extends keyof Server<T, R, P>["lobbyType"]>(type: K, id?: string) => {
+    server.createLobby = <K extends keyof Server<T, R, P>["lobbyType"]>(type: K, id?: string, options?: Record<string, unknown>) => {
         if(!(type in server.lobbyType)) throw new Error(`Lobby type "${type}" does not exist.`)
 
         const lobbyType = server.lobbyType[type]
@@ -28,8 +28,15 @@ export function initializeLobbyMethods<
             if(lobby.type === type) instanceCount++
         }
         if(instanceCount >= lobbyType.options.maxInstances) throw new Error(`Max instances of lobby type "${type}" reached.`)
-     
+
         const lobby = new Lobby(server, type)
+
+        // Seed any caller-provided metadata onto the lobby locals before the
+        // type initializer runs, so the initializer can read/normalize them.
+        if(typeof options === "object" && options !== null){
+            Object.assign(lobby.locals, options)
+        }
+
         lobbyType.initializer({
             lobby,
             server: server,

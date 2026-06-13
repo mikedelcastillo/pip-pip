@@ -87,8 +87,8 @@ export function initializeRoutes<
     }))
 
     // Get available lobbies
-    router.get("/lobbies", server.routerAuthMiddleware, asyncHandler(async () => {
-        throw createHttpError(400, "Not yet implemented.")
+    router.get("/lobbies", server.routerAuthMiddleware, asyncHandler(async (req: Request, res: Response) => {
+        res.json(typeof server.getPublicLobbies === "function" ? server.getPublicLobbies() : [])
     }))
 
     // Create lobby
@@ -102,7 +102,11 @@ export function initializeRoutes<
         const lobbyType = server.lobbyType[type]
         if(lobbyType.options.userCreatable === false) throw createHttpError(401, "Lobby cannot be created.")
 
-        const lobby = server.createLobby(type)
+        const options = typeof req.body.options === "object" && req.body.options !== null
+            ? req.body.options as Record<string, unknown>
+            : undefined
+
+        const lobby = server.createLobby(type, undefined, options)
 
         res.json(lobby.toJson())
     }))
