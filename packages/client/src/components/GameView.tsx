@@ -6,6 +6,7 @@ import GameOverlaySetup from "./GameOverlaySetup"
 import GameOverlayCountdown from "./GameOverlayCountdown"
 import GameOverlayMatch from "./GameOverlayMatch"
 import TouchControls from "./TouchControls"
+import DebugOverlay from "./DebugOverlay"
 
 export default function GameView() {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -27,6 +28,9 @@ export default function GameView() {
         {/* Twin-stick touch overlay during live play. Self-hides on desktop
             (mouse/keyboard) so it never covers mouse-aim. */}
         {phase === PipPipGamePhase.MATCH && <TouchControls />}
+        {/* Netcode/entity debug panel — hidden by default, toggled with the
+            backquote (`) key. Always mounted so it is reachable in any phase. */}
+        <DebugOverlay />
         <div id="game-container" ref={containerRef}></div>
     </>
 }

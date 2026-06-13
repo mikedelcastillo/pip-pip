@@ -105,7 +105,7 @@ UI / UX:
 - [ ] Surface ping in the in-match HUD / player stats (ping already shows in the player list; show the local player's ping in the HUD too).
 - [x] **Slash-command autocomplete** — suggestion list as you type `/`, Arrow/Tab/Enter/click to complete. (#23)
 - [x] **Improved players screen** — ship icons, ping color-coding, you/host chips, K/D, sorting, on-brand panel. (#22)
-- [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
+- [x] **Debug overlay** — backquote-toggled panel: tick/phase/map/players/bullets, fps/tps, local prediction (pos/vel/renderError/predicted/snapshots), per-remote ping. 4Hz, no per-frame churn. (#31)
 - [ ] a11y: form inputs (`GameInput` / join-code box) are missing `id`/`name` — add them (flagged by the production smoke test).
 - [ ] Remove the now-redundant `body { background-image: url(/bg.png) }` in global.sass (HomeBackground renders the bg now; prod still fetches the old static bg.png harmlessly).
 - [x] **Mobile twin-stick touch controls** — left stick moves, right stick aims+fires, Tac/Reload buttons; touch-only (coarse pointer), merged into processInputs without affecting desktop; pure stick math unit-tested. (#30)
@@ -253,4 +253,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 27 | `ce782c8`   | chore: untrack src-root .js.map + ignore previews | `git revert ce782c8`|
 | 28 | `fcfa691`   | Grenade AoE weapon (Djibouti tactical)            | `git revert fcfa691`|
 | 29 | `7d5d44f`   | In-game HUD revamp + host Stop-Game control       | `git revert 7d5d44f`|
-| 30 | (latest)    | Mobile twin-stick touch controls                  | `git revert <sha>`  |
+| 30 | `4331f35`   | Mobile twin-stick touch controls                  | `git revert 4331f35`|
+| 31 | (latest)    | Debug overlay (entities/multiplayer state)        | `git revert <sha>`  |

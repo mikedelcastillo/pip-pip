@@ -1,0 +1,80 @@
+@import "../styles/variables"
+
+// Top-left, semi-transparent debug panel. Sits above the HUD but never steals
+// pointer events so it can't interfere with normal play. Toggled by the
+// backquote key (see DebugOverlay.tsx).
+.root
+    position: fixed
+    top: $screen-margin-static
+    left: $screen-margin-static
+    z-index: 1000
+    pointer-events: none
+    user-select: none
+    min-width: 16em
+    max-width: 24em
+    max-height: 80vh
+    overflow-y: auto
+    padding: $text-padding-y $text-padding-x
+    font-family: $font-family-game
+    font-size: 18px
+    line-height: 1.2
+    color: $color-text
+    background-color: transparentize($color-dark-1, 0.2)
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+
+.title
+    color: $color-accent
+    letter-spacing: 0.08em
+    text-transform: uppercase
+    margin-bottom: 0.2em
+
+.heading
+    color: $color-main
+    letter-spacing: 0.06em
+    text-transform: uppercase
+    margin-top: 0.4em
+    border-top: $border-size solid $color-border
+    padding-top: 0.2em
+
+.section
+    display: flex
+    flex-direction: column
+
+.row
+    display: flex
+    justify-content: space-between
+    gap: 1em
+
+.label
+    color: $color-accent
+    opacity: 0.8
+
+.value
+    color: $color-text
+    text-align: right
+
+.muted
+    opacity: 0.5
+
+.remote
+    display: flex
+    gap: 0.6em
+    align-items: baseline
+
+.remoteId
+    color: $color-main
+    min-width: 1.6em
+
+.remoteName
+    flex: 1
+    overflow: hidden
+    text-overflow: ellipsis
+    white-space: nowrap
+
+.alive
+    color: $color-main
+
+.dead
+    color: $color-accent
+    opacity: 0.7
