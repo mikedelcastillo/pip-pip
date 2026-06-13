@@ -1,6 +1,6 @@
 import { EventEmitter } from "@pip-pip/core/src/common/events"
-import { PointPhysicsWorld, Vector2 } from "@pip-pip/core/src/physics"
-import { distanceBetweenSegments, nearestPointFromSegment, radianDifference } from "@pip-pip/core/src/math"
+import { PointPhysicsWorld, Vector2, airResistanceMultiplier, limitSpeed, WALL_RESOLVE_ITERATIONS } from "@pip-pip/core/src/physics"
+import { distanceBetweenSegments, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool } from "./bullet"
 import { PipPlayer, PlayerInputs } from "./player"
@@ -423,11 +423,11 @@ export class PipPipGame{
     }
 
     // Advance ONLY the local player's kinematics by one tick for the given
-    // input. Reproduces the server's per-tick order exactly: accelerate →
-    // damp (air resistance) → clamp speed → integrate → world-bounds bounce.
-    // Wall collisions are deliberately not replayed (the render-error offset
-    // absorbs the small divergence when a ship is pressed against a wall).
-    // dt is fixed at 1 (never the Date.now()-derived ticker delta).
+    // input, reproducing the server's per-tick order exactly: accelerate →
+    // damp (air resistance) → clamp speed → integrate → resolve walls →
+    // world-bounds bounce. It shares the air-resistance, speed-clamp and wall
+    // resolver (and its iteration count) with the authoritative world step so
+    // the two cannot drift. dt is fixed at 1 (never the Date.now() ticker delta).
     stepLocalPlayer(player: PipPlayer, inputs: PlayerInputs, dt = 1){
         const phys = player.ship.physics
 
@@ -435,65 +435,24 @@ export class PipPipGame{
         phys.velocity.x += accel.x
         phys.velocity.y += accel.y
 
-        const airResistance = Math.pow(1 - phys.airResistance, dt)
+        const airResistance = airResistanceMultiplier(phys.airResistance, dt)
         phys.velocity.x *= airResistance
         phys.velocity.y *= airResistance
 
-        const maxVelocity = this.physics.options.maxVelocity
-        const speed = Math.min(maxVelocity, Math.sqrt(phys.velocity.x * phys.velocity.x + phys.velocity.y * phys.velocity.y))
-        const angle = Math.atan2(phys.velocity.y, phys.velocity.x)
-        phys.velocity.x = Math.cos(angle) * speed
-        phys.velocity.y = Math.sin(angle) * speed
+        const limited = limitSpeed(phys.velocity.x, phys.velocity.y, this.physics.options.maxVelocity)
+        phys.velocity.x = limited.x
+        phys.velocity.y = limited.y
 
         phys.position.x += phys.velocity.x * dt
         phys.position.y += phys.velocity.y * dt
 
-        // Push the ship back out of walls so the replay stops at a wall the way
-        // the authoritative sim does, instead of tunnelling through it (which
-        // is what made the local player rubber-band on contact).
-        this.resolvePlayerWalls(player)
+        // Resolve walls with the SAME resolver and iteration count as the
+        // authoritative world step, so the replay stops at walls exactly as the
+        // server does (this is what fully removes the wall rubber-band).
+        for(let iteration = 0; iteration < WALL_RESOLVE_ITERATIONS; iteration++){
+            this.physics.resolveWallCollisions(phys)
+        }
         this.applyMapBounds(player)
-    }
-
-    // Approximate static-wall push-out for a single ship, used by the
-    // client-side replay (stepLocalPlayer). It only needs to keep the ship
-    // outside walls; the small difference from the full physics resolution is
-    // absorbed by the render-error smoothing.
-    resolvePlayerWalls(player: PipPlayer){
-        const phys = player.ship.physics
-        const r = phys.radius
-
-        for(const segWall of Object.values(this.physics.segWalls)){
-            const near = nearestPointFromSegment(
-                segWall.start.x, segWall.start.y,
-                segWall.end.x, segWall.end.y,
-                phys.position.x, phys.position.y,
-            )
-            const dx = phys.position.x - near.x
-            const dy = phys.position.y - near.y
-            const dist = Math.max(0.0001, Math.sqrt(dx * dx + dy * dy))
-            const minDist = r + segWall.radius
-            if(dist < minDist){
-                const push = (minDist - dist) / dist
-                phys.position.x += dx * push
-                phys.position.y += dy * push
-            }
-        }
-
-        for(const rectWall of Object.values(this.physics.rectWalls)){
-            const halfW = rectWall.width / 2
-            const halfH = rectWall.height / 2
-            const nearestX = Math.max(rectWall.center.x - halfW, Math.min(rectWall.center.x + halfW, phys.position.x))
-            const nearestY = Math.max(rectWall.center.y - halfH, Math.min(rectWall.center.y + halfH, phys.position.y))
-            const dx = phys.position.x - nearestX
-            const dy = phys.position.y - nearestY
-            const dist = Math.sqrt(dx * dx + dy * dy)
-            if(dist > 0.0001 && dist < r){
-                const push = (r - dist) / dist
-                phys.position.x += dx * push
-                phys.position.y += dy * push
-            }
-        }
     }
 
     applyMapBounds(player: PipPlayer){

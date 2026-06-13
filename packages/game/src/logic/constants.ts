@@ -25,7 +25,3 @@ export const SERVER_INPUT_QUEUE_MAX = 6
 // Render remote players this many ticks in the past so there are always two
 // bracketing snapshots to interpolate between.
 export const INTERP_DELAY_TICKS = 2
-
-// Collision channel used to make ships pass through each other (they still
-// collide with walls). Both ships carry and exclude this channel.
-export const SHIP_COLLISION_CHANNEL = 1
