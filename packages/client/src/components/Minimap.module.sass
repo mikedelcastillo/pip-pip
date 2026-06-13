@@ -1,0 +1,43 @@
+@import "../styles/variables"
+
+// Minimap / radar pinned to the free top-left corner of the match HUD. Never
+// steals pointer events so it can't block the canvas underneath. On-brand panel
+// chrome matching the combat HUD and debug overlay.
+.minimap
+    position: absolute
+    top: $screen-margin-dynamic
+    left: $screen-margin-dynamic
+    z-index: 10
+    display: inline-flex
+    flex-direction: column
+    gap: 0.2em
+    padding: 0.4em
+    background-color: transparentize($color-dark-2, 0.2)
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    pointer-events: none
+    user-select: none
+
+.label
+    font-size: clamp(11px, 3vw, 14px)
+    line-height: 1
+    color: $color-accent
+    text-transform: uppercase
+    letter-spacing: 0.08em
+
+.canvas
+    display: block
+    border-radius: calc(#{$border-radius} - 2px)
+    image-rendering: pixelated
+
+// Phones (~480px and below): shrink the radar so it stays clear of the chat,
+// which moves to the top-left area at this width (see GameOverlayMatch.module.sass).
+@media (max-width: 480px)
+    .canvas
+        width: 96px !important
+        height: 96px !important
+
+// Very small / short screens: hide entirely so it never crowds the action.
+@media (max-width: 360px), (max-height: 420px)
+    .minimap
+        display: none

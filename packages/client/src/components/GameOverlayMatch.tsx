@@ -6,6 +6,7 @@ import GameButton from "./GameButton"
 import AudioVolumeToggle from "./AudioVolumeToggle"
 import HostControls from "./HostControls"
 import KillFeed from "./KillFeed"
+import Minimap from "./Minimap"
 import styles from "./GameOverlayMatch.module.sass"
 
 export default function GameOverlayMatch() {
@@ -29,6 +30,9 @@ export default function GameOverlayMatch() {
 
     return (
         <div className="game-overlay">
+            {/* Minimap / radar in the free top-left corner. */}
+            <Minimap />
+
             {/* Top-right control cluster: SFX, and host menu when host. */}
             <div className={styles.controls}>
                 <AudioVolumeToggle className={styles.controlButton} />
