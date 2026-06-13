@@ -1,0 +1,44 @@
+@import "../styles/variables"
+
+.section
+    padding-bottom: 1em
+    &:last-child
+        padding-bottom: 0
+
+    .sectionTitle
+        color: $color-accent
+        line-height: 1
+        padding-bottom: 0.3em
+
+.volumeRow
+    display: flex
+    align-items: center
+    gap: 0.6em
+    padding-bottom: 0.5em
+
+    .slider
+        flex-grow: 1
+        accent-color: $color-main
+        cursor: pointer
+
+    .volumeValue
+        flex-shrink: 0
+        min-width: 2.5em
+        text-align: right
+        color: $color-main
+
+.controls
+    display: grid
+    gap: 0.1em
+
+    .controlRow
+        display: flex
+        justify-content: space-between
+        gap: 1em
+
+        .controlAction
+            color: $color-text
+
+        .controlKeys
+            color: $color-main
+            text-align: right

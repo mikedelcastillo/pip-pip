@@ -97,7 +97,7 @@ Networking / lobbies / multiplayer:
 
 UI / UX:
 - [ ] Character selection screen (UI over existing `setShip`; ships are named after the dev's birds).
-- [ ] Homepage Settings content + Credits (dev **Mike Del Castillo**, art **Meg Del Castillo**).
+- [x] **Homepage Settings + Credits** — volume + controls reference panel; credits (dev Mike Del Castillo, art Meg Del Castillo) + lore. (#10)
 - [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
@@ -188,4 +188,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 6  | `95aa379`   | Particle refinement: wall bounce, pixel squares, local-only shake | `git revert 95aa379`|
 | 7  | `72d7b18`   | Procedural Web-Audio SFX system + mute toggle | `git revert 72d7b18`|
 | 8  | `f1f5b01`   | chore: stop tracking compiled .js.map in client src | `git revert f1f5b01`|
-| 9  | (latest)    | Public-lobby foundation (metadata + GET /lobbies + create opts) | `git revert <sha>`|
+| 9  | `b94a9de`   | Public-lobby foundation (metadata + GET /lobbies + create opts) | `git revert b94a9de`|
+| 10 | (latest)    | Homepage Settings + Credits modals                | `git revert <sha>`  |
