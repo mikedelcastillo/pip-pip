@@ -124,7 +124,7 @@ Verified, prioritized. `[x]` = fixed and shipped.
 - [x] **H3 (high)** WS connection cap (`clients.values.length`→`clients.size`; `throw`→`return`) — fixed. (#12)
 - [x] **H4 (high)** `routerAuthMiddleware` double `next()` on 401 — fixed with `return next(err)`. (#12)
 - [ ] **H5/H7** ping-timeout resolves as a real ~maxPing measurement (poisons lag comp); score kills/deaths are `$uint8` (wrap at 256).
-- [ ] **M1** No finite/range validation on incoming `playerInputs` → a crafted `NaN` poisons other clients' sim.
+- [x] **M1** Sanitize incoming `playerInputs` floats (finite + clamp amount + wrap angles) before queueing — fixed + test. (#13)
 - [ ] **M2** Map bounds ignore `wall_segments`; empty/segment-only maps get inverted bounds.
 - [ ] **M5/M6** `$quant16` can't represent exact 0 (asymmetric); `$string` pads by char not byte.
 - [ ] **misc** EventEmitter `destroy()` doesn't clear `subscribers`; `BulletGraphic.cleanUp` keeps stale trail; 20Hz debug `console.log` spam; dead/typo cleanups (`SHIP_DAIMETER`, `normalizeToPositiveRadians`, etc.).
@@ -191,4 +191,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 9  | `b94a9de`   | Public-lobby foundation (metadata + GET /lobbies + create opts) | `git revert b94a9de`|
 | 10 | `7b04254`   | Homepage Settings + Credits modals                | `git revert 7b04254`|
 | 11 | `bbb52bb`   | Fix physics collision relative-velocity sign (H1) | `git revert bbb52bb`|
-| 12 | (latest)    | Harden server: WS connection cap + auth short-circuit (H3/H4) | `git revert <sha>`|
+| 12 | `dd89c90`   | Harden server: WS connection cap + auth short-circuit (H3/H4) | `git revert dd89c90`|
+| 13 | (latest)    | Sanitize hostile player inputs (M1)               | `git revert <sha>`  |

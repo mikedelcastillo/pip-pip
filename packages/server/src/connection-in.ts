@@ -2,6 +2,7 @@ import { PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { sanitize } from "@pip-pip/game/src/logic/utils"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
 import { GameTickContext } from "."
+import { sanitizePlayerInputs } from "./input-sanitize"
 
 export function processLobbyPackets(context: GameTickContext){
     const { game, lobbyEvents } = context
@@ -77,10 +78,12 @@ export function processLobbyPackets(context: GameTickContext){
         for(const inputs of packets.playerInputs || []){
             const player = game.players[connection.id]
             if(typeof player !== "undefined"){
+                // Drop/clamp hostile non-finite floats before they reach the sim.
+                const safe = sanitizePlayerInputs(inputs)
                 player.pushInputFrame(inputs.inputSeq, {
-                    movementAngle: inputs.movementAngle,
-                    movementAmount: inputs.movementAmount,
-                    aimRotation: inputs.aimRotation,
+                    movementAngle: safe.movementAngle,
+                    movementAmount: safe.movementAmount,
+                    aimRotation: safe.aimRotation,
                     useWeapon: inputs.useWeapon,
                     useTactical: inputs.useTactical,
                     doReload: inputs.doReload,
