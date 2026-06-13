@@ -101,7 +101,7 @@ UI / UX:
 - [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
 - [ ] Surface ping in the in-match HUD / player stats (ping already shows in the player list; show the local player's ping in the HUD too).
 - [ ] Slash-command autocomplete in the chat input (suggest matching `/commands` as you type; Tab to complete).
-- [ ] Improve the players screen (`GamePlayerList`) — layout/readability/branding (e.g. ship icon, ping color-coding, host/you tags, sorting).
+- [x] **Improved players screen** — ship icons, ping color-coding, you/host chips, K/D, sorting, on-brand panel. (#22)
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
 - [ ] Full mobile support: twin on-screen thumbsticks (left=move, right=aim) + fire/tactical/reload buttons.
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
@@ -221,4 +221,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 18 | `5a50d96`   | AI training-grounds bots (host commands + brain)  | `git revert 5a50d96`|
 | 19 | `02e0c65`   | Audit fixes: score widths (H7) + map bounds (M2)  | `git revert 02e0c65`|
 | 20 | `3e8899a`   | Public matches: hosting settings + browser + join | `git revert 3e8899a`|
-| 21 | (latest)    | Register /bot commands in slash help (+reachable) | `git revert <sha>`  |
+| 21 | `a3ba1c3`   | Register /bot commands in slash help (+reachable) | `git revert a3ba1c3`|
+| 22 | (latest)    | Improved players screen (scoreboard)              | `git revert <sha>`  |

@@ -1,53 +1,114 @@
 @import "../styles/variables"
 
 .playerList
+    font-family: $font-family-game
     font-size: 1.4em
+    width: 100%
+
     table
         width: 100%
-        max-width: 30em
+        max-width: 34em
         margin: auto
         border-collapse: collapse
-        td
+        background-color: $color-dark-2
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        overflow: hidden
+
+        td, th
+            padding: 0.2em 0.5em
+            line-height: 1.2
+
+        // Numeric stat columns: tight, centered, fixed-ish widths.
+        td, th
+            &.ping
+                text-align: right
+                width: 4.5em
+            &.kills, &.deaths, &.kd, &.damage
+                text-align: center
+            &.kills, &.deaths, &.kd
+                width: 2.5em
+            &.damage
+                width: 4em
+            &.ship
+                width: 2.4em
+                text-align: center
+            &.name
+                text-align: left
+                width: auto
+
+        td.name
             white-space: nowrap
             text-overflow: ellipsis
             overflow: hidden
-        td, th
-            padding: 0.2em 0.5em
-            &.ping
-                text-align: right
-                width: 3em
-            &.damage, &.kills, &.deaths, &.wins
-                text-align: center
-                width: 2em
-            &.name, &.ship
-                text-align: left
-            &.ship
-                max-width: 2em
-            &.name
-                max-width: 5em
-        tr.rowHeader
-            color: $color-main
-        tr.rowPlayer
-            border-top: 1px solid rgba(255, 255, 255, 0.1)
-            &.idle *
-                color: rgba(255, 255, 255, 0.5) !important
-            &.client
+            max-width: 1px
+
+    thead tr.rowHeader
+        color: $color-main
+        text-transform: uppercase
+        letter-spacing: 0.05em
+        background-color: $color-dark-3
+        th
+            font-weight: normal
+            border-bottom: $border-size solid $color-border
+
+    tbody tr.rowPlayer
+        border-top: 1px solid transparentize($color-text, 0.92)
+
+        // Zebra striping using the dark color variants.
+        &:nth-child(even)
+            background-color: transparentize($color-dark-3, 0.55)
+
+        td.ship
+            .shipIcon
+                width: 1.6em
+                height: 1.6em
+                object-fit: contain
+                image-rendering: pixelated
+                vertical-align: middle
+
+        td.name
+            .text
+                vertical-align: middle
+                display: inline-block
+            .tag
+                vertical-align: middle
+                display: inline-block
+                margin-left: 0.4em
+                font-size: 0.6em
+                text-transform: uppercase
+                letter-spacing: 0.05em
+                padding: 0.15em 0.4em
+                border-radius: $border-radius
+                line-height: 1em
+                color: $color-text
+                background-color: transparentize($color-main, 0.4)
+                &.you
+                    background-color: transparentize($color-accent, 0.3)
+
+        // Color-coded ping by latency band.
+        td.ping
+            &.pingGood
+                color: $color-good
+            &.pingOkay
+                color: $color-main
+            &.pingBad
+                color: $color-bad
+
+        td.kd
+            color: transparentize($color-text, 0.25)
+
+        // The local client's own row stands out subtly.
+        &.client
+            background-color: transparentize($color-accent, 0.78)
+            td.name .text
                 color: $color-accent
 
-            td.name
-                .text
-                    vertical-align: middle
-                    display: inline-block
-                .tag
-                    vertical-align: middle
-                    display: inline-block
-                    margin-left: 0.4em
-                    font-size: 0.7em
-                    text-transform: uppercase
-                    padding: 0.025em 0.2em
-                    border-radius: 3px
-                    line-height: 1em
-                    color: white
-                    background-color: transparentize($color-main, 0.5)
-                    &.you
-                        background-color: transparentize($color-accent, 0.5)
+        // Idle / disconnected players are dimmed.
+        &.idle
+            td
+                color: transparentize($color-text, 0.6)
+            td.ping
+                color: $color-bad
+            .shipIcon
+                opacity: 0.4
