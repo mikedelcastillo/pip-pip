@@ -6,6 +6,7 @@ import SettingsModal from "../components/SettingsModal"
 import CreditsModal from "../components/CreditsModal"
 import HostSettingsModal from "../components/HostSettingsModal"
 import PublicMatchBrowser from "../components/PublicMatchBrowser"
+import HomeBackground from "../components/HomeBackground"
 import logoUrl from "../assets/logo.png"
 import styles from "./Index.module.sass"
 
@@ -23,7 +24,8 @@ export default function Index() {
 
     return (
         <div className="center-container">
-            <div className="content-container">
+            <HomeBackground />
+            <div className={`content-container ${styles.content}`}>
                 <div className={styles.header}>
                     <img className={styles.logo} src={logoUrl} />
                     <div className={styles.caption}>ALPHA by Meg&amp;Mike</div>

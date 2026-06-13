@@ -111,7 +111,7 @@ UI / UX:
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
 
 Art / assets (use the pixel-mcp Aseprite workflow → export → map):
-- [ ] Animated homepage background: recreate Meg's current homepage bg as pixel art in Aseprite, animate it (drifting space clouds + sparkling stars, gentle marquee parallax), export frames/spritesheet, and use it as the homepage background. *(needs a focused turn; look at the current bg first)*
+- [x] **Animated homepage background** — recreated Meg's `public/bg.png` as a 256×256 tileable Aseprite master (`assets/homepage-bg.aseprite`, 12-frame twinkle loop) via pixel-mcp, exported to `src/assets/art`, mapped in `src/assets/sprites.ts` (feeds the Pixi "art" bundle), integrated as a responsive parallax bg (reduced-motion aware). (#26)
 
 ## Design north-star & lore (from the author)
 
@@ -145,6 +145,13 @@ Verified, prioritized. `[x]` = fixed and shipped.
 
 ## Decision log
 
+- **D9 — the asset workflow is now real (pixel-mcp/Aseprite).** Exercised the author's
+  requested pipeline for the homepage bg: Aseprite master under repo-root `assets/`
+  (`*.aseprite`) → export PNGs to `packages/client/src/assets/art/` → register in
+  `packages/client/src/assets/sprites.ts` (single source of truth for art URLs) which
+  feeds both the React/CSS layer and the Pixi `"art"` bundle in `game/assets.ts`. pixel-mcp
+  works in this environment. Commit the master + the USED exports; skip review-only
+  previews. Use this same flow for future art.
 - **D8 — production smoke-testing runs in the loop.** Production is
   https://pippip.mikedc.io and `main` AUTO-DEPLOYS there — a smoke test confirmed the
   session's commits are already live. A read-only browser smoke-test subagent runs
@@ -239,4 +246,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 22 | `ae4f6ee`   | Improved players screen (scoreboard)              | `git revert ae4f6ee`|
 | 23 | `2c09b70`   | Slash-command autocomplete in chat                | `git revert 2c09b70`|
 | 24 | `df27462`   | docs(loop): production verification + cadence     | `git revert df27462`|
-| 25 | (latest)    | Map selection screen (lobby Map tab)              | `git revert <sha>`  |
+| 25 | `e1559ed`   | Map selection screen (lobby Map tab)              | `git revert e1559ed`|
+| 26 | (latest)    | Animated pixel-art homepage background            | `git revert <sha>`  |

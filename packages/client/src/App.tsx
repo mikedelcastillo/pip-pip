@@ -18,6 +18,7 @@ export default function App() {
                     "ui",
                     "ships",
                     "misc",
+                    "art",
                 ], (progress: number) => {
                     setLoading(true, `Downloaded ${Math.floor(progress * 100)}% of assets...`)
                 })

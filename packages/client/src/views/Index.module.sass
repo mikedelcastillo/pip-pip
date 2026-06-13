@@ -7,10 +7,21 @@
     to
         transform: rotate($deg)
 
+// Keep the menu above the fixed animated background (z-index 0) and give it a
+// little breathing room on small screens so the logo never overflows.
+.content
+    z-index: 1
+    padding: $screen-margin-static
+    max-width: 100vw
+
 .header
     padding-bottom: 2em
     animation: wobble 1.5s infinite alternate ease-in-out
     .logo
+        // Scale with the viewport on small screens, but never blow up past the
+        // logo's natural size on desktop.
+        width: min(320px, 70vw)
+        max-width: 100%
         height: auto
     .caption
         margin-top: -0.5em

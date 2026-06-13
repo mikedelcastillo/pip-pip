@@ -79,3 +79,10 @@ assetLoader.addBundle("misc", {
     tile_default,
     tile_hidden,
 })
+
+// Authored pixel-art sprites (see ../assets/sprites.ts). The "art" bundle is
+// fed from that registry so the homepage background art is preloaded by Pixi's
+// asset loader alongside the rest of the game assets.
+import { artSprites } from "../assets/sprites"
+
+assetLoader.addBundle("art", artSprites)
