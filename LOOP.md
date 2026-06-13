@@ -101,12 +101,13 @@ UI / UX:
 - [x] **Character selection screen** — ship picker tab in the lobby SETUP overlay (sprite + stats, live highlight), over the existing setShip/`/ship` path. (#17)
 - [x] **Homepage Settings + Credits** — volume + controls reference panel; credits (dev Mike Del Castillo, art Meg Del Castillo) + lore. (#10)
 - [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
-- [ ] **Revamp the in-game HUD** — mobile-friendly + less cluttered; surface hosting settings IN-GAME (during a match, not just SETUP); add a host "Stop Game" control (there is a `/stop` command; needs a button). Pairs with mobile twin-stick controls.
+- [x] **Revamp the in-game HUD** — decluttered + mobile-responsive MATCH HUD (HP/ammo bars + ping, collapsible chat, control cluster); host-only "Stop Game" control (→ lobby where settings live). (#29) *(full in-match settings editing still needs runtime lobby-metadata updates — open.)*
 - [ ] Surface ping in the in-match HUD / player stats (ping already shows in the player list; show the local player's ping in the HUD too).
 - [x] **Slash-command autocomplete** — suggestion list as you type `/`, Arrow/Tab/Enter/click to complete. (#23)
 - [x] **Improved players screen** — ship icons, ping color-coding, you/host chips, K/D, sorting, on-brand panel. (#22)
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
 - [ ] a11y: form inputs (`GameInput` / join-code box) are missing `id`/`name` — add them (flagged by the production smoke test).
+- [ ] Remove the now-redundant `body { background-image: url(/bg.png) }` in global.sass (HomeBackground renders the bg now; prod still fetches the old static bg.png harmlessly).
 - [ ] Full mobile support: twin on-screen thumbsticks (left=move, right=aim) + fire/tactical/reload buttons.
 - [ ] Revamp the homepage to be mobile / small-screen friendly (responsive layout, touch-sized buttons, scales down cleanly).
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
@@ -250,4 +251,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 25 | `e1559ed`   | Map selection screen (lobby Map tab)              | `git revert e1559ed`|
 | 26 | `2fb4a36`   | Animated pixel-art homepage background            | `git revert 2fb4a36`|
 | 27 | `ce782c8`   | chore: untrack src-root .js.map + ignore previews | `git revert ce782c8`|
-| 28 | (latest)    | Grenade AoE weapon (Djibouti tactical)            | `git revert <sha>`  |
+| 28 | `fcfa691`   | Grenade AoE weapon (Djibouti tactical)            | `git revert fcfa691`|
+| 29 | (latest)    | In-game HUD revamp + host Stop-Game control       | `git revert <sha>`  |

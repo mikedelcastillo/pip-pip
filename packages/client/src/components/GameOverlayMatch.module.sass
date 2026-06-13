@@ -1,7 +1,159 @@
 @import "../styles/variables"
 
-.gameChat
+// Top-right control cluster. Stacks the SFX toggle and the host button so they
+// never overlap the scoreboard or the HUD. Buttons keep the shared GameButton
+// look but are scaled down a touch for the in-match corner.
+.controls
     position: absolute
+    top: $screen-margin-dynamic
+    right: $screen-margin-dynamic
+    z-index: 20
+    display: flex
+    flex-direction: column
+    align-items: flex-end
+    gap: 0.5em
+
+    .controlButton
+        font-size: clamp(16px, 4.5vw, $font-size-input)
+
+// Tab scoreboard, overlaid and centered over the canvas.
+.scoreboard
+    position: absolute
+    inset: 0
+    z-index: 15
+    display: grid
+    align-items: center
+    justify-items: center
+    padding: $screen-margin-dynamic
+    pointer-events: none
+    background-color: rgba(0, 0, 0, 0.35)
+
+    > *
+        max-height: 100%
+        overflow: auto
+        pointer-events: auto
+
+// Compact combat HUD pinned bottom-right. Reads at a glance: two labelled bars
+// (health, ammo/reload) plus ping. Sized with clamp/vw so it shrinks on phones.
+.hud
+    position: absolute
+    right: $screen-margin-dynamic
     bottom: $screen-margin-dynamic
+    z-index: 10
+    width: clamp(10em, 38vw, 16em)
+    display: flex
+    flex-direction: column
+    gap: 0.4em
+    padding: 0.5em 0.7em
+    background-color: transparentize($color-dark-2, 0.2)
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    pointer-events: none
+
+    .stat
+        display: flex
+        flex-direction: column
+        gap: 0.15em
+
+    .statLabel
+        display: flex
+        justify-content: space-between
+        align-items: baseline
+        font-size: clamp(13px, 3.6vw, 18px)
+        line-height: 1
+        color: $color-accent
+        text-transform: uppercase
+        letter-spacing: 0.05em
+
+        .statValue
+            color: $color-text
+            letter-spacing: 0
+
+    .bar
+        height: 0.7em
+        background-color: $color-dark-1
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        overflow: hidden
+
+        .barFill
+            height: 100%
+            transition: width 120ms linear
+
+            &.health
+                background-color: $color-good
+                &.low
+                    background-color: $color-bad
+
+            &.ammo
+                background-color: $color-main
+                &.reloading
+                    background-color: $color-accent
+
+    .ping
+        align-self: flex-end
+        font-size: clamp(11px, 3vw, 14px)
+        line-height: 1
+        color: $color-text
+        opacity: 0.7
+
+// Chat pinned bottom-left, collapsible so it never blocks the action on small
+// touch screens. The toggle is a touch-friendly hit target.
+.chat
+    position: absolute
     left: $screen-margin-dynamic
-    width: 100% - $screen-margin-dynamic * 2
+    bottom: $screen-margin-dynamic
+    z-index: 10
+    width: clamp(14em, 44vw, 28em)
+    max-width: calc(100% - #{$screen-margin-dynamic} * 2)
+
+    .chatToggle
+        display: inline-block
+        cursor: pointer
+        margin-bottom: 0.4em
+        padding: 0.3em 0.7em
+        min-height: 2em
+        font-size: clamp(14px, 3.6vw, 18px)
+        line-height: 1.4
+        color: $color-dark-3
+        background-color: $color-main
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+
+        &:active
+            background-color: $color-main-darker
+
+    .chatBody
+        max-height: 40vh
+        overflow: hidden
+
+    &.collapsed
+        width: auto
+
+// Phone layout (~375px and below): the HUD spans the full width along the
+// bottom, and chat sits in the top-left under the corner controls so the two
+// never overlap or overflow.
+@media (max-width: 480px)
+    .hud
+        width: calc(100% - #{$screen-margin-dynamic} * 2)
+        left: $screen-margin-dynamic
+        right: $screen-margin-dynamic
+        flex-direction: row
+        flex-wrap: wrap
+        align-items: flex-end
+
+        .stat
+            flex: 1 1 8em
+
+        .ping
+            flex: 1 1 100%
+            text-align: right
+
+    .chat
+        width: clamp(10em, 60vw, 18em)
+        bottom: auto
+        top: calc(#{$screen-margin-dynamic} + 7em)
+        left: $screen-margin-dynamic
+
+        .chatBody
+            max-height: 24vh
