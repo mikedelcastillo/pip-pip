@@ -373,7 +373,7 @@ export function processChat(gameContext: GameContext) {
         }
     }
 
-    // player kill
+    // player kill — feeds both the chat log and the transient kill feed.
     for (const event of gameContext.gameEvents.filter("playerKill")) {
         const { killed, killer } = event.playerKill
         addChatMessage({
@@ -388,6 +388,7 @@ export function processChat(gameContext: GameContext) {
                 text: killed.name,
             }],
         })
+        useGameStore.getState().addKill(killer.name, killed.name)
     }
 
     // send phase change

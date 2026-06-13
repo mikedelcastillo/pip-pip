@@ -102,7 +102,7 @@ Networking / lobbies / multiplayer:
 UI / UX:
 - [x] **Character selection screen** — ship picker tab in the lobby SETUP overlay (sprite + stats, live highlight), over the existing setShip/`/ship` path. (#17)
 - [x] **Homepage Settings + Credits** — volume + controls reference panel; credits (dev Mike Del Castillo, art Meg Del Castillo) + lore. (#10)
-- [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
+- [x] Improved in-game UI modes — kill feed (#42), scoreboard (#22), tactical/ammo HUD (#29). Minimap still open.
 - [x] **Revamp the in-game HUD** — decluttered + mobile-responsive MATCH HUD (HP/ammo bars + ping, collapsible chat, control cluster); host-only "Stop Game" control (→ lobby where settings live). (#29) *(full in-match settings editing still needs runtime lobby-metadata updates — open.)*
 - [ ] Surface ping in the in-match HUD / player stats (ping already shows in the player list; show the local player's ping in the HUD too).
 - [x] **Slash-command autocomplete** — suggestion list as you type `/`, Arrow/Tab/Enter/click to complete. (#23)
@@ -281,4 +281,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 38 | `a0efae8`   | Bots use their tactical/grenade weapon            | `git revert a0efae8`|
 | 39 | `c0cc86b`   | Cache particle wall-list (rebuild on setMap)      | `git revert c0cc86b`|
 | 40 | `e28313a`   | Speed/shield power-ups (timed buffs)              | `git revert e28313a`|
-| 41 | (latest)    | Per-map background themes                         | `git revert <sha>`  |
+| 41 | `2c3fcd2`   | Per-map background themes                         | `git revert 2c3fcd2`|
+| 42 | (latest)    | HUD kill feed                                     | `git revert <sha>`  |

@@ -5,6 +5,7 @@ import GamePlayerList from "./GamePlayerList"
 import GameButton from "./GameButton"
 import AudioVolumeToggle from "./AudioVolumeToggle"
 import HostControls from "./HostControls"
+import KillFeed from "./KillFeed"
 import styles from "./GameOverlayMatch.module.sass"
 
 export default function GameOverlayMatch() {
@@ -41,6 +42,9 @@ export default function GameOverlayMatch() {
                     </GameButton>
                 )}
             </div>
+
+            {/* Transient kill feed, top-right under the control cluster. */}
+            <KillFeed />
 
             {/* Tab scoreboard — overlaid, centered, unchanged behavior. */}
             {showPlayerList && (

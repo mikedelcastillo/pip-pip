@@ -1,0 +1,45 @@
+@import "../styles/variables"
+
+// Transient kill feed pinned top-right, sitting BELOW the control cluster (SFX
+// + host button) so it never overlaps them. Newest kill on top. Click-through.
+.killFeed
+    position: absolute
+    top: calc(#{$screen-margin-dynamic} + 4em)
+    right: $screen-margin-dynamic
+    z-index: 10
+    display: flex
+    flex-direction: column
+    align-items: flex-end
+    gap: 0.25em
+    pointer-events: none
+    text-align: right
+
+    .entry
+        display: flex
+        align-items: baseline
+        gap: 0.35em
+        padding: 0.2em 0.5em
+        font-size: clamp(13px, 3.6vw, 18px)
+        line-height: 1
+        white-space: nowrap
+        background-color: transparentize($color-dark-2, 0.2)
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        // Opacity is driven inline by entry age; this only smooths it.
+        transition: opacity 200ms linear
+
+        // Mirrors GameChatMessage's player-name styling.
+        .player
+            color: $color-main
+
+        .skull
+            color: $color-bad
+
+// Phone layout: tuck under the corner controls without overflowing.
+@media (max-width: 480px)
+    .killFeed
+        max-width: calc(100% - #{$screen-margin-dynamic} * 2)
+
+        .entry
+            overflow: hidden
+            text-overflow: ellipsis
