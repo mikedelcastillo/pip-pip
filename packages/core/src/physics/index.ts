@@ -104,6 +104,32 @@ export const POINT_PHYSICS_MIN_DIST = 0.0001
 // where resolving one wall can push it into another.
 export const WALL_RESOLVE_ITERATIONS = 2
 
+// Per-tick velocity decay multiplier. Shared by the world step and the
+// client-side replay (PipPipGame.stepLocalPlayer) so they cannot drift apart.
+export function airResistanceMultiplier(airResistance: number, deltaTime: number){
+    return Math.pow(1 - airResistance, deltaTime)
+}
+
+// Clamp a velocity vector to a maximum speed, preserving direction. Shared by
+// the world step and the client-side replay.
+export function limitSpeed(vx: number, vy: number, maxVelocity: number){
+    const speed = Math.min(maxVelocity, Math.sqrt(vx * vx + vy * vy))
+    const angle = Math.atan2(vy, vx)
+    return { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed }
+}
+
+// Push an object out along a unit normal by `push` units and remove only the
+// velocity component heading into the surface, so it slides along the edge.
+function applyWallContact(object: PointPhysicsObject, nx: number, ny: number, push: number){
+    object.position.x += nx * push
+    object.position.y += ny * push
+    const into = object.velocity.x * nx + object.velocity.y * ny
+    if(into < 0){
+        object.velocity.x -= nx * into
+        object.velocity.y -= ny * into
+    }
+}
+
 export class PointPhysicsObject{
     id = generateId()
     
@@ -235,7 +261,7 @@ export class PointPhysicsWorld{
 
         // Apply air resistance
         for(const object of objects){
-            const airResistance = Math.pow(1 - object.airResistance, deltaTime)
+            const airResistance = airResistanceMultiplier(object.airResistance, deltaTime)
 
             object.velocity.qx *= airResistance
             object.velocity.qy *= airResistance
@@ -286,10 +312,9 @@ export class PointPhysicsWorld{
         // Apply velocity to position
         for(const object of objects){
             // Limit velocity
-            const vel = Math.min(this.options.maxVelocity, Math.sqrt(object.velocity.qx * object.velocity.qx + object.velocity.qy * object.velocity.qy))
-            const angle = Math.atan2(object.velocity.qy, object.velocity.qx)
-            object.velocity.qx = Math.cos(angle) * vel
-            object.velocity.qy = Math.sin(angle) * vel
+            const limited = limitSpeed(object.velocity.qx, object.velocity.qy, this.options.maxVelocity)
+            object.velocity.qx = limited.x
+            object.velocity.qy = limited.y
 
             // Apply velocity
             object.position.qx += object.velocity.qx * deltaTime
@@ -364,15 +389,7 @@ export class PointPhysicsWorld{
                 ny /= dist
             }
 
-            const penetration = minDist - dist
-            object.position.x += nx * penetration
-            object.position.y += ny * penetration
-
-            const into = object.velocity.x * nx + object.velocity.y * ny
-            if(into < 0){
-                object.velocity.x -= nx * into
-                object.velocity.y -= ny * into
-            }
+            applyWallContact(object, nx, ny, minDist - dist)
         }
 
         // Axis-aligned box walls.
@@ -393,13 +410,7 @@ export class PointPhysicsWorld{
                 let ny = 0
                 let pen = 0
                 if(penX < penY){ nx = dxC >= 0 ? 1 : -1; pen = penX } else{ ny = dyC >= 0 ? 1 : -1; pen = penY }
-                object.position.x += nx * (pen + object.radius)
-                object.position.y += ny * (pen + object.radius)
-                const into = object.velocity.x * nx + object.velocity.y * ny
-                if(into < 0){
-                    object.velocity.x -= nx * into
-                    object.velocity.y -= ny * into
-                }
+                applyWallContact(object, nx, ny, pen + object.radius)
                 continue
             }
 
@@ -411,14 +422,7 @@ export class PointPhysicsWorld{
             if(dist >= object.radius || dist < POINT_PHYSICS_MIN_DIST) continue
             nx /= dist
             ny /= dist
-            const penetration = object.radius - dist
-            object.position.x += nx * penetration
-            object.position.y += ny * penetration
-            const into = object.velocity.x * nx + object.velocity.y * ny
-            if(into < 0){
-                object.velocity.x -= nx * into
-                object.velocity.y -= ny * into
-            }
+            applyWallContact(object, nx, ny, object.radius - dist)
         }
     }
 

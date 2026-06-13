@@ -1,5 +1,5 @@
 import { EventEmitter } from "@pip-pip/core/src/common/events"
-import { PointPhysicsWorld, Vector2 } from "@pip-pip/core/src/physics"
+import { PointPhysicsWorld, Vector2, airResistanceMultiplier, limitSpeed, WALL_RESOLVE_ITERATIONS } from "@pip-pip/core/src/physics"
 import { distanceBetweenSegments, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool } from "./bullet"
@@ -423,11 +423,11 @@ export class PipPipGame{
     }
 
     // Advance ONLY the local player's kinematics by one tick for the given
-    // input. Reproduces the server's per-tick order exactly: accelerate →
-    // damp (air resistance) → clamp speed → integrate → world-bounds bounce.
-    // Wall collisions are deliberately not replayed (the render-error offset
-    // absorbs the small divergence when a ship is pressed against a wall).
-    // dt is fixed at 1 (never the Date.now()-derived ticker delta).
+    // input, reproducing the server's per-tick order exactly: accelerate →
+    // damp (air resistance) → clamp speed → integrate → resolve walls →
+    // world-bounds bounce. It shares the air-resistance, speed-clamp and wall
+    // resolver (and its iteration count) with the authoritative world step so
+    // the two cannot drift. dt is fixed at 1 (never the Date.now() ticker delta).
     stepLocalPlayer(player: PipPlayer, inputs: PlayerInputs, dt = 1){
         const phys = player.ship.physics
 
@@ -435,23 +435,23 @@ export class PipPipGame{
         phys.velocity.x += accel.x
         phys.velocity.y += accel.y
 
-        const airResistance = Math.pow(1 - phys.airResistance, dt)
+        const airResistance = airResistanceMultiplier(phys.airResistance, dt)
         phys.velocity.x *= airResistance
         phys.velocity.y *= airResistance
 
-        const maxVelocity = this.physics.options.maxVelocity
-        const speed = Math.min(maxVelocity, Math.sqrt(phys.velocity.x * phys.velocity.x + phys.velocity.y * phys.velocity.y))
-        const angle = Math.atan2(phys.velocity.y, phys.velocity.x)
-        phys.velocity.x = Math.cos(angle) * speed
-        phys.velocity.y = Math.sin(angle) * speed
+        const limited = limitSpeed(phys.velocity.x, phys.velocity.y, this.physics.options.maxVelocity)
+        phys.velocity.x = limited.x
+        phys.velocity.y = limited.y
 
         phys.position.x += phys.velocity.x * dt
         phys.position.y += phys.velocity.y * dt
 
-        // Resolve walls with the SAME deterministic resolver the authoritative
-        // sim uses, so the replay stops at walls exactly as the server does
-        // (this is what fully removes the wall rubber-band).
-        this.physics.resolveWallCollisions(player.ship.physics)
+        // Resolve walls with the SAME resolver and iteration count as the
+        // authoritative world step, so the replay stops at walls exactly as the
+        // server does (this is what fully removes the wall rubber-band).
+        for(let iteration = 0; iteration < WALL_RESOLVE_ITERATIONS; iteration++){
+            this.physics.resolveWallCollisions(phys)
+        }
         this.applyMapBounds(player)
     }
 
