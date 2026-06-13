@@ -255,6 +255,14 @@ export class GameContext {
         const code = encode.gameMap(index)
         this.sendCode(code)
     }
+
+    // Apply a ship selection for the local player. Mirrors the `/ship` chat
+    // command: setShip emits `playerSetShip`, which sendPackets picks up during
+    // SETUP and broadcasts to the other players — so the choice is networked
+    // automatically. Centralised here so the UI and chat share one path.
+    setShip(index: number) {
+        this.getClientPlayer()?.setShip(index)
+    }
 }
 
 export const GAME_CONTEXT = new GameContext()

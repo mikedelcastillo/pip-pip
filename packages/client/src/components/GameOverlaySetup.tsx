@@ -4,6 +4,7 @@ import { useGameStore } from "../game/store"
 import GameButton from "./GameButton"
 import GamePlayerList from "./GamePlayerList"
 import GameChat from "./GameChat"
+import ShipSelect from "./ShipSelect"
 import AudioVolumeToggle from "./AudioVolumeToggle"
 import audioStyles from "./AudioVolumeToggle.module.sass"
 import styles from "./GameOverlaySetup.module.sass"
@@ -23,6 +24,7 @@ export default function GameOverlaySetup() {
     const displayTabs = useMemo<SetupTab[]>(() => {
         const tabs: SetupTab[] = []
         if (isHost) tabs.push({ id: "host", name: "Host" })
+        tabs.push({ id: "ship", name: "Ship" })
         tabs.push({ id: "players", name: "Players", notifCount: playerCount.toString() })
         return tabs
     }, [isHost, playerCount])
@@ -58,6 +60,12 @@ export default function GameOverlaySetup() {
                     {displayTab?.id === "host" && (
                         <div className={styles.setupTab}>
                             {isHost && <GameButton onClick={startGame}>Start Game</GameButton>}
+                        </div>
+                    )}
+
+                    {displayTab?.id === "ship" && (
+                        <div className={`${styles.setupTab} ${styles.ship}`}>
+                            <ShipSelect />
                         </div>
                     )}
 

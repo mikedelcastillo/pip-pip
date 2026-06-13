@@ -96,7 +96,7 @@ Networking / lobbies / multiplayer:
 - [ ] Multiplayer experience: reconnect, emotes, lobby chat polish.
 
 UI / UX:
-- [ ] Character selection screen (UI over existing `setShip`; ships are named after the dev's birds).
+- [x] **Character selection screen** — ship picker tab in the lobby SETUP overlay (sprite + stats, live highlight), over the existing setShip/`/ship` path. (#17)
 - [x] **Homepage Settings + Credits** — volume + controls reference panel; credits (dev Mike Del Castillo, art Meg Del Castillo) + lore. (#10)
 - [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
@@ -205,4 +205,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 13 | `8958fee`   | Sanitize hostile player inputs (M1)               | `git revert 8958fee`|
 | 14 | `65cf503`   | Brand the SFX toggle as a GameButton              | `git revert 65cf503`|
 | 15 | `2f37b01`   | Per-weapon bullet spray patterns                  | `git revert 2f37b01`|
-| 16 | (latest)    | Fix renderer/input/WebGL leak on unmount (C2)     | `git revert <sha>`  |
+| 16 | `8fa7cd4`   | Fix renderer/input/WebGL leak on unmount (C2)     | `git revert 8fa7cd4`|
+| 17 | (latest)    | Character selection screen (lobby ship picker)    | `git revert <sha>`  |

@@ -118,7 +118,7 @@ GAME_COMMANDS.push({
         }
 
         const ship = PIP_SHIPS[index]
-        GAME_CONTEXT.getClientPlayer()?.setShip(index)
+        GAME_CONTEXT.setShip(index)
         return {
             text: [{
                 style: "info",
