@@ -1,5 +1,5 @@
 import { generateId } from "../lib/utils"
-import { forgivingEqual, nearestPointFromSegment } from "../math"
+import { nearestPointFromSegment } from "../math"
 
 export class Vector2{
     _x = 0
@@ -99,6 +99,10 @@ export class PointPhysicsSegmentWall{
 }
 
 export const POINT_PHYSICS_MIN_DIST = 0.0001
+
+// Wall push-out passes per tick. >1 keeps the object stable in tight corners
+// where resolving one wall can push it into another.
+export const WALL_RESOLVE_ITERATIONS = 2
 
 export class PointPhysicsObject{
     id = generateId()
@@ -275,111 +279,9 @@ export class PointPhysicsWorld{
             }
         }
 
-        // Collide with walls
-        const collidableRectWalls = Object.values(this.rectWalls)
-        for(const object of collidableObjects){
-            for(const rectWall of collidableRectWalls){
-                const dx = object.position.x - rectWall.center.x
-                const dy = object.position.y - rectWall.center.y
-
-                const outerCollidingX = Math.abs(dx) < object.radius + rectWall.width / 2
-                const outerCollidingY = Math.abs(dy) < object.radius + rectWall.height / 2
-                const outerColliding = outerCollidingX && outerCollidingY
-
-                const innerCollidingX = Math.abs(dx) < object.radius
-                const innerCollidingY = Math.abs(dy) < object.radius
-
-                const objectInsideRect = 
-                    object.position.x > rectWall.center.x - rectWall.width / 2 &&
-                    object.position.x < rectWall.center.x + rectWall.width / 2 &&
-                    object.position.y > rectWall.center.y - rectWall.height / 2 &&
-                    object.position.y < rectWall.center.y + rectWall.height / 2
-
-                let referencePointX = rectWall.center.x
-                let referencePointY = rectWall.center.y
-                let referencePointRadius = Math.sqrt(rectWall.width * rectWall.width + rectWall.height * rectWall.height) / 2
-
-                if(outerColliding && !objectInsideRect){
-                    referencePointRadius = 0
-                    referencePointX = Math.max(rectWall.center.x - rectWall.width / 2, Math.min(rectWall.center.x + rectWall.width / 2, object.position.x))
-                    referencePointY = Math.max(rectWall.center.y - rectWall.height / 2, Math.min(rectWall.center.y + rectWall.height / 2, object.position.y))
-                }
-
-                if(outerColliding){
-                    const rdx = referencePointX - object.position.x
-                    const rdy = referencePointY - object.position.y
-                    const dist = Math.max(POINT_PHYSICS_MIN_DIST, Math.sqrt(rdx * rdx + rdy * rdy))
-                    const diff = ((object.radius + referencePointRadius) - dist) / dist
-                    const vx = rdx * diff * -1
-                    const vy = rdy * diff * -1
-
-                    if(!objectInsideRect){
-                        const px = rectWall.center.x + Math.sign(dx) * (rectWall.width / 2 + object.radius)
-                        const py = rectWall.center.y + Math.sign(dy) * (rectWall.height / 2 + object.radius)
-                        if(innerCollidingX){
-                            object.position.qy = py
-                        } else if (innerCollidingY){
-                            object.position.qx = px
-                        } else if(dist < object.radius){
-                            // Colliding with corner
-                            const angle = Math.atan2(rdy, rdx) + Math.PI
-                            object.position.qx = referencePointX + Math.cos(angle) * object.radius
-                            object.position.qy = referencePointY + Math.sin(angle) * object.radius
-                        } else{
-                            object.position.qx = px
-                            object.position.qy = py
-                        }
-                    }
-
-                    object.velocity.qx += vx
-                    object.velocity.qy += vy
-                }
-            }
-        }
-
-        // Collide with segment walls
-        const collidableSegWalls = Object.values(this.segWalls)
-        for(const object of collidableObjects){
-            const points: number[][] = []
-            for(const segWall of collidableSegWalls){
-                let pointX = segWall.start.x
-                let pointY = segWall.start.y
-                const singlePoint = segWall.start.x === segWall.end.x && segWall.start.y === segWall.end.y
-                if(!singlePoint){
-                    const { x, y } = nearestPointFromSegment(
-                        segWall.start.x, segWall.start.y,
-                        segWall.end.x, segWall.end.y,
-                        object.position.x, object.position.y,
-                    )
-                    pointX = x
-                    pointY = y
-                }
-
-                const dx = (pointX - object.position.x)
-                const dy = (pointY - object.position.y)
-                const dist = Math.max(POINT_PHYSICS_MIN_DIST, Math.sqrt(dx * dx + dy * dy))
-
-                const diff = ((segWall.radius + object.radius) - dist) / dist
-                
-                if(dist < segWall.radius + object.radius){
-                    const tolerance = segWall.radius / 2
-                    const match = points.find(([x, y]) => forgivingEqual(x, pointX, tolerance) && forgivingEqual(y, pointY, tolerance))
-                    if(typeof match === "undefined"){
-                        points.push([pointX, pointY, dx * diff, dy * diff])
-                    }
-                }
-            }
-            const C = -0.5 * deltaTime
-            const P = -1 * deltaTime
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            for(const [_x, _y, vx, vy] of points){
-                object.velocity.qx += vx * C
-                object.velocity.qy += vy * C
-
-                object.position.qx += vx * P
-                object.position.qy += vy * P
-            }
-        }
+        // Walls are resolved after integration (see resolveWallCollisions),
+        // as a deterministic position push-out + tangential slide rather than
+        // the old frame-rate-dependent velocity nudge.
 
         // Apply velocity to position
         for(const object of objects){
@@ -399,9 +301,124 @@ export class PointPhysicsWorld{
             object.position.flush()
         }
 
+        // Resolve walls on the committed (post-integration) positions. A few
+        // iterations keep convex/concave corners stable.
+        for(let iteration = 0; iteration < WALL_RESOLVE_ITERATIONS; iteration++){
+            for(const object of collidableObjects){
+                this.resolveWallCollisions(object)
+            }
+        }
+
         if(Date.now() - this.lastLog > this.options.logFrequency){
             this.lastLog = Date.now()
             this.log()
+        }
+    }
+
+    /**
+     * Deterministic static-wall resolution for one circular object. Pushes the
+     * object out of every overlapping wall by the penetration depth and removes
+     * only the velocity component heading into the surface, so it slides cleanly
+     * along straight and slanted edges. Pure position/velocity correction — no
+     * delta-time or wall-clock terms — so client and server (and the client
+     * replay step) produce identical results.
+     *
+     * A wall is a segment with a radius: radius ≈ 0 gives a flat edge at any
+     * angle (straight / slanted); a zero-length segment with radius is a circle;
+     * radius > 0 is a rounded/capsule wall.
+     */
+    resolveWallCollisions(object: PointPhysicsObject){
+        if(object.collision.enabled === false) return
+
+        // Segment / capsule / circle walls.
+        for(const segWall of Object.values(this.segWalls)){
+            const minDist = object.radius + segWall.radius
+
+            // Cheap broad-phase reject against the segment's padded bounds.
+            if(object.position.x < Math.min(segWall.start.x, segWall.end.x) - minDist) continue
+            if(object.position.x > Math.max(segWall.start.x, segWall.end.x) + minDist) continue
+            if(object.position.y < Math.min(segWall.start.y, segWall.end.y) - minDist) continue
+            if(object.position.y > Math.max(segWall.start.y, segWall.end.y) + minDist) continue
+
+            const near = nearestPointFromSegment(
+                segWall.start.x, segWall.start.y,
+                segWall.end.x, segWall.end.y,
+                object.position.x, object.position.y,
+            )
+            let nx = object.position.x - near.x
+            let ny = object.position.y - near.y
+            let dist = Math.sqrt(nx * nx + ny * ny)
+            if(dist >= minDist) continue
+
+            if(dist < POINT_PHYSICS_MIN_DIST){
+                // Object centre sits on the wall: push out along the segment's
+                // perpendicular so the normal is well defined.
+                const sx = segWall.end.x - segWall.start.x
+                const sy = segWall.end.y - segWall.start.y
+                const slen = Math.max(POINT_PHYSICS_MIN_DIST, Math.sqrt(sx * sx + sy * sy))
+                nx = -sy / slen
+                ny = sx / slen
+                dist = POINT_PHYSICS_MIN_DIST
+            } else{
+                nx /= dist
+                ny /= dist
+            }
+
+            const penetration = minDist - dist
+            object.position.x += nx * penetration
+            object.position.y += ny * penetration
+
+            const into = object.velocity.x * nx + object.velocity.y * ny
+            if(into < 0){
+                object.velocity.x -= nx * into
+                object.velocity.y -= ny * into
+            }
+        }
+
+        // Axis-aligned box walls.
+        for(const rectWall of Object.values(this.rectWalls)){
+            const halfW = rectWall.width / 2
+            const halfH = rectWall.height / 2
+            const dxC = object.position.x - rectWall.center.x
+            const dyC = object.position.y - rectWall.center.y
+
+            if(Math.abs(dxC) > halfW + object.radius) continue
+            if(Math.abs(dyC) > halfH + object.radius) continue
+
+            if(Math.abs(dxC) < halfW && Math.abs(dyC) < halfH){
+                // Centre inside the box: eject along the nearest face.
+                const penX = halfW - Math.abs(dxC)
+                const penY = halfH - Math.abs(dyC)
+                let nx = 0
+                let ny = 0
+                let pen = 0
+                if(penX < penY){ nx = dxC >= 0 ? 1 : -1; pen = penX } else{ ny = dyC >= 0 ? 1 : -1; pen = penY }
+                object.position.x += nx * (pen + object.radius)
+                object.position.y += ny * (pen + object.radius)
+                const into = object.velocity.x * nx + object.velocity.y * ny
+                if(into < 0){
+                    object.velocity.x -= nx * into
+                    object.velocity.y -= ny * into
+                }
+                continue
+            }
+
+            const nearestX = rectWall.center.x + Math.max(-halfW, Math.min(halfW, dxC))
+            const nearestY = rectWall.center.y + Math.max(-halfH, Math.min(halfH, dyC))
+            let nx = object.position.x - nearestX
+            let ny = object.position.y - nearestY
+            const dist = Math.sqrt(nx * nx + ny * ny)
+            if(dist >= object.radius || dist < POINT_PHYSICS_MIN_DIST) continue
+            nx /= dist
+            ny /= dist
+            const penetration = object.radius - dist
+            object.position.x += nx * penetration
+            object.position.y += ny * penetration
+            const into = object.velocity.x * nx + object.velocity.y * ny
+            if(into < 0){
+                object.velocity.x -= nx * into
+                object.velocity.y -= ny * into
+            }
         }
     }
 
