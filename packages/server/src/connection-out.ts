@@ -5,7 +5,7 @@ import { encode } from "@pip-pip/game/src/networking/packets"
 import { ConnectionContext } from "."
 
 export function sendPacketToConnection(context: ConnectionContext){
-    const { connection, gameEvents } = context
+    const { connection, gameEvents, game } = context
 
     // check if the player is new or just reconnecting
     let sendFullGameState = false
@@ -29,6 +29,12 @@ export function sendPacketToConnection(context: ConnectionContext){
     const messages = sendFullGameState ? getFullGameState(context) : getPartialGameState(context)
 
     if(messages.length){
+        // One global tick header per message (decode is ID-keyed, so its
+        // position in the batch is irrelevant). Lets the client run a shared
+        // server clock instead of guessing time from round-trip ping.
+        if(game.phase !== PipPipGamePhase.SETUP){
+            messages.unshift(encode.serverTickHeader(game))
+        }
         const buffer = new Uint8Array(messages.flat()).buffer
         connection.send(buffer)
     }
@@ -274,12 +280,20 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
             }
         }
         
-        // Send player locations
+        // Send OTHER players' locations + inputs. The owner's own position is
+        // deliberately NOT echoed here (it used to be, which is what the
+        // brittle client snap reacted to); the owner gets the precise
+        // owner-only ownPlayerState below instead.
         for(const player of Object.values(game.players)){
-            messages.push(encode.playerPosition(player))
             if(connection.id !== player.id){
+                messages.push(encode.playerPosition(player))
                 messages.push(encode.playerInputs(player))
             }
+        }
+
+        // Owner-only authoritative state for client prediction reconciliation.
+        if(game.phase === PipPipGamePhase.MATCH && typeof connectionPlayer !== "undefined"){
+            messages.push(encode.ownPlayerState(connectionPlayer))
         }
     }
 

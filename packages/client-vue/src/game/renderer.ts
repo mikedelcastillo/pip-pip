@@ -12,6 +12,7 @@ import { SHIP_DAIMETER, TILE_SIZE } from "@pip-pip/game/src/logic/constants"
 import { PipGameTile } from "@pip-pip/game/src/logic/map"
 import { COLORS, DIMS } from "./styles"
 import { Bullet } from "@pip-pip/game/src/logic/bullet"
+import { sampleSnapshot } from "./client"
 
 const SMOOTHING = {
     CAMERA_MOVEMENT: 5,
@@ -20,6 +21,8 @@ const SMOOTHING = {
     PLAYER_ROTATION: 1,
     MAX_PLAYER_DISTANCE: 250,
     BULLET_POSITION: 0.5,
+    // Larger = the local player's reconciliation offset decays more slowly.
+    RENDER_ERROR: 3,
 }
 
 export const STAR_BG = {
@@ -444,7 +447,9 @@ export class PipPipRenderer{
     render(gameContext: GameContext, deltaMs: number){
         const deltaTime = deltaMs / this.game.deltaMs
         const timeDiff = Date.now() - this.game.lastTick
-        const lerp = timeDiff / this.game.deltaMs
+        // Clamp to [0, 1]: on a late tick this would otherwise exceed 1 and
+        // extrapolate the ship past its real position, causing overshoot.
+        const lerp = Math.min(1, Math.max(0, timeDiff / this.game.deltaMs))
 
         // bullets
         const bulletSmoothing = deltaTime / SMOOTHING.BULLET_POSITION
@@ -460,14 +465,37 @@ export class PipPipRenderer{
         for(const graphic of players){
             const isClient = graphic.player === gameContext.getClientPlayer()
             const movementSmoothing = isClient ? clientPlayerMovementSmoothing : playerMovementSmoothing
+            const phys = graphic.player.ship.physics
 
-            const tx = graphic.player.ship.physics.position.x + graphic.player.ship.physics.velocity.x * lerp
-            const ty = graphic.player.ship.physics.position.y + graphic.player.ship.physics.velocity.y * lerp
-            
+            let tx: number
+            let ty: number
+            if(isClient){
+                // Local player: predicted simulation position + the decaying
+                // reconciliation offset, so a correction eases in.
+                const { renderError } = graphic.player
+                renderError.x -= renderError.x * Math.min(1, deltaTime / SMOOTHING.RENDER_ERROR)
+                renderError.y -= renderError.y * Math.min(1, deltaTime / SMOOTHING.RENDER_ERROR)
+                tx = phys.position.x + phys.velocity.x * lerp + renderError.x
+                ty = phys.position.y + phys.velocity.y * lerp + renderError.y
+            } else{
+                // Remote player: interpolate the snapshot buffer a fixed delay
+                // behind server time, between two known states (no overshoot).
+                const sample = gameContext.serverClock.isSynced
+                    ? sampleSnapshot(graphic.player.snapshots, gameContext.serverClock.renderTick())
+                    : undefined
+                if(typeof sample !== "undefined"){
+                    tx = sample.x
+                    ty = sample.y
+                } else{
+                    tx = phys.position.x + phys.velocity.x * lerp
+                    ty = phys.position.y + phys.velocity.y * lerp
+                }
+            }
+
             const dx = tx - graphic.container.position.x
             const dy = ty - graphic.container.position.y
 
-            if(dx * dx + dy + dy > SMOOTHING.MAX_PLAYER_DISTANCE * SMOOTHING.MAX_PLAYER_DISTANCE){
+            if(dx * dx + dy * dy > SMOOTHING.MAX_PLAYER_DISTANCE * SMOOTHING.MAX_PLAYER_DISTANCE){
                 graphic.container.position.x = tx
                 graphic.container.position.y = ty
             } else{

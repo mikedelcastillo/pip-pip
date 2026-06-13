@@ -1,13 +1,19 @@
-import { $bool, $float16, $string, $uint16, $uint32, $uint8, $varstring } from "@pip-pip/core/src/networking/packets/serializer"
+import { $bool, $float16, $float32, $quant16, $string, $uint16, $uint32, $uint8, $varstring } from "@pip-pip/core/src/networking/packets/serializer"
 import { PacketManager, ExtractSerializerMap } from "@pip-pip/core/src/networking/packets/manager"
 import { Packet } from "@pip-pip/core/src/networking/packets/packet"
 
 import { PipPlayer } from "../logic/player"
 import { PipPipGame, PipPipGamePhase } from "../logic"
 import { Bullet } from "../logic/bullet"
+import { WORLD_QUANT_RANGE } from "../logic/constants"
 
 export const CONNECTION_ID_LENGTH = 2
 export const LOBBY_ID_LENGTH = 4
+
+// Fixed-point world position serializer shared by every position field on the
+// all-to-all broadcast. Every field that decodes a world coordinate MUST use
+// this same instance so they share one quantization lattice.
+const $worldPos = $quant16(WORLD_QUANT_RANGE)
 
 export const packetManager = new PacketManager({
     sendChat: new Packet({
@@ -30,8 +36,8 @@ export const packetManager = new PacketManager({
     }),
     spawnPlayer: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
-        x: $float16,
-        y: $float16,
+        x: $worldPos,
+        y: $worldPos,
     }),
     playerName: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
@@ -51,20 +57,21 @@ export const packetManager = new PacketManager({
     }),
     playerPosition: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
-        positionX: $float16,
-        positionY: $float16,
+        positionX: $worldPos,
+        positionY: $worldPos,
         velocityX: $float16,
         velocityY: $float16,
     }),
     playerPositionSync: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
-        positionX: $float16,
-        positionY: $float16,
+        positionX: $worldPos,
+        positionY: $worldPos,
         velocityX: $float16,
         velocityY: $float16,
     }),
     playerInputs: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
+        inputSeq: $uint16,
         movementAngle: $float16,
         movementAmount: $float16,
         aimRotation: $float16,
@@ -75,10 +82,28 @@ export const packetManager = new PacketManager({
 
     playerShootBullet: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
-        positionX: $float16,
-        positionY: $float16,
+        positionX: $worldPos,
+        positionY: $worldPos,
         velocityX: $float16,
         velocityY: $float16,
+    }),
+
+    // One global header prepended once per outgoing message carrying the
+    // authoritative server tick. NOT per-player (the broadcast is O(n^2)).
+    serverTickHeader: new Packet({
+        tick: $uint32,
+    }),
+
+    // Sent ONLY to the owning connection. float32 position kills the
+    // quantization noise on the exact path reconciliation compares against,
+    // and lastInputSeq tells the client how far the server has consumed its
+    // input stream so it can replay the unacknowledged tail.
+    ownPlayerState: new Packet({
+        positionX: $float32,
+        positionY: $float32,
+        velocityX: $float32,
+        velocityY: $float32,
+        lastInputSeq: $uint16,
     }),
 
     playerShipTimings: new Packet({
@@ -223,6 +248,7 @@ export const encode = {
     }),
     playerInputs: (player: PipPlayer) => packetManager.serializers.playerInputs.encode({
         playerId: player.id,
+        inputSeq: player.inputSeq,
         movementAngle: player.inputs.movementAngle,
         movementAmount: player.inputs.movementAmount,
         aimRotation: player.inputs.aimRotation,
@@ -275,5 +301,16 @@ export const encode = {
         positionY: bullet.physics.position.y,
         velocityX: bullet.physics.velocity.x,
         velocityY: bullet.physics.velocity.y,
+    }),
+
+    serverTickHeader: (game: PipPipGame) => packetManager.serializers.serverTickHeader.encode({
+        tick: game.tickNumber,
+    }),
+    ownPlayerState: (player: PipPlayer) => packetManager.serializers.ownPlayerState.encode({
+        positionX: player.ship.physics.position.x,
+        positionY: player.ship.physics.position.y,
+        velocityX: player.ship.physics.velocity.x,
+        velocityY: player.ship.physics.velocity.y,
+        lastInputSeq: player.lastProcessedInputSeq,
     }),
 }

@@ -111,3 +111,23 @@ export const $string = (length: number): PacketSerializer<string> => ({
         return internalTextDecoder.decode(new Uint8Array(value))
     }
 })
+
+/**
+ * Fixed-point number serialized into 2 bytes (uint16) across a symmetric
+ * range [-range, range]. Unlike $float16 the precision is uniform across the
+ * whole range (≈ 2*range / 65535 units), so it does not lose precision at
+ * large world coordinates the way a half-float does. Use a single shared
+ * `range` for every field that must decode against the same lattice.
+ */
+export const $quant16 = (range: number): PacketSerializer<number> => ({
+    length: 2,
+    encode(value){
+        const clamped = Math.max(-range, Math.min(range, value))
+        const normalized = (clamped + range) / (2 * range)
+        return $uint16.encode(Math.round(normalized * 0xFFFF))
+    },
+    decode(value){
+        const normalized = $uint16.decode(value) / 0xFFFF
+        return normalized * (2 * range) - range
+    },
+})

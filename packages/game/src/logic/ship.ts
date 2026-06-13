@@ -222,6 +222,9 @@ export class PipShip{
         this.physics.mass = 500
         this.physics.radius = SHIP_DAIMETER / 2
         this.physics.airResistance = 0.05
+        // Ships collide with each other AND with walls. The client simulates
+        // every ship, so it predicts the push too; the brief residual on
+        // contact is absorbed by reconciliation.
         this.physics.collision.enabled = true
         this.physics.collision.channels = []
     }

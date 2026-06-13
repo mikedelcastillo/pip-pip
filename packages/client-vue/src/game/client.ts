@@ -1,14 +1,64 @@
-import { forgivingEqual } from "@pip-pip/core/src/math"
 import { Vector2 } from "@pip-pip/core/src/physics"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
-import { CHAT_MAX_MESSAGE_LENGTH, PLAYER_POSITION_TOLERANCE } from "@pip-pip/game/src/logic/constants"
+import { CHAT_MAX_MESSAGE_LENGTH, MAX_INPUT_BUFFER } from "@pip-pip/game/src/logic/constants"
+import { cloneInputs, PlayerSnapshot } from "@pip-pip/game/src/logic/player"
 import { encode } from "@pip-pip/game/src/networking/packets"
 import { GameContext, getClientPlayer } from "."
+
+// How many remote snapshots to retain (~1.2s at 20Hz) for interpolation.
+const MAX_SNAPSHOTS = 24
+// Cap on the smoothed reconciliation offset, so a large batched correction
+// after a TCP stall eases in over several frames instead of teleporting.
+const MAX_RENDER_ERROR = 400
+
+// Reconciliation deadzone: if the server's authoritative position is within
+// this many units of what the client predicted for that input, the prediction
+// is trusted and the local ship is NOT corrected at all. This is what keeps
+// normal movement crisp — we only snap-and-replay on a genuine divergence.
+const RECONCILE_TOLERANCE = 40
+
+// Wrap-safe "a comes after b" comparison for uint16 input sequence numbers.
+const seqGreater = (a: number, b: number) => ((a - b) & 0xFFFF) !== 0 && ((a - b) & 0xFFFF) < 0x8000
+
+const clampError = (v: number) => Math.max(-MAX_RENDER_ERROR, Math.min(MAX_RENDER_ERROR, v))
+
+/**
+ * Interpolate a remote player's render position from its snapshot buffer at
+ * the given (fractional) server tick. Returns undefined if there are no
+ * snapshots; freezes on the nearest end rather than extrapolating past it.
+ */
+export function sampleSnapshot(snapshots: PlayerSnapshot[], tick: number){
+    if(snapshots.length === 0) return undefined
+    let older: PlayerSnapshot | undefined
+    let newer: PlayerSnapshot | undefined
+    for(const snapshot of snapshots){
+        if(snapshot.tick <= tick) older = snapshot
+        if(snapshot.tick >= tick && typeof newer === "undefined") newer = snapshot
+    }
+    if(typeof older !== "undefined" && typeof newer !== "undefined"){
+        if(older === newer) return { x: older.positionX, y: older.positionY }
+        const t = (tick - older.tick) / (newer.tick - older.tick)
+        return {
+            x: older.positionX + (newer.positionX - older.positionX) * t,
+            y: older.positionY + (newer.positionY - older.positionY) * t,
+        }
+    }
+    const edge = older ?? newer
+    if(typeof edge === "undefined") return undefined
+    return { x: edge.positionX, y: edge.positionY }
+}
 
 export const processPackets = (gameContext: GameContext) => {
     const { game } = gameContext
     for(const events of gameContext.clientEvents.filter("packetMessage")){
         const { packets } = events.packetMessage
+
+        // Sync the shared server clock from this message's tick header. The
+        // tick also stamps the remote-player snapshots recorded below.
+        const serverTick = (packets.serverTickHeader || [])[0]?.tick
+        if(typeof serverTick === "number"){
+            gameContext.serverClock.sync(serverTick)
+        }
 
         // Add player
         for(const { playerId } of packets.addPlayer || []){
@@ -83,44 +133,94 @@ export const processPackets = (gameContext: GameContext) => {
             game.setMap(mapIndex)
         }
 
-        //  Set force player positions
+        //  Force player positions (authoritative hard placement, e.g. during
+        //  the countdown). Only ever sent to the owner.
         for(const pos of packets.playerPositionSync || []){
             const player = game.players[pos.playerId]
             if(typeof player === "undefined") continue
-            
+
             if(pos.playerId === gameContext.client.connectionId){
                 player.ship.physics.position.x = pos.positionX
                 player.ship.physics.position.y = pos.positionY
                 player.ship.physics.velocity.x = pos.velocityX
                 player.ship.physics.velocity.y = pos.velocityY
+                // Hard teleport: drop prediction/interp state so nothing
+                // replays or eases across the discontinuity.
+                player.resetNetworkState()
             }
-            
         }
 
-        //  Set player positions
+        //  Remote player positions: the physics object stays the collision/AI
+        //  anchor, but rendering reads the snapshot buffer (render-behind
+        //  interpolation). The owner's own position is no longer broadcast —
+        //  it arrives via ownPlayerState below.
         for(const pos of packets.playerPosition || []){
+            if(pos.playerId === gameContext.client.connectionId) continue
             const player = game.players[pos.playerId]
             if(typeof player === "undefined") continue
 
-            let xOffset = 0
-            let yOffset = 0
-
-            if(pos.playerId === gameContext.client.connectionId){
-                // TODO: Improve server reconciliation
-                const lookbackRaw = player.ping / game.deltaMs
-                const state = player.getLastTickState(lookbackRaw)
-                const x = forgivingEqual((state.positionX + state.velocityX), (pos.positionX), PLAYER_POSITION_TOLERANCE)
-                const y = forgivingEqual((state.positionY + state.velocityY), (pos.positionY), PLAYER_POSITION_TOLERANCE)
-                if(x && y) continue
-                // Log reconciliation
-                xOffset = -state.velocityX
-                yOffset = -state.velocityY
-            }
-            
-            player.ship.physics.position.x = pos.positionX + xOffset
-            player.ship.physics.position.y = pos.positionY + yOffset
+            player.ship.physics.position.x = pos.positionX
+            player.ship.physics.position.y = pos.positionY
             player.ship.physics.velocity.x = pos.velocityX
             player.ship.physics.velocity.y = pos.velocityY
+
+            if(typeof serverTick === "number"){
+                player.snapshots.push({
+                    tick: serverTick,
+                    positionX: pos.positionX,
+                    positionY: pos.positionY,
+                    velocityX: pos.velocityX,
+                    velocityY: pos.velocityY,
+                })
+                while(player.snapshots.length > MAX_SNAPSHOTS){
+                    player.snapshots.shift()
+                }
+            }
+        }
+
+        //  Reconcile the local player ONLY when its prediction has genuinely
+        //  diverged from the server. In normal play the prediction is accurate
+        //  (within the deadzone), so the ship is left completely untouched —
+        //  no reset, no replay, no visible correction. This is what removes the
+        //  "heavy"/constantly-corrected feel. On a real divergence we reset to
+        //  truth, replay the unacknowledged inputs, and ease the residual out
+        //  via the decaying render offset.
+        for(const state of packets.ownPlayerState || []){
+            const player = getClientPlayer(game)
+            if(typeof player === "undefined") continue
+
+            // What did we predict for the input the server just acknowledged?
+            const predicted = player.predictedStates.find(s => s.seq === state.lastInputSeq)
+
+            // Drop acknowledged inputs regardless of whether we correct.
+            player.predictedStates = player.predictedStates.filter(s => seqGreater(s.seq, state.lastInputSeq))
+
+            if(typeof predicted !== "undefined"){
+                const errorX = state.positionX - predicted.positionX
+                const errorY = state.positionY - predicted.positionY
+                if(errorX * errorX + errorY * errorY < RECONCILE_TOLERANCE * RECONCILE_TOLERANCE){
+                    // Prediction was good — trust it, correct nothing.
+                    continue
+                }
+            }
+
+            const beforeX = player.ship.physics.position.x
+            const beforeY = player.ship.physics.position.y
+
+            // Snap the simulation to authoritative truth and replay the
+            // unacknowledged input tail (positions kept as the original
+            // predictions, so the deadzone check above stays meaningful).
+            player.ship.physics.position.x = state.positionX
+            player.ship.physics.position.y = state.positionY
+            player.ship.physics.velocity.x = state.velocityX
+            player.ship.physics.velocity.y = state.velocityY
+            for(const pending of player.predictedStates){
+                game.stepLocalPlayer(player, pending.inputs)
+            }
+
+            // The visible ship stays put and eases to the corrected position.
+            player.renderError.x = clampError(player.renderError.x + (beforeX - player.ship.physics.position.x))
+            player.renderError.y = clampError(player.renderError.y + (beforeY - player.ship.physics.position.y))
         }
 
         // update player ship timings
@@ -229,7 +329,8 @@ export const processPackets = (gameContext: GameContext) => {
 
         const ignorePacket = [
             "playerPositionSync",
-            "playerPosition", "playerInputs", 
+            "playerPosition", "playerInputs",
+            "serverTickHeader", "ownPlayerState",
             "gameCountdown",
             "ping", "playerPing"]
         for(const key of Object.keys(packets)){
@@ -256,11 +357,10 @@ export const sendPackets = (gameContext: GameContext) => {
         }
     }
     
-    // send position
+    // Send only inputs (the server is authoritative over our position now and
+    // derives it from these). Inputs carry a sequence number for replay.
     if(game.phase === PipPipGamePhase.MATCH){
-
         if(typeof clientPlayer !== "undefined"){
-            messages.push(encode.playerPosition(clientPlayer))
             messages.push(encode.playerInputs(clientPlayer))
         }
     }
@@ -287,5 +387,33 @@ export const sendPackets = (gameContext: GameContext) => {
         messages.forEach(mes => code = code.concat(mes))
         const buffer = new Uint8Array(code).buffer
         gameContext.client.send(buffer)
+    }
+}
+
+// Assign this tick's input sequence number BEFORE the local simulation runs,
+// so the predicted state and the input packet sent to the server share it.
+export const prepareClientInput = (gameContext: GameContext) => {
+    const { game } = gameContext
+    if(game.phase !== PipPipGamePhase.MATCH) return
+    const clientPlayer = getClientPlayer(game)
+    if(typeof clientPlayer === "undefined") return
+    clientPlayer.inputSeq = (clientPlayer.inputSeq + 1) & 0xFFFF
+}
+
+// Record the predicted state AFTER the local simulation runs, keeping a
+// bounded ring of unacknowledged inputs for reset-and-replay reconciliation.
+export const recordClientPrediction = (gameContext: GameContext) => {
+    const { game } = gameContext
+    if(game.phase !== PipPipGamePhase.MATCH) return
+    const clientPlayer = getClientPlayer(game)
+    if(typeof clientPlayer === "undefined") return
+    clientPlayer.predictedStates.push({
+        seq: clientPlayer.inputSeq,
+        inputs: cloneInputs(clientPlayer.inputs),
+        positionX: clientPlayer.ship.physics.position.x,
+        positionY: clientPlayer.ship.physics.position.y,
+    })
+    while(clientPlayer.predictedStates.length > MAX_INPUT_BUFFER){
+        clientPlayer.predictedStates.shift()
     }
 }

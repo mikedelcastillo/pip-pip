@@ -1,13 +1,14 @@
 import { EventEmitter } from "@pip-pip/core/src/common/events"
-import { PointPhysicsWorld, Vector2 } from "@pip-pip/core/src/physics"
-import { intersectionOfTwoLines, radianDifference } from "@pip-pip/core/src/math"
+import { PointPhysicsWorld, Vector2, airResistanceMultiplier, limitSpeed, WALL_RESOLVE_ITERATIONS } from "@pip-pip/core/src/physics"
+import { distanceBetweenSegments, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool } from "./bullet"
-import { PipPlayer } from "./player"
+import { PipPlayer, PlayerInputs } from "./player"
 import { PipShip } from "./ship"
 import { PipGameMap } from "./map"
 import { PipMapType, PIP_MAPS } from "../maps"
 import { tickDown } from "./utils"
+import { INTERP_DELAY_TICKS } from "./constants"
 
 
 export type PipPipGameEventMap = {
@@ -299,6 +300,9 @@ export class PipPipGame{
 
         player.ship.reset()
         player.positionStates = []
+        // Spawn is an authoritative teleport: drop all prediction/interp state
+        // so nothing replays or interpolates across the discontinuity.
+        player.resetNetworkState()
 
         player.setSpawned(true)
     }
@@ -310,6 +314,14 @@ export class PipPipGame{
 
     updateSystems(){
         if(this.phase === PipPipGamePhase.MATCH){
+
+            // Consume one queued input per player per tick, in seq order. This
+            // is a no-op on the client and for AI (their queues are empty);
+            // only the server populates inputQueue (one connection's stream
+            // per player), so it stays server-authoritative without a flag.
+            for(const player of Object.values(this.players)){
+                player.consumeQueuedInput()
+            }
 
             for(const player of Object.values(this.players)){
                 const playerIsClient = player.id === this.clientPlayerId
@@ -344,7 +356,11 @@ export class PipPipGame{
                         let rotation = player.ship.rotation
 
                         if(this.options.considerPlayerPing){
-                            const lookbackRaw = player.ping / this.deltaMs
+                            // Place the bullet where the shooter's own ship was
+                            // when they fired: rewind by their ONE-WAY latency
+                            // (ping/2). The shooter sees their own ship via
+                            // prediction at present time, so no interp delay.
+                            const lookbackRaw = (player.ping / 2) / this.deltaMs
                             const prev = player.getLastTickState(lookbackRaw)
                             positionX = prev.positionX
                             positionY = prev.positionY
@@ -361,24 +377,10 @@ export class PipPipGame{
                     }
                 }
                 
-                // accelerate players
-                const vel = Math.sqrt(
-                    player.ship.physics.velocity.x * player.ship.physics.velocity.x +
-                    player.ship.physics.velocity.y * player.ship.physics.velocity.y
-                )
-                const playerMovementInput = Math.max(0, Math.min(1, player.inputs.movementAmount)) 
-                const playerAccelerationInput = player.ship.stats.movement.acceleration.normal * playerMovementInput
-                const playerSpeedLimitTip = Math.max(0, (vel + playerAccelerationInput) - player.ship.stats.movement.speed.normal / (1 - player.ship.physics.airResistance))
-                const playerCappedAccelerationInput = playerAccelerationInput - playerSpeedLimitTip
-                
-                if(playerCappedAccelerationInput > 0){
-                    const angleDiff = radianDifference(player.inputs.movementAngle, player.inputs.aimRotation)
-                    const angleEffect = (angleDiff / Math.PI) * (Math.PI / 6) * (1 - player.ship.stats.movement.agility)
-                    const agilityModifier = Math.pow(player.ship.stats.movement.agility + (1 - Math.abs(angleDiff) / Math.PI) * (1 - player.ship.stats.movement.agility), 2)
-                    const agilityAcceleration = playerCappedAccelerationInput * agilityModifier
-                    player.ship.physics.velocity.x += Math.cos(player.inputs.movementAngle + angleEffect) * agilityAcceleration
-                    player.ship.physics.velocity.y += Math.sin(player.inputs.movementAngle + angleEffect) * agilityAcceleration
-                }
+                // accelerate players (shared with the client-side replay step)
+                const accel = this.computeMovementAcceleration(player, player.inputs)
+                player.ship.physics.velocity.x += accel.x
+                player.ship.physics.velocity.y += accel.y
             }
 
             // update bullets
@@ -393,6 +395,84 @@ export class PipPipGame{
         } else{
             // destroy all bullets
             this.bullets.destroy()
+        }
+    }
+
+    // Movement acceleration for a single input. Single source of truth shared
+    // by the authoritative server tick (updateSystems) and the client-side
+    // replay step (stepLocalPlayer) so the two cannot drift apart.
+    computeMovementAcceleration(player: PipPlayer, inputs: PlayerInputs): { x: number, y: number }{
+        const phys = player.ship.physics
+        const vel = Math.sqrt(phys.velocity.x * phys.velocity.x + phys.velocity.y * phys.velocity.y)
+        const movementInput = Math.max(0, Math.min(1, inputs.movementAmount))
+        const accelerationInput = player.ship.stats.movement.acceleration.normal * movementInput
+        const speedLimitTip = Math.max(0, (vel + accelerationInput) - player.ship.stats.movement.speed.normal / (1 - phys.airResistance))
+        const cappedAccelerationInput = accelerationInput - speedLimitTip
+
+        if(cappedAccelerationInput <= 0) return { x: 0, y: 0 }
+
+        const agility = player.ship.stats.movement.agility
+        const angleDiff = radianDifference(inputs.movementAngle, inputs.aimRotation)
+        const angleEffect = (angleDiff / Math.PI) * (Math.PI / 6) * (1 - agility)
+        const agilityModifier = Math.pow(agility + (1 - Math.abs(angleDiff) / Math.PI) * (1 - agility), 2)
+        const agilityAcceleration = cappedAccelerationInput * agilityModifier
+        return {
+            x: Math.cos(inputs.movementAngle + angleEffect) * agilityAcceleration,
+            y: Math.sin(inputs.movementAngle + angleEffect) * agilityAcceleration,
+        }
+    }
+
+    // Advance ONLY the local player's kinematics by one tick for the given
+    // input, reproducing the server's per-tick order exactly: accelerate →
+    // damp (air resistance) → clamp speed → integrate → resolve walls →
+    // world-bounds bounce. It shares the air-resistance, speed-clamp and wall
+    // resolver (and its iteration count) with the authoritative world step so
+    // the two cannot drift. dt is fixed at 1 (never the Date.now() ticker delta).
+    stepLocalPlayer(player: PipPlayer, inputs: PlayerInputs, dt = 1){
+        const phys = player.ship.physics
+
+        const accel = this.computeMovementAcceleration(player, inputs)
+        phys.velocity.x += accel.x
+        phys.velocity.y += accel.y
+
+        const airResistance = airResistanceMultiplier(phys.airResistance, dt)
+        phys.velocity.x *= airResistance
+        phys.velocity.y *= airResistance
+
+        const limited = limitSpeed(phys.velocity.x, phys.velocity.y, this.physics.options.maxVelocity)
+        phys.velocity.x = limited.x
+        phys.velocity.y = limited.y
+
+        phys.position.x += phys.velocity.x * dt
+        phys.position.y += phys.velocity.y * dt
+
+        // Resolve walls with the SAME resolver and iteration count as the
+        // authoritative world step, so the replay stops at walls exactly as the
+        // server does (this is what fully removes the wall rubber-band).
+        for(let iteration = 0; iteration < WALL_RESOLVE_ITERATIONS; iteration++){
+            this.physics.resolveWallCollisions(phys)
+        }
+        this.applyMapBounds(player)
+    }
+
+    applyMapBounds(player: PipPlayer){
+        const R = -0.5
+        const phys = player.ship.physics
+        if(phys.position.x < this.map.bounds.min.x){
+            phys.position.x = this.map.bounds.min.x
+            phys.velocity.x *= R
+        }
+        if(phys.position.y < this.map.bounds.min.y){
+            phys.position.y = this.map.bounds.min.y
+            phys.velocity.y *= R
+        }
+        if(phys.position.x > this.map.bounds.max.x){
+            phys.position.x = this.map.bounds.max.x
+            phys.velocity.x *= R
+        }
+        if(phys.position.y > this.map.bounds.max.y){
+            phys.position.y = this.map.bounds.max.y
+            phys.velocity.y *= R
         }
     }
 
@@ -431,12 +511,16 @@ export class PipPipGame{
     }
 
     updateBulletPhysics(){
-        // check wall collisions
+        // check wall collisions: swept circle (the bullet's motion segment,
+        // inflated by both radii) vs each wall segment. The previous test used
+        // a zero-width line intersection that missed corner grazes and skims
+        // for fast bullets (velocity is 100/tick, larger than the bullet).
         const segWalls = Object.values(this.physics.segWalls)
         for(const bullet of this.bullets.getActive()){
+            const hitRadius = bullet.physics.radius
             for(const segWall of segWalls){
-                const intersection = intersectionOfTwoLines(
-                    bullet.physics.position.x, 
+                const dist = distanceBetweenSegments(
+                    bullet.physics.position.x,
                     bullet.physics.position.y,
                     bullet.physics.position.x + bullet.physics.velocity.x,
                     bullet.physics.position.y + bullet.physics.velocity.y,
@@ -446,27 +530,9 @@ export class PipPipGame{
                     segWall.end.y,
                 )
 
-                if(intersection === null) continue
-
-                const epsilon = 1 
-
-                const minIntX = Math.min(segWall.start.x, segWall.end.x) - epsilon
-                const maxIntX = Math.max(segWall.start.x, segWall.end.x) + epsilon
-                const minIntY = Math.min(segWall.start.y, segWall.end.y) - epsilon
-                const maxIntY = Math.max(segWall.start.y, segWall.end.y) + epsilon
-                const inIntX = minIntX <= intersection.x && intersection.x <= maxIntX
-                const inIntY = minIntY <= intersection.y && intersection.y <= maxIntY
-
-                const minBulX = Math.min(bullet.physics.position.x, bullet.physics.position.x + bullet.physics.velocity.x) - epsilon
-                const maxBulX = Math.max(bullet.physics.position.x, bullet.physics.position.x + bullet.physics.velocity.x) + epsilon
-                const minBulY = Math.min(bullet.physics.position.y, bullet.physics.position.y + bullet.physics.velocity.y) - epsilon
-                const maxBulY = Math.max(bullet.physics.position.y, bullet.physics.position.y + bullet.physics.velocity.y) + epsilon
-                const inBulX = minBulX <= intersection.x && intersection.x <= maxBulX
-                const inBulY = minBulY <= intersection.y && intersection.y <= maxBulY
-
-                if(inIntX && inIntY && inBulX && inBulY){
-                    // improve this in the future
+                if(dist <= hitRadius + segWall.radius){
                     this.bullets.unset(bullet)
+                    break
                 }
             }
         }
@@ -486,8 +552,11 @@ export class PipPipGame{
                 let playerVelocityX = player.ship.physics.velocity.x
                 let playerVelocityY = player.ship.physics.velocity.y
 
-                if(this.options.considerPlayerPing === true){
-                    const lookbackRaw = player.ping / this.deltaMs
+                if(this.options.considerPlayerPing === true && bullet.owner instanceof PipPlayer){
+                    // Rewind the TARGET to where the SHOOTER saw it when firing:
+                    // the shooter's one-way latency (ping/2) plus the render
+                    // interpolation delay the shooter views remote ships behind.
+                    const lookbackRaw = (bullet.owner.ping / 2) / this.deltaMs + INTERP_DELAY_TICKS
                     const prev = player.getLastTickState(lookbackRaw)
                     playerPositionX = prev.positionX
                     playerPositionY = prev.positionY
@@ -531,24 +600,8 @@ export class PipPipGame{
         this.physics.update(this.deltaMs)
         
         // Enforce map bounds
-        const R = -0.5
         for(const player of Object.values(this.players)){
-            if(player.ship.physics.position.x < this.map.bounds.min.x){
-                player.ship.physics.position.x = this.map.bounds.min.x
-                player.ship.physics.velocity.x *= R
-            }
-            if(player.ship.physics.position.y < this.map.bounds.min.y){
-                player.ship.physics.position.y = this.map.bounds.min.y
-                player.ship.physics.velocity.y *= R
-            }
-            if(player.ship.physics.position.x > this.map.bounds.max.x){
-                player.ship.physics.position.x = this.map.bounds.max.x
-                player.ship.physics.velocity.x *= R
-            }
-            if(player.ship.physics.position.y > this.map.bounds.max.y){
-                player.ship.physics.position.y = this.map.bounds.max.y
-                player.ship.physics.velocity.y *= R
-            }
+            this.applyMapBounds(player)
         }
 
         for(const player of Object.values(this.players)){

@@ -84,6 +84,47 @@ export function nearestPointFromSegment(
     }
 }
 
+export function distancePointToSegment(
+    pointX: number, pointY: number,
+    segStartX: number, segStartY: number,
+    segEndX: number, segEndY: number){
+    const { x, y } = nearestPointFromSegment(segStartX, segStartY, segEndX, segEndY, pointX, pointY)
+    const dx = pointX - x
+    const dy = pointY - y
+    return Math.sqrt(dx * dx + dy * dy)
+}
+
+function segmentOrientation(ax: number, ay: number, bx: number, by: number, cx: number, cy: number){
+    return Math.sign((by - ay) * (cx - bx) - (bx - ax) * (cy - by))
+}
+
+export function segmentsIntersect(
+    a1x: number, a1y: number, a2x: number, a2y: number,
+    b1x: number, b1y: number, b2x: number, b2y: number){
+    const o1 = segmentOrientation(a1x, a1y, a2x, a2y, b1x, b1y)
+    const o2 = segmentOrientation(a1x, a1y, a2x, a2y, b2x, b2y)
+    const o3 = segmentOrientation(b1x, b1y, b2x, b2y, a1x, a1y)
+    const o4 = segmentOrientation(b1x, b1y, b2x, b2y, a2x, a2y)
+    return o1 !== o2 && o3 !== o4
+}
+
+/**
+ * Minimum distance between two line segments. Returns 0 if they cross.
+ * Used to test a swept (moving) circle against a wall segment by comparing
+ * the result against the sum of the two radii.
+ */
+export function distanceBetweenSegments(
+    a1x: number, a1y: number, a2x: number, a2y: number,
+    b1x: number, b1y: number, b2x: number, b2y: number){
+    if(segmentsIntersect(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y)) return 0
+    return Math.min(
+        distancePointToSegment(a1x, a1y, b1x, b1y, b2x, b2y),
+        distancePointToSegment(a2x, a2y, b1x, b1y, b2x, b2y),
+        distancePointToSegment(b1x, b1y, a1x, a1y, a2x, a2y),
+        distancePointToSegment(b2x, b2y, a1x, a1y, a2x, a2y),
+    )
+}
+
 export function intersectionOfTwoLines(
     L1x1: number, L1y1: number, 
     L1x2: number, L1y2: number, 
