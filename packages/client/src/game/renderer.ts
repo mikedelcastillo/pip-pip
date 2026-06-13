@@ -25,6 +25,7 @@ import {
     mergeShake,
     ShakeState,
     Particle,
+    WallSegment,
 } from "./particles"
 
 const SMOOTHING = {
@@ -224,9 +225,11 @@ export class ParticleGraphic extends PoolableGraphic {
         const alpha = Math.max(0, 1 - lifeRatio)
         const drawSize = Math.max(0.5, p.size * (1 - lifeRatio))
 
+        const s = Math.max(1, Math.round(drawSize))
+
         this.graphic.clear()
         this.graphic.beginFill(p.color, alpha)
-        this.graphic.drawCircle(0, 0, drawSize)
+        this.graphic.drawRect(-s / 2, -s / 2, s, s)
         this.graphic.endFill()
 
         this.container.position.x = p.x
@@ -453,7 +456,6 @@ export class PipPipRenderer{
                 bullet.physics.position.y,
                 8,
             )
-            this.shake = mergeShake(this.shake, triggerShake(4, 150))
         })
 
         this.game.events.on("dealDamage", ({ target, damage }) => {
@@ -468,7 +470,11 @@ export class PipPipRenderer{
                 target.ship.physics.position.x,
                 target.ship.physics.position.y,
             )
-            this.shake = mergeShake(this.shake, triggerShake(6, 200))
+            // Sparks fire for everyone, but only shake the screen when the
+            // local player is the one taking the hit.
+            if(target.id === this.game.clientPlayerId){
+                this.shake = mergeShake(this.shake, triggerShake(5, 150))
+            }
         })
 
         this.game.events.on("playerKill", ({ killed }) => {
@@ -476,9 +482,12 @@ export class PipPipRenderer{
                 this.particleSystem,
                 killed.ship.physics.position.x,
                 killed.ship.physics.position.y,
-                28,
+                14,
             )
-            this.shake = mergeShake(this.shake, triggerShake(18, 600))
+            // Explosion shows for every kill, but only shake when you died.
+            if(killed.id === this.game.clientPlayerId){
+                this.shake = mergeShake(this.shake, triggerShake(10, 350))
+            }
         })
     }
 
@@ -663,9 +672,17 @@ export class PipPipRenderer{
             }
         }
 
-        // update particles: step the pure simulation, recycle every graphic from
-        // the previous frame, then redraw one graphic per live particle.
-        this.particleSystem.update(deltaMs)
+        // update particles: step the pure simulation (with wall bounces),
+        // recycle every graphic from the previous frame, then redraw one graphic
+        // per live particle.
+        const walls: WallSegment[] = Object.values(this.game.physics.segWalls).map(w => ({
+            x1: w.start.x,
+            y1: w.start.y,
+            x2: w.end.x,
+            y2: w.end.y,
+            radius: w.radius,
+        }))
+        this.particleSystem.update(deltaMs, walls)
         for(const g of this.particles.active){
             this.particles.free(g)
         }

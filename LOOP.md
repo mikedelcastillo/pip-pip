@@ -131,6 +131,13 @@ Verified, prioritized. `[x]` = fixed and shipped.
 
 ## Decision log
 
+- **D5 — particle refinement from author feedback.** Particles are now physics-based:
+  they bounce off wall segments (reflect velocity off the segment normal via core's
+  `nearestPointFromSegment`, with restitution), keeping the sim pure/testable by passing
+  wall data into `update`. Screen shake is gated to ONLY when the local player is hit
+  (`target.id === clientPlayerId`), wall-hit shake removed, kill explosion toned down
+  (28→14 particles). Particles draw as pixel squares (`drawRect`) instead of circles to
+  fit the pixel-art theme.
 - **D4 — fixing the reported "can't damage players" bug (two root causes).** (1) The
   lag-comp rewind looked back a *fixed* offset from the current tick every frame, so the
   rewound target hitbox slid forward with a moving target and bullets aimed where the
@@ -177,4 +184,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 2  | `fb9205a`   | Secondary/tactical cannon weapon              | `git revert fb9205a`|
 | 3  | `8300290`   | Particle + screen-shake juice system          | `git revert 8300290`|
 | 4  | `aa8a98e`   | Fix variable-length packet framing (>=256 bytes) | `git revert aa8a98e`|
-| 5  | (latest)    | Fix player damage misses (lag-comp + swept collision) | `git revert <sha>`|
+| 5  | `17539f0`   | Fix player damage misses (lag-comp + swept collision) | `git revert 17539f0`|
+| 6  | (latest)    | Particle refinement: wall bounce, pixel squares, local-only shake | `git revert <sha>`|

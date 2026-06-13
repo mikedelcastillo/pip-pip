@@ -2,6 +2,8 @@
 // rendering-agnostic so it can be unit-tested in a plain Node environment.
 // Units: age/lifespan in ms, vx/vy in px/ms.
 
+import { nearestPointFromSegment } from "@pip-pip/core/src/math"
+
 export type Particle = {
     x: number,
     y: number,
@@ -13,6 +15,16 @@ export type Particle = {
     color: number,
     drag: number,
     gravity: number,
+}
+
+// A collidable wall segment, mirrors the game's PointPhysicsSegmentWall but
+// flattened so the pure sim stays free of any game/physics imports.
+export type WallSegment = {
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    radius: number,
 }
 
 export class ParticleSystem {
@@ -31,7 +43,9 @@ export class ParticleSystem {
         }
     }
 
-    update(dtMs: number){
+    update(dtMs: number, walls: WallSegment[] = [], restitution = 0.45){
+        // Particle collision radius — small so squares feel like point sparks.
+        const pr = 1
         for(let i = this.live.length - 1; i >= 0; i--){
             const p = this.live[i]
             const f = Math.pow(1 - p.drag, dtMs)
@@ -41,6 +55,33 @@ export class ParticleSystem {
             p.x += p.vx * dtMs
             p.y += p.vy * dtMs
             p.age += dtMs
+
+            // Bounce off collidable wall geometry. At most one reflection per
+            // particle per step keeps the response stable in tight corners.
+            for(const wall of walls){
+                const c = nearestPointFromSegment(wall.x1, wall.y1, wall.x2, wall.y2, p.x, p.y)
+                const dx = p.x - c.x
+                const dy = p.y - c.y
+                const dist = Math.hypot(dx, dy)
+
+                if(dist >= wall.radius + pr) continue
+                // Skip a degenerate (particle sitting exactly on the segment):
+                // there is no defined normal, so reflecting would divide by ~0.
+                if(dist <= 1e-6) continue
+
+                const nx = dx / dist
+                const ny = dy / dist
+                const vDotN = p.vx * nx + p.vy * ny
+                // Only bounce when actually heading into the wall.
+                if(vDotN >= 0) continue
+
+                p.vx = (p.vx - 2 * vDotN * nx) * restitution
+                p.vy = (p.vy - 2 * vDotN * ny) * restitution
+                // Push just outside the wall so it doesn't re-trigger next step.
+                p.x = c.x + nx * (wall.radius + pr)
+                p.y = c.y + ny * (wall.radius + pr)
+                break
+            }
 
             if(p.age >= p.lifespan){
                 this.live.splice(i, 1)

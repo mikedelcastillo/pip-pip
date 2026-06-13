@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
     ParticleSystem,
     Particle,
+    WallSegment,
     emitExplosion,
     computeShake,
     triggerShake,
@@ -60,6 +61,40 @@ describe("ParticleSystem", () => {
         expect(lifeRatio).toBeCloseTo(0.5, 5)
         expect(alpha).toBeCloseTo(0.5, 5)
         expect(drawSize).toBeCloseTo(4, 5)
+    })
+})
+
+describe("wall bounce", () => {
+    // Horizontal wall along y = 0; radius 2 + particle radius 1 = 3px contact band.
+    const wall: WallSegment = { x1: -100, y1: 0, x2: 100, y2: 0, radius: 2 }
+
+    it("reflects a particle moving into a horizontal wall, losing energy", () => {
+        const system = new ParticleSystem()
+        // Start above the wall; after one 1ms step (dy = -5) it lands at y = 2,
+        // inside the 3px contact band while still on the +y side.
+        const p = makeParticle({ x: 0, y: 7, vx: 0, vy: -5 })
+        system.emit([p])
+        system.update(1, [wall])
+
+        // Bounced back upward (away from the wall).
+        expect(p.vy).toBeGreaterThan(0)
+        // Restitution bled off speed.
+        expect(Math.abs(p.vy)).toBeLessThan(5)
+        // Pushed back outside the wall's contact band.
+        expect(p.y).toBeGreaterThanOrEqual(wall.radius + 1)
+    })
+
+    it("leaves a particle moving away from the wall untouched", () => {
+        const system = new ParticleSystem()
+        // Sits inside the contact band but is moving away (+y), so no bounce.
+        const p = makeParticle({ x: 0, y: 2.5, vx: 0, vy: 3 })
+        system.emit([p])
+        system.update(0, [wall])
+
+        // Velocity unchanged: approaching test (v . n < 0) fails for an outbound
+        // particle, so the normal component never flips.
+        expect(p.vy).toBe(3)
+        expect(p.vx).toBe(0)
     })
 })
 
