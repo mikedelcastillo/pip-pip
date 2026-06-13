@@ -2,6 +2,7 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": { "builder": "DOCKERFILE", "dockerfilePath": "Dockerfile" },
   "deploy": {
+    "region": "asia-southeast1-eqsg3a",
     "numReplicas": 1,
     "startCommand": "node packages/server/dist/index.js",
     "healthcheckPath": "/hrzn",
