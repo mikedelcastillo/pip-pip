@@ -11,6 +11,10 @@ interface Props {
     onChange: (value: string) => void
     placeholder?: string
     type?: string
+    // A form-field name/id so the input is not flagged by accessibility checks
+    // for missing id/name. Defaults to a generic value; callers can pass a more
+    // specific one (e.g. "lobby-code", "chat").
+    name?: string
     onEnter?: () => void
     onUp?: () => void
     onFocus?: () => void
@@ -19,7 +23,7 @@ interface Props {
 }
 
 const GameInput = forwardRef<GameInputHandle, Props>(function GameInput({
-    value, onChange, placeholder = "", type = "text",
+    value, onChange, placeholder = "", type = "text", name = "text-field",
     onEnter, onUp, onFocus, onBlur, className,
 }, ref) {
     const inputRef = useRef<HTMLInputElement>(null)
@@ -76,6 +80,9 @@ const GameInput = forwardRef<GameInputHandle, Props>(function GameInput({
             <input
                 ref={inputRef}
                 type={type}
+                name={name}
+                id={name}
+                autoComplete="off"
                 value={value}
                 placeholder={placeholder}
                 onChange={(e) => onChange(e.target.value)}
