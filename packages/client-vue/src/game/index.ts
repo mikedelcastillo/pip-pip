@@ -10,7 +10,8 @@ import { Client } from "@pip-pip/core/src/networking/client"
 
 import { encode, packetManager, PipPacketSerializerMap } from "@pip-pip/game/src/networking/packets"
 import { Ticker } from "@pip-pip/core/src/common/ticker"
-import { processPackets, sendPackets } from "./client"
+import { processPackets, sendPackets, prepareClientInput, recordClientPrediction } from "./client"
+import { ServerClock } from "./serverClock"
 import { processInputs } from "./ui"
 import { processChat } from "./chat"
 import { CACHE_NAME_KEY } from "@pip-pip/game/src/logic/utils"
@@ -22,6 +23,8 @@ export class GameContext{
     
     renderTick!: Ticker
     updateTick!: Ticker
+
+    serverClock!: ServerClock
 
     client!: Client<PipPacketSerializerMap>
     clientEvents!: EventCollector<EventMapOf<Client<PipPacketSerializerMap>["events"]>>
@@ -64,7 +67,9 @@ export class GameContext{
         // this.renderer?.destroy()
         this.renderer = new PipPipRenderer(this.game)
         this.gameEvents = new EventCollector(this.game.events)
-        
+
+        this.serverClock = new ServerClock(this.game.deltaMs)
+
         this.renderTick = new Ticker(60, true, "Render")
         this.updateTick = new Ticker(this.game.tps, false, "Update")
 
@@ -105,10 +110,15 @@ export class GameContext{
             // Apply inputs
             processInputs(this)
 
+            // Tag this tick's input with a sequence number BEFORE simulating
+            // so the predicted state and the sent input share the same seq.
+            prepareClientInput(this)
+
             // Update local simulation
             this.game.update()
 
-            // Send packets
+            // Record the predicted state for reconciliation/replay, then send.
+            recordClientPrediction(this)
             sendPackets(this)
 
             // Send updates

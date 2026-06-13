@@ -2,7 +2,7 @@ import { RecursivePartial } from "@pip-pip/core/src/lib/types"
 import { radianDifference } from "@pip-pip/core/src/math"
 import { PointPhysicsObject } from "@pip-pip/core/src/physics"
 import { PipPipGame } from "."
-import { SHIP_DAIMETER } from "./constants"
+import { SHIP_DAIMETER, SHIP_COLLISION_CHANNEL } from "./constants"
 import { PipPlayer } from "./player"
 import { tickDown } from "./utils"
 
@@ -222,8 +222,13 @@ export class PipShip{
         this.physics.mass = 500
         this.physics.radius = SHIP_DAIMETER / 2
         this.physics.airResistance = 0.05
+        // Ships collide with walls but pass through each other: each ship both
+        // carries and excludes the SHIP channel, so any ship-vs-ship pair is
+        // skipped. The client cannot predict being pushed by another ship, so
+        // soft ship-ship collisions caused rubber-banding.
         this.physics.collision.enabled = true
-        this.physics.collision.channels = []
+        this.physics.collision.channels = [SHIP_COLLISION_CHANNEL]
+        this.physics.collision.excludeChannels = [SHIP_COLLISION_CHANNEL]
     }
 
     get maxHealth(){

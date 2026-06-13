@@ -5,6 +5,7 @@ import { PIP_SHIPS, ShipType } from "../ships"
 
 import { PipShip } from "./ship"
 import { tickDown } from "./utils"
+import { SERVER_INPUT_QUEUE_MAX } from "./constants"
 
 export type PlayerInputs = {
     movementAngle: number,
@@ -17,6 +18,43 @@ export type PlayerInputs = {
     doReload: boolean,
 
     spawn: boolean,
+}
+
+export function cloneInputs(inputs: PlayerInputs): PlayerInputs{
+    return {
+        movementAngle: inputs.movementAngle,
+        movementAmount: inputs.movementAmount,
+        aimRotation: inputs.aimRotation,
+        useWeapon: inputs.useWeapon,
+        useTactical: inputs.useTactical,
+        doReload: inputs.doReload,
+        spawn: inputs.spawn,
+    }
+}
+
+// Server: one buffered input awaiting consumption (one consumed per tick).
+export type PlayerInputFrame = {
+    seq: number,
+    inputs: PlayerInputs,
+}
+
+// Client (local player): an unacknowledged input plus the position it
+// predicted, kept for reset-and-replay reconciliation.
+export type PredictedInputState = {
+    seq: number,
+    inputs: PlayerInputs,
+    positionX: number,
+    positionY: number,
+}
+
+// Client (remote players): a timestamped server snapshot for render-behind
+// interpolation, keyed by the authoritative server tick.
+export type PlayerSnapshot = {
+    tick: number,
+    positionX: number,
+    positionY: number,
+    velocityX: number,
+    velocityY: number,
 }
 
 export type PlayerTimings = {
@@ -84,6 +122,21 @@ export class PipPlayer{
     spawned = false
 
     positionStates: PlayerTickState[] = []
+
+    // --- Networking: input sequencing & client-side prediction ---
+    // Client: seq of the input produced this tick. Server: stays 0.
+    inputSeq = 0
+    // Server: seq of the most recent input actually consumed by the sim.
+    lastProcessedInputSeq = 0
+    // Server: inputs awaiting consumption (one per tick, in order).
+    inputQueue: PlayerInputFrame[] = []
+    // Client (local player only): unacknowledged inputs + predicted positions.
+    predictedStates: PredictedInputState[] = []
+    // Client (remote players only): server snapshots for render interpolation.
+    snapshots: PlayerSnapshot[] = []
+    // Client (local player only): smoothed visual offset so a correction eases
+    // in instead of teleporting the rendered ship.
+    renderError = { x: 0, y: 0 }
 
     constructor(game: PipPipGame, id: string){
         this.game = game
@@ -232,6 +285,48 @@ export class PipPlayer{
             velocityY: from.velocityY + (to.velocityY - from.velocityY) * dist,
             rotation: from.rotation + radianDifference(from.rotation, to.rotation) * dist,
         }
+    }
+
+    // Server: enqueue an input received from this player's connection.
+    // TCP keeps order, so stale/duplicate seqs are ignored defensively. The
+    // comparison is wrap-safe across the uint16 seq boundary.
+    pushInputFrame(seq: number, inputs: PlayerInputs){
+        const last = this.inputQueue[this.inputQueue.length - 1]
+        if(typeof last !== "undefined"){
+            const ahead = (seq - last.seq) & 0xFFFF
+            if(ahead === 0 || ahead >= 0x8000) return
+        }
+        this.inputQueue.push({ seq, inputs: cloneInputs(inputs) })
+    }
+
+    // Server: pull one input for this tick. Empty queue → keep last input
+    // (starvation). A queue grown past the cap (post-stall burst) drops its
+    // oldest excess so latency stays bounded.
+    consumeQueuedInput(){
+        if(this.inputQueue.length === 0) return
+        while(this.inputQueue.length > SERVER_INPUT_QUEUE_MAX){
+            this.inputQueue.shift()
+        }
+        const frame = this.inputQueue.shift()
+        if(typeof frame === "undefined") return
+        this.inputs.movementAngle = frame.inputs.movementAngle
+        this.inputs.movementAmount = frame.inputs.movementAmount
+        this.inputs.aimRotation = frame.inputs.aimRotation
+        this.inputs.useWeapon = frame.inputs.useWeapon
+        this.inputs.useTactical = frame.inputs.useTactical
+        this.inputs.doReload = frame.inputs.doReload
+        this.lastProcessedInputSeq = frame.seq
+    }
+
+    // Reset all client-side prediction/interpolation state. Called on
+    // authoritative teleports (spawn, force-sync) so nothing replays or
+    // interpolates across the discontinuity.
+    resetNetworkState(){
+        this.predictedStates = []
+        this.snapshots = []
+        this.renderError.x = 0
+        this.renderError.y = 0
+        this.inputQueue = []
     }
 
     update(){

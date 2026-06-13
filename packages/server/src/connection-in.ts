@@ -1,6 +1,4 @@
-import { forgivingEqual } from "@pip-pip/core/src/math"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
-import { PLAYER_POSITION_TOLERANCE } from "@pip-pip/game/src/logic/constants"
 import { sanitize } from "@pip-pip/game/src/logic/utils"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
 import { GameTickContext } from "."
@@ -70,35 +68,24 @@ export function processLobbyPackets(context: GameTickContext){
             }
         }
 
-        //  Set player position
-        for(const pos of packets.playerPosition || []){
-            const player = game.players[connection.id]
-            if(typeof player !== "undefined"){
-                const lookbackRaw = player.ping / game.deltaMs
-                const state = player.getLastTickState(lookbackRaw)
-                const x = forgivingEqual((state.positionX + state.velocityX), (pos.positionX), PLAYER_POSITION_TOLERANCE)
-                const y = forgivingEqual((state.positionY + state.velocityY), (pos.positionY), PLAYER_POSITION_TOLERANCE)
-                if(x && y){
-                    player.ship.physics.position.x = pos.positionX
-                    player.ship.physics.position.y = pos.positionY
-                    player.ship.physics.velocity.x = pos.velocityX
-                    player.ship.physics.velocity.y = pos.velocityY
-                } else{
-                    console.log(`Player ${player.id} position discarded. x: ${state.positionX.toFixed(2)}, y: ${state.positionY.toFixed(2)}`)
-                }
-            }
-        }
+        // The server no longer trusts client-reported positions (it used to
+        // copy them into authoritative state within a tolerance, which made
+        // the local ship effectively client-authoritative). Position is now
+        // derived purely from the simulation driven by queued inputs below.
 
-        // set player inputs
+        // Queue player inputs for consumption (one per tick, in seq order).
         for(const inputs of packets.playerInputs || []){
             const player = game.players[connection.id]
             if(typeof player !== "undefined"){
-                player.inputs.movementAngle = inputs.movementAngle
-                player.inputs.movementAmount = inputs.movementAmount
-                player.inputs.aimRotation = inputs.aimRotation
-                player.inputs.useWeapon = inputs.useWeapon
-                player.inputs.useTactical = inputs.useTactical
-                player.inputs.doReload = inputs.doReload
+                player.pushInputFrame(inputs.inputSeq, {
+                    movementAngle: inputs.movementAngle,
+                    movementAmount: inputs.movementAmount,
+                    aimRotation: inputs.aimRotation,
+                    useWeapon: inputs.useWeapon,
+                    useTactical: inputs.useTactical,
+                    doReload: inputs.doReload,
+                    spawn: false,
+                })
             }
         }
     }
