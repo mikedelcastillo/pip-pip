@@ -274,4 +274,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 33 | `198f0c0`   | Lobby host promotion (/op, /makehost)             | `git revert 198f0c0`|
 | 34 | `e76603b`   | Spectator mode (toggle, camera follow, broadcast) | `git revert e76603b`|
 | 35 | `8e9b83a`   | Map power-ups (health/ammo pickups)               | `git revert 8e9b83a`|
-| 36 | (latest)    | Fix /map to be 1-based like /ship                 | `git revert <sha>`  |
+| 36 | `55108fd`   | Fix /map to be 1-based like /ship                 | `git revert 55108fd`|
+| 37 | (latest)    | Polish: host toggle highlight, join-by-code, dev log | `git revert <sha>`|

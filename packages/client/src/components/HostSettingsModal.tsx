@@ -73,13 +73,13 @@ export default function HostSettingsModal({ onClose }: Props) {
                 <div className={styles.sectionTitle}>Visibility</div>
                 <div className={styles.toggleRow}>
                     <GameButton
-                        accent={!isPublic}
+                        accent={isPublic}
                         onClick={() => setIsPublic(true)}
                     >
                         Public
                     </GameButton>
                     <GameButton
-                        accent={isPublic}
+                        accent={!isPublic}
                         onClick={() => setIsPublic(false)}
                     >
                         Private

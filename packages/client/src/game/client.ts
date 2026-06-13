@@ -267,10 +267,15 @@ export const processPackets = (gameContext: GameContext) => {
             "playerSpectate",
             "powerupSpawn", "powerupPickup",
             "ping", "playerPing"]
-        for (const key of Object.keys(packets)) {
-            if (ignorePacket.includes(key)) continue
-            for (const packet of packets[key as keyof typeof packets] || []) {
-                console.log(key, packet)
+        // Per-tick packet trace — dev only. In production this logged every
+        // non-ignored packet (timings/capacities/scores/damage/kills...) at the
+        // tick rate, spamming the console.
+        if (import.meta.env.DEV) {
+            for (const key of Object.keys(packets)) {
+                if (ignorePacket.includes(key)) continue
+                for (const packet of packets[key as keyof typeof packets] || []) {
+                    console.log(key, packet)
+                }
             }
         }
     }

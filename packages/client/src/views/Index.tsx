@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import GameButton from "../components/GameButton"
 import GameInput from "../components/GameInput"
 import AudioVolumeToggle from "../components/AudioVolumeToggle"
@@ -15,9 +16,13 @@ type Panel = "settings" | "credits" | "host" | "browse" | null
 export default function Index() {
     const [joinValue, setJoinValue] = useState("")
     const [panel, setPanel] = useState<Panel>(null)
+    const navigate = useNavigate()
 
-    const notYetImplemented = () => {
-        alert("That doesn't do anything yet.")
+    // Join a lobby directly by its code/id — same route the public-match
+    // browser uses to join (the /:id view handles connect + join).
+    const joinByCode = () => {
+        const code = joinValue.trim()
+        if (code.length !== 0) navigate(`/${code}`)
     }
 
     const closePanel = () => setPanel(null)
@@ -34,8 +39,8 @@ export default function Index() {
                 <div className={styles.buttons}>
                     <GameButton onClick={() => setPanel("host")}>Host Game</GameButton>
                     <GameButton onClick={() => setPanel("browse")}>Join Public Match</GameButton>
-                    <GameInput value={joinValue} onChange={setJoinValue} />
-                    <GameButton onClick={notYetImplemented}>Join Game</GameButton>
+                    <GameInput value={joinValue} onChange={setJoinValue} name="lobby-code" placeholder="Lobby code" onEnter={joinByCode} />
+                    <GameButton onClick={joinByCode}>Join Game</GameButton>
                     <GameButton accent onClick={() => setPanel("settings")}>Settings</GameButton>
                     <GameButton accent onClick={() => setPanel("credits")}>Credits</GameButton>
                     <AudioVolumeToggle />
