@@ -87,7 +87,8 @@ Engine / gameplay:
 
 Maps:
 - [x] **Map selection screen** — host-only "Map" tab in the lobby SETUP overlay, over `setMap` (live highlight via synced `mapIndex`). (#25)
-- [ ] New maps + new backgrounds/themes (more map variety).
+- [x] **Per-map background themes** — each of the 5 maps gets a distinct on-theme canvas colour, applied on `setMap` (data on `PipMapType.background`). (#41)
+- [ ] New map geometry + tile-art themes (more variety; needs the Rust map tool or hand-authored *.map.json + tile art).
 
 Networking / lobbies / multiplayer:
 - [x] **Public-lobby foundation** — lobby metadata + `GET /lobbies` listing + create-with-options + `client.listPublicLobbies()`. (#9)
@@ -279,4 +280,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 37 | `416166e`   | Polish: host toggle highlight, join-by-code, dev log | `git revert 416166e`|
 | 38 | `a0efae8`   | Bots use their tactical/grenade weapon            | `git revert a0efae8`|
 | 39 | `c0cc86b`   | Cache particle wall-list (rebuild on setMap)      | `git revert c0cc86b`|
-| 40 | (latest)    | Speed/shield power-ups (timed buffs)              | `git revert <sha>`  |
+| 40 | `e28313a`   | Speed/shield power-ups (timed buffs)              | `git revert e28313a`|
+| 41 | (latest)    | Per-map background themes                         | `git revert <sha>`  |

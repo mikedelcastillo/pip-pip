@@ -606,6 +606,12 @@ export class PipPipRenderer{
     }
 
     updateMapGraphics(){
+        // Tint the canvas to the current map's background colour so each map has
+        // a distinct mood (falls back to the original dark plum).
+        if(typeof this.game.mapType !== "undefined"){
+            this.app.renderer.backgroundColor = this.game.mapType.background ?? 0x150E12
+        }
+
         for(const graphic of this.mapTiles){
             this.mapBackgroundContainer.removeChild(graphic.sprite)
         }
