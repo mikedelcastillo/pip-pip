@@ -17,6 +17,14 @@ export function isBotCommand(message: string){
     return word === "/bot" || word === "/bots" || word === "/clearbots"
 }
 
+// True if `message` is a recognized host promote-command. Mirrors isBotCommand:
+// used by the command processor (to act on it) and the outgoing chat broadcast
+// (to suppress echoing the raw command). Only honoured for the lobby host.
+export function isHostPromoteCommand(message: string){
+    const word = message.trim().toLowerCase().split(/\s+/)[0]
+    return word === "/op" || word === "/makehost"
+}
+
 // Execute a host bot-command. No-op (returns false) if the text is not a
 // recognized command. Centralised here so the chat path stays declarative.
 function runBotCommand(game: PipPipGame, message: string){
@@ -38,6 +46,31 @@ function runBotCommand(game: PipPipGame, message: string){
         return true
     }
     return false
+}
+
+// Execute a host promote-command. No-op (returns false) if the text is not a
+// recognized command or no matching target player exists. The target is named
+// by player name (case-insensitive, trimmed) or by its 2-char id; on a match
+// game.setHost overrides setHostIfNeeded's players[0] default and sticks.
+function runHostPromoteCommand(game: PipPipGame, message: string){
+    const parts = message.trim().split(/\s+/)
+    const command = parts[0].toLowerCase()
+
+    if(command !== "/op" && command !== "/makehost") return false
+
+    const target = parts.slice(1).join(" ").trim()
+    if(target.length === 0) return false
+
+    const wanted = target.toLowerCase()
+    const players = Object.values(game.players)
+    const match = players.find(player =>
+        player.id.toLowerCase() === wanted ||
+        player.name.trim().toLowerCase() === wanted)
+
+    if(typeof match === "undefined") return false
+
+    game.setHost(match)
+    return true
 }
 
 export function processLobbyPackets(context: GameTickContext){
@@ -128,16 +161,19 @@ export function processLobbyPackets(context: GameTickContext){
             }
         }
 
-        // Host-only bot commands sent through the chat channel:
+        // Host-only commands sent through the chat channel:
         //   /bot        add one training-grounds bot
         //   /bots N     add N bots (clamped to MAX_BOTS_PER_COMMAND)
         //   /clearbots  remove all bots
+        //   /op <name|id> (alias /makehost) promote a player to host
         // Recognized commands are NOT echoed back to chat (connection-out skips
-        // them via isBotCommand). Only the host may run them.
+        // them via isBotCommand / isHostPromoteCommand). Only the host may run them.
         if(game.host?.id === connection.id){
             for(const { message } of packets.sendChat || []){
                 if(isBotCommand(message)){
                     runBotCommand(game, message)
+                } else if(isHostPromoteCommand(message)){
+                    runHostPromoteCommand(game, message)
                 }
             }
         }

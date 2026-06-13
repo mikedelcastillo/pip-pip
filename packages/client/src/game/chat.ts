@@ -225,6 +225,34 @@ GAME_COMMANDS.push({
     },
 })
 
+// Host-only promote command. Handled authoritatively on the SERVER (see
+// packages/server/src/connection-in.ts): the client host-gates for instant
+// feedback and forwards the raw command over chat; the server resolves the
+// target, reassigns the host, and suppresses the echo. Registered here (and
+// its /makehost alias) so they appear in /help and are not rejected as
+// "Command not found".
+GAME_COMMANDS.push({
+    command: "op",
+    name: "Promote to host",
+    inputs: ["name|id"],
+    description: "Promote a player to host (host only)",
+    callback(message) {
+        if (!useGameStore.getState().isHost) return MESSAGE_ERROR_NOT_HOST
+        useGameStore.getState().addOutgoingMessage(message)
+    },
+})
+
+GAME_COMMANDS.push({
+    command: "makehost",
+    name: "Promote to host",
+    inputs: ["name|id"],
+    description: "Promote a player to host (host only)",
+    callback(message) {
+        if (!useGameStore.getState().isHost) return MESSAGE_ERROR_NOT_HOST
+        useGameStore.getState().addOutgoingMessage(message)
+    },
+})
+
 GAME_COMMANDS.push({
     command: "clear",
     name: "Clear Chat",

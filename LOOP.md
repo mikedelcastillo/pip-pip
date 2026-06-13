@@ -94,7 +94,7 @@ Networking / lobbies / multiplayer:
 - [x] **Share-to-public** — public/private toggle in the hosting settings modal. (#20)
 - [x] **Join public match button + public match browser** — homepage button → browser listing `listPublicLobbies()` → join. (#20)
 - [ ] Spectator mode (spectate lobbies; `spectator`/`spectating` fields partly exist).
-- [ ] Promote another player to admin/op of a lobby.
+- [x] **Promote another player to host (lobby admin/op)** — host-only `/op`/`/makehost <name|id>`, server-handled like `/bot` (echo-suppressed), registered in `/help`. (#33)
 - [ ] Multiplayer experience: reconnect, emotes, lobby chat polish.
 
 UI / UX:
@@ -255,4 +255,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 29 | `7d5d44f`   | In-game HUD revamp + host Stop-Game control       | `git revert 7d5d44f`|
 | 30 | `4331f35`   | Mobile twin-stick touch controls                  | `git revert 4331f35`|
 | 31 | `810374a`   | Debug overlay (entities/multiplayer state)        | `git revert 810374a`|
-| 32 | (latest)    | Polish: input a11y name/id + drop redundant bg.png | `git revert <sha>` |
+| 32 | `21ec1b1`   | Polish: input a11y name/id + drop redundant bg.png | `git revert 21ec1b1`|
+| 33 | (latest)    | Lobby host promotion (/op, /makehost)             | `git revert <sha>`  |
