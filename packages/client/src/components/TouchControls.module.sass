@@ -1,0 +1,103 @@
+@import "../styles/variables"
+
+// Full-screen, click-through layer. Only the sticks and buttons themselves
+// capture pointer events, so the Pixi canvas underneath still works on desktop
+// (where this layer is hidden entirely) and around the controls on mobile.
+.root
+    position: absolute
+    inset: 0
+    z-index: 30
+    pointer-events: none
+    touch-action: none
+    user-select: none
+
+// Each virtual joystick: a recessed base ring pinned to a bottom corner, with a
+// draggable knob that tracks the thumb. Sized with vmin so it scales sensibly
+// across phone sizes and orientations.
+.stick
+    position: absolute
+    bottom: $screen-margin-static
+    width: 34vmin
+    height: 34vmin
+    max-width: 12em
+    max-height: 12em
+    border-radius: 9999px
+    pointer-events: auto
+    touch-action: none
+    background-color: transparentize($color-dark-2, 0.35)
+    border: $border-size solid $color-border
+
+    &.left
+        left: $screen-margin-static
+
+    &.right
+        right: $screen-margin-static
+
+    &.engaged
+        border-color: $color-main
+
+        &.right
+            border-color: $color-accent
+
+.stickLabel
+    position: absolute
+    top: 0.4em
+    left: 0
+    right: 0
+    text-align: center
+    font-size: clamp(12px, 3.2vmin, 16px)
+    letter-spacing: 0.08em
+    text-transform: uppercase
+    color: $color-accent
+    opacity: 0.6
+
+.knob
+    position: absolute
+    top: 50%
+    left: 50%
+    width: 42%
+    height: 42%
+    margin-top: -21%
+    margin-left: -21%
+    border-radius: 9999px
+    background-color: $color-main
+    border: $border-size solid $color-border
+    // Driven inline via transform; keep it snappy but not laggy.
+    transition: transform 40ms linear
+
+    .right &
+        background-color: $color-accent
+
+// Action buttons stacked above the right stick so the same thumb can reach
+// them. Big, square-ish hit targets in the shared palette.
+.actions
+    position: absolute
+    right: $screen-margin-static
+    bottom: calc(#{$screen-margin-static} + 36vmin)
+    display: flex
+    flex-direction: column
+    gap: 0.6em
+    pointer-events: none
+
+.actionButton
+    pointer-events: auto
+    touch-action: none
+    min-width: 4.5em
+    min-height: 2.4em
+    padding: $text-padding-y $text-padding-x
+    text-align: center
+    font-size: clamp(16px, 4.5vmin, 24px)
+    line-height: 2.4em
+    color: $color-dark-3
+    background-color: $color-main
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+
+    &.tactical
+        background-color: $color-accent
+
+    &.held
+        background-color: $color-main-darker
+
+        &.tactical
+            background-color: $color-accent-darker

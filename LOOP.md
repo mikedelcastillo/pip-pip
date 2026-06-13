@@ -108,7 +108,7 @@ UI / UX:
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
 - [ ] a11y: form inputs (`GameInput` / join-code box) are missing `id`/`name` — add them (flagged by the production smoke test).
 - [ ] Remove the now-redundant `body { background-image: url(/bg.png) }` in global.sass (HomeBackground renders the bg now; prod still fetches the old static bg.png harmlessly).
-- [ ] Full mobile support: twin on-screen thumbsticks (left=move, right=aim) + fire/tactical/reload buttons.
+- [x] **Mobile twin-stick touch controls** — left stick moves, right stick aims+fires, Tac/Reload buttons; touch-only (coarse pointer), merged into processInputs without affecting desktop; pure stick math unit-tested. (#30)
 - [ ] Revamp the homepage to be mobile / small-screen friendly (responsive layout, touch-sized buttons, scales down cleanly).
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
 
@@ -252,4 +252,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 26 | `2fb4a36`   | Animated pixel-art homepage background            | `git revert 2fb4a36`|
 | 27 | `ce782c8`   | chore: untrack src-root .js.map + ignore previews | `git revert ce782c8`|
 | 28 | `fcfa691`   | Grenade AoE weapon (Djibouti tactical)            | `git revert fcfa691`|
-| 29 | (latest)    | In-game HUD revamp + host Stop-Game control       | `git revert <sha>`  |
+| 29 | `7d5d44f`   | In-game HUD revamp + host Stop-Game control       | `git revert 7d5d44f`|
+| 30 | (latest)    | Mobile twin-stick touch controls                  | `git revert <sha>`  |
