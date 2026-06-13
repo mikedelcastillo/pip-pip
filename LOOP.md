@@ -276,4 +276,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 35 | `8e9b83a`   | Map power-ups (health/ammo pickups)               | `git revert 8e9b83a`|
 | 36 | `55108fd`   | Fix /map to be 1-based like /ship                 | `git revert 55108fd`|
 | 37 | `416166e`   | Polish: host toggle highlight, join-by-code, dev log | `git revert 416166e`|
-| 38 | (latest)    | Bots use their tactical/grenade weapon            | `git revert <sha>`  |
+| 38 | `a0efae8`   | Bots use their tactical/grenade weapon            | `git revert a0efae8`|
+| 39 | (latest)    | Cache particle wall-list (rebuild on setMap)      | `git revert <sha>`  |

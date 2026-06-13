@@ -369,6 +369,12 @@ export class PipPipRenderer{
     players: Record<string, PlayerGraphic> = {}
     mapTiles: MapTileGraphic[] = []
 
+    // Particle wall-bounce segments, derived from game.physics.segWalls. Walls
+    // only change on setMap, so this is cached here and rebuilt in
+    // updateMapGraphics rather than re-mapped every render frame. Empty until
+    // the first map loads (particles just won't bounce until then).
+    wallSegments: WallSegment[] = []
+
     particleSystem = new ParticleSystem()
     shake: ShakeState = triggerShake(0, 1)
 
@@ -610,6 +616,16 @@ export class PipPipRenderer{
             this.mapTiles.push(graphic)
         }
 
+        // Walls only change with the map, so rebuild the particle wall-bounce
+        // list here (init + every setMap) instead of allocating it per frame.
+        this.wallSegments = Object.values(this.game.physics.segWalls).map(w => ({
+            x1: w.start.x,
+            y1: w.start.y,
+            x2: w.end.x,
+            y2: w.end.y,
+            radius: w.radius,
+        }))
+
         // const graphic = new PIXI.Graphics()
         // graphic.lineStyle({
         //     width: 10,
@@ -820,14 +836,7 @@ export class PipPipRenderer{
         // update particles: step the pure simulation (with wall bounces),
         // recycle every graphic from the previous frame, then redraw one graphic
         // per live particle.
-        const walls: WallSegment[] = Object.values(this.game.physics.segWalls).map(w => ({
-            x1: w.start.x,
-            y1: w.start.y,
-            x2: w.end.x,
-            y2: w.end.y,
-            radius: w.radius,
-        }))
-        this.particleSystem.update(deltaMs, walls)
+        this.particleSystem.update(deltaMs, this.wallSegments)
         for(const g of this.particles.active){
             this.particles.free(g)
         }
