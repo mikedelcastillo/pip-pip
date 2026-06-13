@@ -28,7 +28,12 @@
     "build": "bash ./scripts/build.sh",
     "deploy": "bash ./scripts/deploy.sh",
     "lint": "yarn client lint && yarn core lint && yarn game lint && yarn server lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "generate-maps": "cd tools/game_maps && cargo run",
     "clear-maps": "rm ./packages/game/src/maps/*.map.json"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
   }
 }
