@@ -275,8 +275,8 @@ export class PointPhysicsWorld{
                 if(a.collision.excludeObjects.includes(b)) continue
                 if(b.collision.excludeObjects.includes(a)) continue
 
-                const vdx = (a.position.x + a.velocity.x - b.position.x + b.velocity.x)
-                const vdy = (a.position.y + a.velocity.y - b.position.y + b.velocity.y)
+                const vdx = ((a.position.x + a.velocity.x) - (b.position.x + b.velocity.x))
+                const vdy = ((a.position.y + a.velocity.y) - (b.position.y + b.velocity.y))
                 // const vdist = Math.sqrt(vdx * vdx + vdy * vdy)
 
                 const dx = (a.position.x - b.position.x)

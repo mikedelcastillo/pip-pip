@@ -119,7 +119,7 @@ Verified, prioritized. `[x]` = fixed and shipped.
 
 - [x] **C1 (critical)** `$varstring`/packet length prefix decoded only the LOW byte (`new Uint16Array(number[])`), so any payload ≥256 bytes was truncated AND desynced every following packet in the batch — chat/names are user input (emoji/CJK trip it). Fixed in core `serializer.ts` + `packet.ts` (3 sites), with regression tests. (#4)
 - [ ] **C2 (critical, client)** Renderer/PIXI `Application` + input/audio document listeners never destroyed on `GameView` unmount → WebGL-context + listener leak (blank canvas after a few navigations). Needs `PipPipRenderer.destroy()`, real unmount teardown, the `destory`→`destroy` typo, and a fix to core keyboard/mouse `destroy()` (`.bind` makes `removeEventListener` a no-op).
-- [ ] **H1 (high)** Physics collision relative-velocity sign error (`core/physics` ~278): should be `(a.vel - b.vel)`.
+- [x] **H1 (high)** Physics collision relative-velocity sign error (`core/physics` ~278) — fixed + regression test. (#11)
 - [ ] **H2 (high, client)** `renderer.ts` far-distance snap guard typo `dx*dx + dy + dy` → `dy*dy`.
 - [ ] **H3 (high)** WS connection cap uses `clients.values.length` (always 0) → uncapped sockets (DoS); use `clients.size`; `throw`→`return` after close.
 - [ ] **H4 (high)** `routerAuthMiddleware` calls `next()` twice on 401 → unauth handler still runs (crash/bypass): `return next(err)`.
@@ -189,4 +189,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 7  | `72d7b18`   | Procedural Web-Audio SFX system + mute toggle | `git revert 72d7b18`|
 | 8  | `f1f5b01`   | chore: stop tracking compiled .js.map in client src | `git revert f1f5b01`|
 | 9  | `b94a9de`   | Public-lobby foundation (metadata + GET /lobbies + create opts) | `git revert b94a9de`|
-| 10 | (latest)    | Homepage Settings + Credits modals                | `git revert <sha>`  |
+| 10 | `7b04254`   | Homepage Settings + Credits modals                | `git revert 7b04254`|
+| 11 | (latest)    | Fix physics collision relative-velocity sign (H1) | `git revert <sha>`  |
