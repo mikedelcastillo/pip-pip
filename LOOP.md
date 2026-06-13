@@ -77,7 +77,7 @@ Engine / gameplay:
 - [x] **Procedural audio system** — Web Audio SFX synth on game events + mute toggle + canonical "pip pip" chirp. (#7)
 - [x] **Particle + screen-shake juice** — explosions, hit sparks, thruster trails. (#3)
 - [ ] More weapons: grenades, different bullet/projectile types, more ship-specific kits.
-- [ ] Different bullet **spray patterns** per weapon (spread/shotgun/burst); distinct projectiles per player/ship.
+- [x] **Bullet spray patterns** per weapon (count+angle cone, pellet-damage split; Mono=twin-barrel, Flora=5-pellet scatter). (#15)
 - [ ] Map power-ups (pickups: health, ammo, speed, shield).
 - [ ] AI enemies / "training grounds" mode (the `calculateAi`/`shootAiBullets` flags exist, no brain yet). *(Apex training-grounds inspired)*
 - [ ] Health regeneration (stats exist, not yet applied).
@@ -100,7 +100,11 @@ UI / UX:
 - [x] **Homepage Settings + Credits** — volume + controls reference panel; credits (dev Mike Del Castillo, art Meg Del Castillo) + lore. (#10)
 - [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
+- [ ] Full mobile support: twin on-screen thumbsticks (left=move, right=aim) + fire/tactical/reload buttons.
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
+
+Art / assets (use the pixel-mcp Aseprite workflow → export → map):
+- [ ] Animated homepage background: recreate Meg's current homepage bg as pixel art in Aseprite, animate it (drifting space clouds + sparkling stars, gentle marquee parallax), export frames/spritesheet, and use it as the homepage background. *(needs a focused turn; look at the current bg first)*
 
 ## Design north-star & lore (from the author)
 
@@ -199,4 +203,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 11 | `bbb52bb`   | Fix physics collision relative-velocity sign (H1) | `git revert bbb52bb`|
 | 12 | `dd89c90`   | Harden server: WS connection cap + auth short-circuit (H3/H4) | `git revert dd89c90`|
 | 13 | `8958fee`   | Sanitize hostile player inputs (M1)               | `git revert 8958fee`|
-| 14 | (latest)    | Brand the SFX toggle as a GameButton              | `git revert <sha>`  |
+| 14 | `65cf503`   | Brand the SFX toggle as a GameButton              | `git revert 65cf503`|
+| 15 | (latest)    | Per-weapon bullet spray patterns                  | `git revert <sha>`  |

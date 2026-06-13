@@ -14,12 +14,18 @@ PIP_SHIPS.push({
     id: "mono",
     name: "Mono",
     texture: "ship_1",
-    description: "Machine gun but fragile",
+    description: "Twin-barrel machine gun but fragile",
     Ship: class extends PipShip{
         stats = createShipStats({
             weapon: {
                 rate: 1,
                 capacity: 120,
+                // Two parallel barrels: a tight 2-shot so the stream is
+                // slightly wider without losing its rapid-fire identity.
+                spread: {
+                    count: 2,
+                    angle: 0.05,
+                },
             },
             bullet: {
                 velocity: 50,
@@ -81,9 +87,29 @@ PIP_SHIPS.push({
     id: "flora",
     name: "Flora",
     texture: "ship_5",
-    description: "Nothing special yet",
+    description: "Close-range scatter gun",
     Ship: class extends PipShip{
-        stats = createShipStats()
+        stats = createShipStats({
+            weapon: {
+                // A 5-pellet scatter fanned across ~0.45 rad. Per-pellet damage
+                // is auto-divided by the spread count in the firing logic, so a
+                // point-blank full hit deals the same as a default shot while a
+                // distant spray peppers for a fraction. Slightly slower fire and
+                // a deeper magazine to suit the brawler role.
+                rate: 5,
+                capacity: 40,
+                spread: {
+                    count: 5,
+                    angle: 0.45,
+                },
+            },
+            bullet: {
+                velocity: 70,
+                // Total per-shot damage budget of 15 (3 per pellet) — strong up
+                // close where all 5 land, weak at range.
+                damage: createRange(15),
+            },
+        })
     },
 })
 

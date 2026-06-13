@@ -12,6 +12,15 @@ export type StatRange = {
     high: number,
 }
 
+// Spray pattern for a weapon. `count` is the number of bullets emitted per
+// shot (>= 1); `angle` is the TOTAL cone width in radians the pellets are fanned
+// across (0 = no spread, single straight shot). A count of 1 always fires
+// straight regardless of angle.
+export type SpreadStat = {
+    count: number,
+    angle: number,
+}
+
 export type ShipStats = {
     aim: {
         speed: number,
@@ -25,6 +34,7 @@ export type ShipStats = {
     weapon: {
         capacity: number,
         rate: number,
+        spread: SpreadStat,
         reload: {
             ticks: number,
         },
@@ -32,6 +42,7 @@ export type ShipStats = {
     tactical: {
         capacity: number,
         rate: number,
+        spread: SpreadStat,
         damage: StatRange,
         reload: {
             ticks: number,
@@ -88,6 +99,10 @@ export const DEFAULT_SHIP_STATS: ShipStats = {
     weapon: {
         capacity: 20,
         rate: 3,
+        spread: {
+            count: 1,
+            angle: 0,
+        },
         reload: {
             ticks: 20,
         },
@@ -95,6 +110,10 @@ export const DEFAULT_SHIP_STATS: ShipStats = {
     tactical: {
         capacity: 3,
         rate: 20,
+        spread: {
+            count: 1,
+            angle: 0,
+        },
         damage: createRange(40),
         reload: {
             ticks: 20 * 5,

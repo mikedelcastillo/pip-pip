@@ -2,7 +2,7 @@ import { EventEmitter } from "@pip-pip/core/src/common/events"
 import { PointPhysicsWorld, Vector2, airResistanceMultiplier, limitSpeed, WALL_RESOLVE_ITERATIONS } from "@pip-pip/core/src/physics"
 import { distanceBetweenSegments, radianDifference } from "@pip-pip/core/src/math"
 
-import { Bullet, BulletPool } from "./bullet"
+import { Bullet, BulletPool, BulletType } from "./bullet"
 import { PipPlayer, PlayerInputs } from "./player"
 import { PipShip } from "./ship"
 import { PipGameMap } from "./map"
@@ -350,32 +350,21 @@ export class PipPipGame{
                 if(authorizedToShootBullet && player.inputs.useWeapon === true && player.spawned === true){
                     // shoot bullets
                     if(player.ship.shoot()){
-                        // shoot bullet
-                        let positionX = player.ship.physics.position.x
-                        let positionY = player.ship.physics.position.y
-                        let rotation = player.ship.rotation
-
-                        if(this.options.considerPlayerPing){
-                            // Place the bullet where the shooter's own ship was
-                            // when they fired: rewind by their ONE-WAY latency
-                            // (ping/2). The shooter sees their own ship via
-                            // prediction at present time, so no interp delay.
-                            const lookbackRaw = (player.ping / 2) / this.deltaMs
-                            const prev = player.getLastTickState(lookbackRaw)
-                            positionX = prev.positionX
-                            positionY = prev.positionY
-                            rotation = prev.rotation
-                        }
-
-                        this.bullets.new({
-                            position: new Vector2(positionX, positionY),
-                            owner: player,
-                            speed: player.ship.stats.bullet.velocity,
-                            radius: player.ship.stats.bullet.radius,
-                            rotation,
-                            damage: player.ship.stats.bullet.damage.normal,
-                            type: "primary",
-                        })
+                        const spread = player.ship.stats.weapon.spread
+                        // A multi-pellet primary splits its configured damage
+                        // among the pellets so a wide spray is not strictly
+                        // better than a single focused shot (total on-target
+                        // damage matches a single bullet when every pellet hits).
+                        const damage = player.ship.stats.bullet.damage.normal / Math.max(1, spread.count)
+                        this.spawnSpread(
+                            player,
+                            spread.count,
+                            spread.angle,
+                            player.ship.stats.bullet.velocity,
+                            player.ship.stats.bullet.radius,
+                            damage,
+                            "primary",
+                        )
                     }
                 }
 
@@ -384,27 +373,17 @@ export class PipPipGame{
                 // primary weapon, driven by the useTactical input.
                 if(authorizedToShootBullet && player.inputs.useTactical === true && player.spawned === true){
                     if(player.ship.shootTactical()){
-                        let positionX = player.ship.physics.position.x
-                        let positionY = player.ship.physics.position.y
-                        let rotation = player.ship.rotation
-
-                        if(this.options.considerPlayerPing){
-                            const lookbackRaw = (player.ping / 2) / this.deltaMs
-                            const prev = player.getLastTickState(lookbackRaw)
-                            positionX = prev.positionX
-                            positionY = prev.positionY
-                            rotation = prev.rotation
-                        }
-
-                        this.bullets.new({
-                            position: new Vector2(positionX, positionY),
-                            owner: player,
-                            speed: player.ship.stats.tactical.bullet.velocity,
-                            radius: player.ship.stats.tactical.bullet.radius,
-                            rotation,
-                            damage: player.ship.stats.tactical.damage.normal,
-                            type: "tactical",
-                        })
+                        const spread = player.ship.stats.tactical.spread
+                        const damage = player.ship.stats.tactical.damage.normal / Math.max(1, spread.count)
+                        this.spawnSpread(
+                            player,
+                            spread.count,
+                            spread.angle,
+                            player.ship.stats.tactical.bullet.velocity,
+                            player.ship.stats.tactical.bullet.radius,
+                            damage,
+                            "tactical",
+                        )
                     }
                 }
 
@@ -426,6 +405,53 @@ export class PipPipGame{
         } else{
             // destroy all bullets
             this.bullets.destroy()
+        }
+    }
+
+    // Emit `count` bullets for one shot, fanned evenly across a cone of total
+    // width `angle` (radians) centred on the firing direction. The base
+    // position/rotation is the shooter's ship now, OR — when considerPlayerPing
+    // is set — rewound to where the shooter's own ship was when they fired
+    // (one-way latency, ping/2; the shooter sees themselves via prediction at
+    // present time, so no interp delay). The same base is reused for every
+    // pellet so the whole spray originates from one point.
+    //
+    // For count N and angle A, pellet i (0..N-1) is offset by
+    // -A/2 + i * (A / (N - 1)); N === 1 always fires straight (offset 0).
+    spawnSpread(
+        player: PipPlayer,
+        count: number,
+        angle: number,
+        speed: number,
+        radius: number,
+        damage: number,
+        type: BulletType,
+    ){
+        const pellets = Math.max(1, Math.floor(count))
+
+        let positionX = player.ship.physics.position.x
+        let positionY = player.ship.physics.position.y
+        let baseRotation = player.ship.rotation
+
+        if(this.options.considerPlayerPing){
+            const lookbackRaw = (player.ping / 2) / this.deltaMs
+            const prev = player.getLastTickState(lookbackRaw)
+            positionX = prev.positionX
+            positionY = prev.positionY
+            baseRotation = prev.rotation
+        }
+
+        for(let i = 0; i < pellets; i++){
+            const offset = pellets === 1 ? 0 : -angle / 2 + i * (angle / (pellets - 1))
+            this.bullets.new({
+                position: new Vector2(positionX, positionY),
+                owner: player,
+                speed,
+                radius,
+                rotation: baseRotation + offset,
+                damage,
+                type,
+            })
         }
     }
 
