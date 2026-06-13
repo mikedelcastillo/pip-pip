@@ -187,6 +187,44 @@ GAME_COMMANDS.push({
     },
 })
 
+// AI training-grounds bot commands. These are handled authoritatively on the
+// SERVER (see packages/server/src/connection-in.ts), so the client just
+// host-gates for instant feedback and forwards the raw command over chat;
+// the server runs it and suppresses the echo. Registered here so they appear
+// in /help and are not rejected as "Command not found".
+GAME_COMMANDS.push({
+    command: "bot",
+    name: "Add a bot",
+    inputs: [],
+    description: "Add one AI training bot (host only)",
+    callback(message) {
+        if (!useGameStore.getState().isHost) return MESSAGE_ERROR_NOT_HOST
+        useGameStore.getState().addOutgoingMessage(message)
+    },
+})
+
+GAME_COMMANDS.push({
+    command: "bots",
+    name: "Add bots",
+    inputs: ["count"],
+    description: "Add N AI training bots (host only)",
+    callback(message) {
+        if (!useGameStore.getState().isHost) return MESSAGE_ERROR_NOT_HOST
+        useGameStore.getState().addOutgoingMessage(message)
+    },
+})
+
+GAME_COMMANDS.push({
+    command: "clearbots",
+    name: "Clear bots",
+    inputs: [],
+    description: "Remove all AI bots (host only)",
+    callback(message) {
+        if (!useGameStore.getState().isHost) return MESSAGE_ERROR_NOT_HOST
+        useGameStore.getState().addOutgoingMessage(message)
+    },
+})
+
 GAME_COMMANDS.push({
     command: "clear",
     name: "Clear Chat",

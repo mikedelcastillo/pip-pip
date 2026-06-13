@@ -100,6 +100,8 @@ UI / UX:
 - [x] **Homepage Settings + Credits** — volume + controls reference panel; credits (dev Mike Del Castillo, art Meg Del Castillo) + lore. (#10)
 - [ ] Improved in-game UI modes (kill feed, minimap, scoreboard, tactical/ammo HUD).
 - [ ] Surface ping in the in-match HUD / player stats (ping already shows in the player list; show the local player's ping in the HUD too).
+- [ ] Slash-command autocomplete in the chat input (suggest matching `/commands` as you type; Tab to complete).
+- [ ] Improve the players screen (`GamePlayerList`) — layout/readability/branding (e.g. ship icon, ping color-coding, host/you tags, sorting).
 - [ ] Debug screen for inspecting entities / multiplayer state (positions, ping, prediction error).
 - [ ] Full mobile support: twin on-screen thumbsticks (left=move, right=aim) + fire/tactical/reload buttons.
 - [ ] Stretch: controller support; couch co-op / split-screen. (Explicitly optional.)
@@ -137,6 +139,13 @@ Verified, prioritized. `[x]` = fixed and shipped.
 
 ## Decision log
 
+- **D7 — every added command must be registered in the client `/help` (rule).** The client
+  (`GameChat`) rejects any `/command` not in `GAME_COMMANDS` as "Command not found" and
+  never forwards it, so a server-only command is both invisible in `/help` AND unreachable
+  from the UI. Rule: any new command MUST be added to `GAME_COMMANDS` (which `/help`
+  enumerates). Retro-fix: the AI `/bot`/`/bots`/`/clearbots` commands (server-handled) are
+  now registered client-side — host-gated, forwarding the raw text to the server. Also
+  queued: slash-command autocomplete in the chat input.
 - **D6 — checks/audit must also flag branding & style consistency.** Per author
   feedback, the read-only audit pass now also reports UI that's off-brand (wrong
   button/typography/color vs the established components and `_variables.sass`). First
@@ -211,4 +220,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 17 | `ab3f4b4`   | Character selection screen (lobby ship picker)    | `git revert ab3f4b4`|
 | 18 | `5a50d96`   | AI training-grounds bots (host commands + brain)  | `git revert 5a50d96`|
 | 19 | `02e0c65`   | Audit fixes: score widths (H7) + map bounds (M2)  | `git revert 02e0c65`|
-| 20 | (latest)    | Public matches: hosting settings + browser + join | `git revert <sha>`  |
+| 20 | `3e8899a`   | Public matches: hosting settings + browser + join | `git revert 3e8899a`|
+| 21 | (latest)    | Register /bot commands in slash help (+reachable) | `git revert <sha>`  |
