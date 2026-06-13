@@ -3,6 +3,7 @@ import { PointPhysicsWorld, Vector2, airResistanceMultiplier, limitSpeed, WALL_R
 import { distanceBetweenSegments, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool, BulletType } from "./bullet"
+import { Powerup, PowerupPool, PowerupType, applyPowerupEffect } from "./powerup"
 import { PipPlayer, PlayerInputs } from "./player"
 import { updateBotInputs } from "./ai"
 import { generateId } from "@pip-pip/core/src/lib/utils"
@@ -44,6 +45,10 @@ export type PipPipGameEventMap = {
 
     dealDamage: { dealer: PipPlayer, target: PipPlayer, damage: number },
     playerKill: { killer: PipPlayer, killed: PipPlayer },
+
+    powerupSpawn: { powerup: Powerup },
+    powerupDespawn: { powerup: Powerup },
+    powerupPickup: { player: PipPlayer, powerup: Powerup },
 }
 
 export type PipPipGameOptions = {
@@ -58,6 +63,8 @@ export type PipPipGameOptions = {
 
     triggerDamage: boolean,
     considerPlayerPing: boolean,
+
+    spawnPowerups: boolean,
 }
 
 export enum PipPipGameMode {
@@ -97,6 +104,7 @@ export class PipPipGame{
         setScores: false,
         triggerDamage: false,
         considerPlayerPing: false,
+        spawnPowerups: false,
     }
 
     events: EventEmitter<PipPipGameEventMap> = new EventEmitter()
@@ -104,7 +112,18 @@ export class PipPipGame{
 
     players: Record<string, PipPlayer> = {}
     bullets: BulletPool
+    powerups: PowerupPool
     ships: Record<string, PipShip> = {}
+
+    // Server-authoritative powerup spawning (gated on options.spawnPowerups):
+    // at most POWERUP_MAX_ACTIVE alive at once, a fresh one attempted every
+    // POWERUP_SPAWN_INTERVAL_TICKS during MATCH. Respawn falls out of the same
+    // cap/interval loop once a pickup frees a slot.
+    readonly POWERUP_MAX_ACTIVE = 4
+    readonly POWERUP_SPAWN_INTERVAL_TICKS = this.tps * 8 // ~8 seconds
+    // Counts down to the next spawn attempt; starts at a full interval so the
+    // field is not flooded the instant a match begins.
+    powerupSpawnTimer = this.tps * 8
 
     host?: PipPlayer
 
@@ -133,6 +152,7 @@ export class PipPipGame{
         }
         this.physics.options.baseTps = this.tps
         this.bullets = new BulletPool(this)
+        this.powerups = new PowerupPool(this)
         this.setMap()
     }
 
@@ -240,6 +260,7 @@ export class PipPipGame{
         this.players = {}
         this.ships = {}
         this.bullets.destroy()
+        this.powerups.destroy()
         this.events.destroy()
         this.physics.destroy()
     }
@@ -251,6 +272,7 @@ export class PipPipGame{
 
     startMatch(){
         this.countdown = this.tps * 6 // 6 second count down
+        this.powerupSpawnTimer = this.POWERUP_SPAWN_INTERVAL_TICKS
         this.setPhase(PipPipGamePhase.COUNTDOWN)
         if(this.options.triggerSpawns === true){
             const players = Object.values(this.players)
@@ -476,10 +498,85 @@ export class PipPipGame{
                     this.bullets.unset(bullet)
                 }
             }
+
+            // spawn map powerups (server-authoritative)
+            this.updatePowerupSpawns()
         } else{
             // destroy all bullets
             this.bullets.destroy()
+            // destroy all powerups (so a match that ends clears the field)
+            this.powerups.destroy()
         }
+    }
+
+    // Server-authoritative powerup spawning. Gated on options.spawnPowerups so a
+    // non-authoritative client never invents pickups (it only receives them via
+    // packets). Only runs during MATCH (the single MATCH-branch caller already
+    // guarantees this). Tops the field up to POWERUP_MAX_ACTIVE, attempting one
+    // new spawn every POWERUP_SPAWN_INTERVAL_TICKS; the same loop handles respawn
+    // after a pickup frees a slot.
+    updatePowerupSpawns(){
+        if(this.options.spawnPowerups !== true) return
+
+        if(this.powerupSpawnTimer > 0){
+            this.powerupSpawnTimer = tickDown(this.powerupSpawnTimer, 1)
+            return
+        }
+        this.powerupSpawnTimer = this.POWERUP_SPAWN_INTERVAL_TICKS
+
+        if(this.powerups.getActive().length >= this.POWERUP_MAX_ACTIVE) return
+
+        const position = this.randomPowerupPosition()
+        if(typeof position === "undefined") return
+
+        // Alternate types deterministically by active count so a fresh field has
+        // a mix of both. Extend with more PowerupType entries as they are added.
+        const types: PowerupType[] = ["health", "ammo"]
+        const type = types[Math.floor(Math.random() * types.length)]
+
+        this.powerups.new({ position, type })
+    }
+
+    // Pick an open world position for a powerup. Reuses the map's spawn points
+    // (already guaranteed open, away from walls) like spawnPlayer does — simple
+    // and collision-free. Returns undefined when the map has no spawn points.
+    randomPowerupPosition(){
+        if(this.map.spawns.length === 0) return undefined
+        const index = Math.floor(Math.random() * this.map.spawns.length)
+        const spawn = this.map.spawns[index]
+        const angle = Math.random() * Math.PI * 2
+        return new Vector2(
+            Math.round(spawn.x + Math.cos(angle) * spawn.radius),
+            Math.round(spawn.y + Math.sin(angle) * spawn.radius),
+        )
+    }
+
+    // Resolve powerup pickups: a SPAWNED player whose ship overlaps an active
+    // powerup (circle-vs-circle, like bullet-vs-player) picks it up. The effect
+    // is applied server-side and gated like damage on spawnPowerups, the powerup
+    // is marked dead, and powerupPickup is emitted so the broadcast can tell
+    // clients to remove it. A non-authoritative client never runs this (the flag
+    // is off there); it removes powerups purely from the powerupPickup packet.
+    updatePowerupPickups(){
+        if(this.options.spawnPowerups !== true) return
+
+        for(const player of Object.values(this.players)){
+            if(player.spawned === false) continue
+            for(const powerup of this.powerups.getActive()){
+                const dx = player.ship.physics.position.x - powerup.position.x
+                const dy = player.ship.physics.position.y - powerup.position.y
+                const r = player.ship.physics.radius + powerup.radius
+                if(dx * dx + dy * dy > r * r) continue
+                this.pickupPowerup(player, powerup)
+                break
+            }
+        }
+    }
+
+    pickupPowerup(player: PipPlayer, powerup: Powerup){
+        applyPowerupEffect(powerup.type, player)
+        this.events.emit("powerupPickup", { player, powerup })
+        this.powerups.unset(powerup)
     }
 
     // Emit `count` bullets for one shot, fanned evenly across a cone of total
@@ -805,11 +902,14 @@ export class PipPipGame{
         // Run physics
         this.updateBulletPhysics()
         this.physics.update(this.deltaMs)
-        
+
         // Enforce map bounds
         for(const player of Object.values(this.players)){
             this.applyMapBounds(player)
         }
+
+        // Resolve powerup pickups against final ship positions this tick.
+        this.updatePowerupPickups()
 
         for(const player of Object.values(this.players)){
             player.trackPositionState()

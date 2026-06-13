@@ -1,6 +1,7 @@
 import { forgivingEqual } from "@pip-pip/core/src/math"
 import { Vector2 } from "@pip-pip/core/src/physics"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { POWERUP_CODE_TO_TYPE } from "@pip-pip/game/src/logic/powerup"
 import { CHAT_MAX_MESSAGE_LENGTH, PLAYER_POSITION_TOLERANCE } from "@pip-pip/game/src/logic/constants"
 import { encode } from "@pip-pip/game/src/networking/packets"
 import { GameContext, getClientPlayer } from "."
@@ -81,6 +82,20 @@ export const processPackets = (gameContext: GameContext) => {
         // Set player ship
         for (const { playerId, shipIndex } of packets.playerSetShip || []) {
             game.players[playerId]?.setShip(shipIndex)
+        }
+
+        // Powerup spawned: create it locally (server-authoritative; the client
+        // never spawns powerups itself). Re-keys onto the server's id so the
+        // matching powerupPickup removes the right one.
+        for (const { id, type, x, y } of packets.powerupSpawn || []) {
+            const powerupType = POWERUP_CODE_TO_TYPE[type]
+            if (typeof powerupType === "undefined") continue
+            game.powerups.new({ id, type: powerupType, position: new Vector2(x, y) })
+        }
+
+        // Powerup picked up: remove it locally by id.
+        for (const { id } of packets.powerupPickup || []) {
+            game.powerups.unsetById(id)
         }
 
         // Set game state
@@ -250,6 +265,7 @@ export const processPackets = (gameContext: GameContext) => {
             "playerPosition", "playerInputs",
             "gameCountdown",
             "playerSpectate",
+            "powerupSpawn", "powerupPickup",
             "ping", "playerPing"]
         for (const key of Object.keys(packets)) {
             if (ignorePacket.includes(key)) continue

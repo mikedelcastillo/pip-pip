@@ -12,6 +12,7 @@ import { SHIP_DAIMETER, TILE_SIZE } from "@pip-pip/game/src/logic/constants"
 import { PipGameTile } from "@pip-pip/game/src/logic/map"
 import { COLORS, DIMS } from "./styles"
 import { Bullet } from "@pip-pip/game/src/logic/bullet"
+import { Powerup, POWERUP_RADIUS } from "@pip-pip/game/src/logic/powerup"
 import { tickDown } from "@pip-pip/game/src/logic/utils"
 import { Vector2 } from "@pip-pip/core/src/physics"
 import { EventCallback, EventMapOf } from "@pip-pip/core/src/common/events"
@@ -213,6 +214,58 @@ export class DamageGraphic extends PoolableGraphic {
     }
 }
 
+// On-brand procedural powerup pickup: a small glowing diamond (rotated square)
+// with a soft outer halo, colour per type (green = health, amber = ammo). No
+// art assets — drawn with Pixi Graphics and pulsed/spun in render().
+export class PowerupGraphic extends PoolableGraphic {
+    static COLORS: Record<string, number> = {
+        health: 0x33DD55,
+        ammo: 0xFFAA33,
+    }
+
+    powerup?: Powerup
+    graphic = new PIXI.Graphics()
+    spin = 0
+
+    constructor(){
+        super()
+        this.container.addChild(this.graphic)
+    }
+
+    setup(powerup: Powerup){
+        this.powerup = powerup
+        this.container.position.x = powerup.position.x
+        this.container.position.y = powerup.position.y
+        this.spin = 0
+    }
+
+    draw(pulse: number){
+        const type = this.powerup?.type ?? "health"
+        const color = PowerupGraphic.COLORS[type] ?? 0xFFFFFF
+        const r = POWERUP_RADIUS * (0.85 + 0.15 * pulse)
+
+        this.graphic.clear()
+        // Soft outer halo.
+        this.graphic.beginFill(color, 0.18)
+        this.graphic.drawRect(-r, -r, r * 2, r * 2)
+        this.graphic.endFill()
+        // Solid inner diamond.
+        const inner = r * 0.6
+        this.graphic.beginFill(color, 0.95)
+        this.graphic.moveTo(0, -inner)
+        this.graphic.lineTo(inner, 0)
+        this.graphic.lineTo(0, inner)
+        this.graphic.lineTo(-inner, 0)
+        this.graphic.closePath()
+        this.graphic.endFill()
+    }
+
+    cleanUp(){
+        this.powerup = undefined
+        this.graphic.clear()
+    }
+}
+
 export class ParticleGraphic extends PoolableGraphic {
     graphic = new PIXI.Graphics()
 
@@ -302,6 +355,7 @@ export class PipPipRenderer{
     viewportContainer = new PIXI.Container()
     playersContainer = new PIXI.Container()
     bulletsContainer = new PIXI.Container()
+    powerupsContainer = new PIXI.Container()
     damagesContainer = new PIXI.Container()
     particlesContainer = new PIXI.Container()
 
@@ -310,6 +364,7 @@ export class PipPipRenderer{
 
     damages: GraphicPool<DamageGraphic>
     bullets: GraphicPool<BulletGraphic>
+    powerups: GraphicPool<PowerupGraphic>
     particles: GraphicPool<ParticleGraphic>
     players: Record<string, PlayerGraphic> = {}
     mapTiles: MapTileGraphic[] = []
@@ -358,12 +413,14 @@ export class PipPipRenderer{
         this.viewportContainer.addChild(this.starsContainer)
         this.viewportContainer.addChild(this.bulletsContainer)
         this.viewportContainer.addChild(this.mapBackgroundContainer)
+        this.viewportContainer.addChild(this.powerupsContainer)
         this.viewportContainer.addChild(this.playersContainer)
         this.viewportContainer.addChild(this.mapForegroundContainer)
         this.viewportContainer.addChild(this.particlesContainer)
         this.viewportContainer.addChild(this.damagesContainer)
 
         this.bullets = new GraphicPool(this.bulletsContainer, BulletGraphic)
+        this.powerups = new GraphicPool(this.powerupsContainer, PowerupGraphic)
         this.damages = new GraphicPool(this.damagesContainer, DamageGraphic)
         this.particles = new GraphicPool(this.particlesContainer, ParticleGraphic)
 
@@ -476,6 +533,23 @@ export class PipPipRenderer{
                 bullet.physics.position.x,
                 bullet.physics.position.y,
                 explosionSize,
+            )
+        })
+
+        this.onGameEvent("powerupSpawn", ({ powerup }) => {
+            this.powerups.use(graphic => graphic.setup(powerup))
+        })
+
+        // A powerup despawning is (in practice) a pickup, so fire a small
+        // celebratory burst at its position, reusing the shared particle system.
+        this.onGameEvent("powerupDespawn", ({ powerup }) => {
+            const graphic = this.powerups.active.find(g => g.powerup === powerup)
+            if(typeof graphic !== "undefined") this.powerups.free(graphic)
+            emitExplosion(
+                this.particleSystem,
+                powerup.position.x,
+                powerup.position.y,
+                10,
             )
         })
 
@@ -715,6 +789,18 @@ export class PipPipRenderer{
             }
         }
 
+        // update powerups: gentle spin + pulse so the pickups read as "alive".
+        const powerupPulse = (Math.sin(Date.now() / 250) + 1) / 2
+        for(const graphic of this.powerups.active){
+            if(typeof graphic.powerup !== "undefined"){
+                graphic.container.position.x = graphic.powerup.position.x
+                graphic.container.position.y = graphic.powerup.position.y
+            }
+            graphic.spin += deltaTime * 0.05
+            graphic.graphic.rotation = graphic.spin
+            graphic.draw(powerupPulse)
+        }
+
         // update damage graphics
         for(const graphic of this.damages.active){
             graphic.lifespan -= deltaMs
@@ -817,6 +903,7 @@ export class PipPipRenderer{
 
         // Release pooled graphics (each pool removes its children + destroys).
         this.bullets.destroy()
+        this.powerups.destroy()
         this.damages.destroy()
         this.particles.destroy()
 

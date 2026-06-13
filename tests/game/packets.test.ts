@@ -45,6 +45,24 @@ describe("game packetManager wire format", () => {
         expect(out).toEqual(scores)
     })
 
+    it("round-trips powerupSpawn (string id + uint8 type + quantized position)", () => {
+        const decoded = packetManager.decode(
+            packetManager.encode("powerupSpawn", { id: "ab12", type: 1, x: 320, y: -480 }),
+        ).powerupSpawn?.[0]
+        expect(decoded?.id).toBe("ab12")
+        expect(decoded?.type).toBe(1)
+        // $worldPos is fixed-point, so positions come back within quantization noise.
+        expect(decoded?.x).toBeCloseTo(320, 0)
+        expect(decoded?.y).toBeCloseTo(-480, 0)
+    })
+
+    it("round-trips powerupPickup exactly (powerup id + player id)", () => {
+        const decoded = packetManager.decode(
+            packetManager.encode("powerupPickup", { id: "wxyz", playerId: "ab" }),
+        )
+        expect(decoded.powerupPickup?.[0]).toEqual({ id: "wxyz", playerId: "ab" })
+    })
+
     it("round-trips playerInputs within float16 precision", () => {
         const input = {
             playerId: "cd",

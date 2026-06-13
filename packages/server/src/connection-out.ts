@@ -73,7 +73,12 @@ export function getFullGameState(context: ConnectionContext): number[][] {
             messages.push(encode.playerShootBullet(bullet.owner, bullet))
         }
     }
-    
+
+    // send all active powerups (full field state on join)
+    for(const powerup of game.powerups.getActive()){
+        messages.push(encode.powerupSpawn(powerup))
+    }
+
     if(typeof game.host !== "undefined"){
         messages.push(encode.setHost(game.host))
     }
@@ -206,6 +211,21 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
             if(bullet.owner.id === connection.id) continue
             messages.push(encode.playerShootBullet(bullet.owner, bullet))
         }
+    }
+
+    // Powerup spawned: tell every client to create it.
+    for(const event of gameEvents.filter("powerupSpawn")){
+        messages.push(encode.powerupSpawn(event.powerupSpawn.powerup))
+    }
+
+    // Powerup picked up: tell every client to remove it. The effect on the
+    // picker's ship is networked separately via that player's capacity update.
+    for(const event of gameEvents.filter("powerupPickup")){
+        const { powerup, player } = event.powerupPickup
+        messages.push(encode.powerupPickup(powerup, player))
+        // The pickup mutated the picker's ship capacities (health/ammo); push
+        // the authoritative values so the client reflects the heal/refill.
+        playerUpdates.track(player.id, "shipCapacities")
     }
 
     // Reload

@@ -79,7 +79,7 @@ Engine / gameplay:
 - [x] **Grenades** — AoE explosion projectile (linear distance falloff, owner self-damage) fired via Djibouti's tactical (`bulletKind: "grenade"`, radius 220). (#28)
 - [ ] More projectile types / more ship-specific kits.
 - [x] **Bullet spray patterns** per weapon (count+angle cone, pellet-damage split; Mono=twin-barrel, Flora=5-pellet scatter). (#15)
-- [ ] Map power-ups (pickups: health, ammo, speed, shield).
+- [x] **Map power-ups** — server-spawned health/ammo pickups (gated by `spawnPowerups`, MATCH-scoped, capped), collected on overlap, networked (`powerupSpawn`/`powerupPickup`) + rendered as a glowing diamond. (#35) Speed/shield are easy follow-ups via the same effect switch.
 - [x] **AI / training-grounds bots** — host adds bots (`/bot`, `/bots N`, `/clearbots`); server brain chases/aims/shoots nearest; bots broadcast to clients as normal players. (#18)
 - [ ] Health regeneration (stats exist, not yet applied).
 - [ ] Game-loop & movement polish — lean into fluid, skill-based **Apex-style movement** (the game's north star).
@@ -257,4 +257,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 31 | `810374a`   | Debug overlay (entities/multiplayer state)        | `git revert 810374a`|
 | 32 | `21ec1b1`   | Polish: input a11y name/id + drop redundant bg.png | `git revert 21ec1b1`|
 | 33 | `198f0c0`   | Lobby host promotion (/op, /makehost)             | `git revert 198f0c0`|
-| 34 | (latest)    | Spectator mode (toggle, camera follow, broadcast) | `git revert <sha>`  |
+| 34 | `e76603b`   | Spectator mode (toggle, camera follow, broadcast) | `git revert e76603b`|
+| 35 | (latest)    | Map power-ups (health/ammo pickups)               | `git revert <sha>`  |

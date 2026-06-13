@@ -5,6 +5,7 @@ import { Packet } from "@pip-pip/core/src/networking/packets/packet"
 import { PipPlayer } from "../logic/player"
 import { PipPipGame, PipPipGamePhase } from "../logic"
 import { Bullet } from "../logic/bullet"
+import { Powerup, POWERUP_ID_LENGTH, POWERUP_TYPE_TO_CODE } from "../logic/powerup"
 import { WORLD_QUANT_RANGE } from "../logic/constants"
 
 export const CONNECTION_ID_LENGTH = 2
@@ -177,6 +178,23 @@ export const packetManager = new PacketManager({
     gameMap: new Packet({
         mapIndex: $uint8,
     }),
+
+    // A powerup that became active (full state on join + on spawn). type is the
+    // PowerupType wire code (see POWERUP_TYPE_TO_CODE); the id is a fixed-length
+    // string so the matching powerupPickup can remove it by id.
+    powerupSpawn: new Packet({
+        id: $string(POWERUP_ID_LENGTH),
+        type: $uint8,
+        x: $worldPos,
+        y: $worldPos,
+    }),
+    // A powerup that was picked up: clients remove it by id. playerId names the
+    // picker (so the client can play a pickup cue) and is left empty-padded when
+    // there is no relevant player.
+    powerupPickup: new Packet({
+        id: $string(POWERUP_ID_LENGTH),
+        playerId: $string(CONNECTION_ID_LENGTH),
+    }),
 })
 
 export type PipPacketManager = typeof packetManager
@@ -320,6 +338,17 @@ export const encode = {
         // The client reverses this same mapping in processPackets (client.ts).
         bulletType: bullet.type === "grenade" ? 2 : bullet.type === "tactical" ? 1 : 0,
         explosionRadius: bullet.explosionRadius,
+    }),
+
+    powerupSpawn: (powerup: Powerup) => packetManager.serializers.powerupSpawn.encode({
+        id: powerup.id,
+        type: POWERUP_TYPE_TO_CODE[powerup.type],
+        x: powerup.position.x,
+        y: powerup.position.y,
+    }),
+    powerupPickup: (powerup: Powerup, player?: PipPlayer) => packetManager.serializers.powerupPickup.encode({
+        id: powerup.id,
+        playerId: player?.id ?? "",
     }),
 
     serverTickHeader: (game: PipPipGame) => packetManager.serializers.serverTickHeader.encode({

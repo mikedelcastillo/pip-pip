@@ -86,6 +86,7 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
         triggerDamage: true,
         considerPlayerPing: true,
         setScores: true,
+        spawnPowerups: true,
     })
 
     // Fill in lobby metadata defaults for any field a caller did not seed via
