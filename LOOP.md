@@ -84,6 +84,7 @@ Engine / gameplay:
 - [x] **AI / training-grounds bots** — host adds bots (`/bot`, `/bots N`, `/clearbots`); server brain chases/aims/shoots nearest; bots broadcast to clients as normal players. (#18)
 - [ ] Health regeneration (stats exist, not yet applied).
 - [ ] Game-loop & movement polish — lean into fluid, skill-based **Apex-style movement** (the game's north star).
+- [ ] **Dash / movement tech** (north-star aligned, NEEDS author greenlight on feel + keybind): a cooldown dash — burst of velocity in the movement/aim direction, server-authoritative + client-predicted (new `dash` input on the playerInputs packet + a `dash` cooldown ship-timing networked via playerShipTimings), with a dash trail particle effect and a mobile dash button. Changes feel/balance + needs a free keybind (Space/LMB=fire, RMB/LShift=tactical, R=reload, Tab=scoreboard are taken), so confirm with the author before shipping.
 
 Maps:
 - [x] **Map selection screen** — host-only "Map" tab in the lobby SETUP overlay, over `setMap` (live highlight via synced `mapIndex`). (#25)
@@ -102,6 +103,7 @@ Networking / lobbies / multiplayer:
 UI / UX:
 - [x] **Character selection screen** — ship picker tab in the lobby SETUP overlay (sprite + stats, live highlight), over the existing setShip/`/ship` path. (#17)
 - [x] **Homepage Settings + Credits** — volume + controls reference panel; credits (dev Mike Del Castillo, art Meg Del Castillo) + lore. (#10)
+- [x] **Persist audio settings** — volume + mute saved to localStorage and reapplied on load (matches how the player name persists). (#44)
 - [x] Improved in-game UI modes — kill feed (#42), scoreboard (#22), tactical/ammo HUD (#29), minimap radar (#43).
 - [x] **Revamp the in-game HUD** — decluttered + mobile-responsive MATCH HUD (HP/ammo bars + ping, collapsible chat, control cluster); host-only "Stop Game" control (→ lobby where settings live). (#29) *(full in-match settings editing still needs runtime lobby-metadata updates — open.)*
 - [ ] Surface ping in the in-match HUD / player stats (ping already shows in the player list; show the local player's ping in the HUD too).
@@ -283,4 +285,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 40 | `e28313a`   | Speed/shield power-ups (timed buffs)              | `git revert e28313a`|
 | 41 | `2c3fcd2`   | Per-map background themes                         | `git revert 2c3fcd2`|
 | 42 | `569b0e6`   | HUD kill feed                                     | `git revert 569b0e6`|
-| 43 | (latest)    | HUD minimap radar                                 | `git revert <sha>`  |
+| 43 | `fc70843`   | HUD minimap radar                                 | `git revert fc70843`|
+| 44 | (latest)    | Persist audio settings to localStorage            | `git revert <sha>`  |

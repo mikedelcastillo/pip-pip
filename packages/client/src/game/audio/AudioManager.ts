@@ -1,3 +1,4 @@
+import { readAudioSettings } from "../../store/audioSettings"
 import { envelopeAt, pitchJitter, SFX_TABLE, SfxName } from "./sfxDefs"
 
 export type PlayOptions = {
@@ -35,8 +36,14 @@ export class AudioManager {
 
         this.ctx = new Ctor()
         this.masterGain = this.ctx.createGain()
-        this.masterGain.gain.value = this._muted ? 0 : this._volume
         this.masterGain.connect(this.ctx.destination)
+
+        // Apply the persisted settings so the actual audio output matches the
+        // UI on a fresh load, instead of falling back to the 0.8/unmuted
+        // defaults until the user touches the slider.
+        const persisted = readAudioSettings()
+        this.setMasterVolume(persisted.volume)
+        this.setMuted(persisted.muted)
     }
 
     // Resume a suspended context (call from a user-gesture handler).
