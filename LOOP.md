@@ -131,6 +131,12 @@ Verified, prioritized. `[x]` = fixed and shipped.
 
 ## Decision log
 
+- **D6 — checks/audit must also flag branding & style consistency.** Per author
+  feedback, the read-only audit pass now also reports UI that's off-brand (wrong
+  button/typography/color vs the established components and `_variables.sass`). First
+  instance fixed: the SFX mute toggle was a one-off flat pill — re-rendered as the shared
+  `GameButton` (3D layered, accent = sound on) so it matches the rest of the UI. Future
+  audit-agent prompts include a "branding consistency" dimension.
 - **D5 — particle refinement from author feedback.** Particles are now physics-based:
   they bounce off wall segments (reflect velocity off the segment normal via core's
   `nearestPointFromSegment`, with restitution), keeping the sim pure/testable by passing
@@ -192,4 +198,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 10 | `7b04254`   | Homepage Settings + Credits modals                | `git revert 7b04254`|
 | 11 | `bbb52bb`   | Fix physics collision relative-velocity sign (H1) | `git revert bbb52bb`|
 | 12 | `dd89c90`   | Harden server: WS connection cap + auth short-circuit (H3/H4) | `git revert dd89c90`|
-| 13 | (latest)    | Sanitize hostile player inputs (M1)               | `git revert <sha>`  |
+| 13 | `8958fee`   | Sanitize hostile player inputs (M1)               | `git revert 8958fee`|
+| 14 | (latest)    | Brand the SFX toggle as a GameButton              | `git revert <sha>`  |

@@ -1,29 +1,7 @@
 @import "../styles/variables"
 
-.toggle
-    cursor: pointer
-    user-select: none
-    font-family: $font-family-game
-    font-size: $font-size-input
-    line-height: 1
-    width: fit-content
-    padding: $text-padding-y $text-padding-x
-    color: $color-dark-3
-    background-color: $color-main
-    border: $border-size solid $color-border
-    border-radius: $border-radius
-    white-space: nowrap
-    transition: background-color 100ms
-
-    &:hover
-        background-color: $color-main-darker
-
-    &.muted
-        color: $color-text
-        background-color: $color-dark-3
-        &:hover
-            background-color: $color-dark-2
-
+// Positioning helper used by the in-game overlays to pin the toggle to the
+// top-right corner. The button's own look comes from GameButton.
 .corner
     position: absolute
     top: $screen-margin-dynamic
