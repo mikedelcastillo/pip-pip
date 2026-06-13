@@ -35,6 +35,12 @@ export class Bullet{
     damage = 0
     type: BulletType = "primary"
 
+    // Server tick on which this bullet was fired. Lag-compensated hit detection
+    // anchors the target rewind to this moment so the target's hitbox stays
+    // frozen at the position the shooter saw when firing, for the bullet's whole
+    // flight (see updateBulletPhysics). -1 until the bullet is set/fired.
+    spawnTick = -1
+
     owner?: PipPlayer
 
     pool: BulletPool
@@ -66,6 +72,7 @@ export class Bullet{
         this.lifespan = BULLET_DEFAULT_LIFESPAN
         this.damage = params.damage ?? 0
         this.type = params.type ?? "primary"
+        this.spawnTick = this.pool.game.tickNumber
 
         this.dead = false
         this.pool.game.physics.addObject(this.physics)
@@ -78,6 +85,7 @@ export class Bullet{
         this.lifespan = 0
         this.damage = 0
         this.type = "primary"
+        this.spawnTick = -1
         this.owner = undefined
         this.physics.position.x = 0
         this.physics.position.y = 0

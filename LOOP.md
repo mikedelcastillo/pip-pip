@@ -131,6 +131,16 @@ Verified, prioritized. `[x]` = fixed and shipped.
 
 ## Decision log
 
+- **D4 — fixing the reported "can't damage players" bug (two root causes).** (1) The
+  lag-comp rewind looked back a *fixed* offset from the current tick every frame, so the
+  rewound target hitbox slid forward with a moving target and bullets aimed where the
+  shooter saw them never connected — fixed by anchoring the lookback to the bullet's
+  `spawnTick` (freeze the hitbox at fire time for the whole flight). (2) The swept-circle
+  test solved for the EXIT root and skipped start-of-tick overlaps, so a bullet co-moving
+  with / sitting on a target dealt 0 damage — fixed with an overlap check + the canonical
+  entry-root quadratic. Both reproduced with failing headless tests first
+  (`tests/game/damage-collision.test.ts`), then fixed; existing weapon damage values
+  (primary 4, tactical 40) preserved.
 - **D3 — parallel design, serial integration.** To get throughput without risking the
   "one complete, tested feature per commit" rule, design work is fanned out to
   background architect subagents (audio, particles, public-lobby blueprints are done and
@@ -166,4 +176,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 1  | `d5a6969`   | Add vitest test infra + first unit tests      | `git revert d5a6969`|
 | 2  | `fb9205a`   | Secondary/tactical cannon weapon              | `git revert fb9205a`|
 | 3  | `8300290`   | Particle + screen-shake juice system          | `git revert 8300290`|
-| 4  | (latest)    | Fix variable-length packet framing (>=256 bytes) | `git revert <sha>`|
+| 4  | `aa8a98e`   | Fix variable-length packet framing (>=256 bytes) | `git revert aa8a98e`|
+| 5  | (latest)    | Fix player damage misses (lag-comp + swept collision) | `git revert <sha>`|

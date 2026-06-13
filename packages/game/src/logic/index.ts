@@ -584,10 +584,17 @@ export class PipPipGame{
                 let playerVelocityY = player.ship.physics.velocity.y
 
                 if(this.options.considerPlayerPing === true && bullet.owner instanceof PipPlayer){
-                    // Rewind the TARGET to where the SHOOTER saw it when firing:
+                    // Rewind the TARGET to where the SHOOTER saw it WHEN FIRING:
                     // the shooter's one-way latency (ping/2) plus the render
                     // interpolation delay the shooter views remote ships behind.
-                    const lookbackRaw = (bullet.owner.ping / 2) / this.deltaMs + INTERP_DELAY_TICKS
+                    // The rewind is anchored to the bullet's spawn tick (via its
+                    // age) so the target's hitbox stays frozen at the fired-at
+                    // moment for the bullet's whole flight. Without the age term
+                    // the lookback would track an ever-advancing "now", sliding
+                    // the hitbox forward each tick so a bullet aimed where the
+                    // shooter saw a moving target could never catch it.
+                    const age = bullet.spawnTick >= 0 ? this.tickNumber - bullet.spawnTick : 0
+                    const lookbackRaw = (bullet.owner.ping / 2) / this.deltaMs + INTERP_DELAY_TICKS + age
                     const prev = player.getLastTickState(lookbackRaw)
                     playerPositionX = prev.positionX
                     playerPositionY = prev.positionY
@@ -595,28 +602,47 @@ export class PipPipGame{
                     playerVelocityY = prev.velocityY
                 }
 
-                const Vx = bullet.physics.velocity.x - playerVelocityX
-                const Vy = bullet.physics.velocity.y - playerVelocityY
-                const tDenominator = Vx * Vx + Vy * Vy
-                if(tDenominator === 0) continue
-
                 const Px = bullet.physics.position.x - playerPositionX
                 const Py = bullet.physics.position.y - playerPositionY
                 const r = player.ship.physics.radius + bullet.physics.radius
 
-                const A = Vx * Vx * (r * r - Py * Py)
-                const B = 2 * Px * Py * Vx * Vy
-                const C = Vy * Vy * (r * r - Px * Px)
-                const D = Px * Vx
-                const E = Py * Vy
+                // Swept-circle test over this tick's relative motion. Treat the
+                // bullet as a point moving by the relative velocity V against a
+                // circle of combined radius r centred on the (possibly rewound)
+                // target. A hit is the FIRST contact: an overlap already present
+                // at the start of the tick (t <= 0) or an entry root within the
+                // tick (0 <= t_entry <= 1). The previous version solved for the
+                // EXIT root and rejected anything already overlapping, so a bullet
+                // sitting on a target — including the degenerate case where the
+                // bullet and target share a velocity (relative speed 0) — dealt no
+                // damage at all.
+                const Vx = bullet.physics.velocity.x - playerVelocityX
+                const Vy = bullet.physics.velocity.y - playerVelocityY
+                const tDenominator = Vx * Vx + Vy * Vy
 
-                if(A + B + C < 0) continue
+                let hit: boolean
+                if(Px * Px + Py * Py <= r * r){
+                    // Already overlapping at the start of the tick.
+                    hit = true
+                } else if(tDenominator === 0){
+                    // No relative motion and not overlapping: cannot connect.
+                    hit = false
+                } else{
+                    // Quadratic |P + tV|^2 = r^2. Real roots require a
+                    // non-negative discriminant; the entry (smaller) root is the
+                    // first contact. A hit lands this tick when it falls in [0, 1].
+                    const b = 2 * (Px * Vx + Py * Vy)
+                    const c = Px * Px + Py * Py - r * r
+                    const discriminant = b * b - 4 * tDenominator * c
+                    if(discriminant < 0){
+                        hit = false
+                    } else{
+                        const tEntry = (-b - Math.sqrt(discriminant)) / (2 * tDenominator)
+                        hit = tEntry >= 0 && tEntry <= 1
+                    }
+                }
 
-                const t = (Math.sqrt(A + B + C) - D - E) / tDenominator
-
-                const tValid = t >= 0 && t <= 1
-
-                if(tValid === false) continue
+                if(hit === false) continue
                 if(bullet.owner instanceof PipPlayer){
                     this.dealDamage(bullet.owner, player, bullet.damage)
                 }
