@@ -435,16 +435,25 @@ export class PipPipGame{
                 // primary weapon, driven by the useTactical input.
                 if(authorizedToShootBullet && player.inputs.useTactical === true && player.spawned === true){
                     if(player.ship.shootTactical()){
-                        const spread = player.ship.stats.tactical.spread
-                        const damage = player.ship.stats.tactical.damage.normal / Math.max(1, spread.count)
+                        const tactical = player.ship.stats.tactical
+                        const spread = tactical.spread
+                        const damage = tactical.damage.normal / Math.max(1, spread.count)
+                        // The tactical weapon fires either the heavy single-target
+                        // "cannon" round (default) or a "grenade" that detonates
+                        // with area-of-effect damage when it ends its life. The
+                        // ship's tactical.bulletKind picks which; a grenade also
+                        // carries its blast radius so the AoE (and the client's
+                        // explosion) can size itself.
+                        const isGrenade = tactical.bulletKind === "grenade"
                         this.spawnSpread(
                             player,
                             spread.count,
                             spread.angle,
-                            player.ship.stats.tactical.bullet.velocity,
-                            player.ship.stats.tactical.bullet.radius,
+                            tactical.bullet.velocity,
+                            tactical.bullet.radius,
                             damage,
-                            "tactical",
+                            isGrenade ? "grenade" : "tactical",
+                            isGrenade ? tactical.explosionRadius : 0,
                         )
                     }
                 }
@@ -461,6 +470,8 @@ export class PipPipGame{
 
                 // bullet lived too long
                 if(bullet.lifespan <= 0) {
+                    // A grenade that expires mid-air still detonates (AoE).
+                    this.detonateGrenade(bullet)
                     this.bullets.unset(bullet)
                 }
             }
@@ -488,6 +499,7 @@ export class PipPipGame{
         radius: number,
         damage: number,
         type: BulletType,
+        explosionRadius = 0,
     ){
         const pellets = Math.max(1, Math.floor(count))
 
@@ -513,6 +525,7 @@ export class PipPipGame{
                 rotation: baseRotation + offset,
                 damage,
                 type,
+                explosionRadius,
             })
         }
     }
@@ -629,6 +642,47 @@ export class PipPipGame{
         }
     }
 
+    // Detonate a grenade at its current position, dealing area-of-effect damage
+    // to EVERY spawned player within the grenade's explosionRadius — including
+    // the grenade's own owner (self-damage is intended: standing on your own
+    // blast hurts, exactly like a real grenade). Damage falls off linearly with
+    // distance: full base damage at the centre, scaling to ~0 at the radius
+    // edge, with a floor of 1 for any player that overlaps the blast at all so a
+    // graze always registers. Server-authoritative: gated on triggerDamage, and
+    // computed at detonation time against players' CURRENT positions (the AoE is
+    // a plain radius check, not ping-rewound — only direct-hit detection is
+    // lag-compensated; see updateBulletPhysics). dealDamage emits the normal
+    // dealDamage events so damage numbers and sounds already work. Call this
+    // immediately before unsetting the grenade, so the blast originates from the
+    // bullet's position before it is reset.
+    detonateGrenade(bullet: Bullet){
+        if(this.options.triggerDamage === false) return
+        if(bullet.type !== "grenade") return
+        if(!(bullet.owner instanceof PipPlayer)) return
+        const radius = bullet.explosionRadius
+        if(radius <= 0) return
+
+        const blastX = bullet.physics.position.x
+        const blastY = bullet.physics.position.y
+
+        for(const player of Object.values(this.players)){
+            if(player.spawned === false) continue
+            const dx = player.ship.physics.position.x - blastX
+            const dy = player.ship.physics.position.y - blastY
+            const dist = Math.sqrt(dx * dx + dy * dy)
+            // A player counts as caught in the blast when its hitbox overlaps the
+            // explosion circle (centre distance within radius + ship radius).
+            const reach = radius + player.ship.physics.radius
+            if(dist > reach) continue
+
+            // Linear falloff from full damage at the centre to 0 at the edge,
+            // clamped to a minimum of 1 so any overlap deals at least 1.
+            const falloff = Math.max(0, 1 - dist / reach)
+            const scaled = Math.max(1, bullet.damage * falloff)
+            this.dealDamage(bullet.owner, player, scaled)
+        }
+    }
+
     updateBulletPhysics(){
         // check wall collisions: swept circle (the bullet's motion segment,
         // inflated by both radii) vs each wall segment. The previous test used
@@ -650,6 +704,8 @@ export class PipPipGame{
                 )
 
                 if(dist <= hitRadius + segWall.radius){
+                    // A grenade that hits a wall detonates on contact (AoE).
+                    this.detonateGrenade(bullet)
                     this.bullets.unset(bullet)
                     break
                 }
@@ -731,7 +787,12 @@ export class PipPipGame{
                 }
 
                 if(hit === false) continue
-                if(bullet.owner instanceof PipPlayer){
+                if(bullet.type === "grenade"){
+                    // A grenade that touches a player detonates with AoE rather
+                    // than dealing single-target damage — the radius check inside
+                    // detonateGrenade covers this player and anyone nearby.
+                    this.detonateGrenade(bullet)
+                } else if(bullet.owner instanceof PipPlayer){
                     this.dealDamage(bullet.owner, player, bullet.damage)
                 }
                 this.bullets.unset(bullet)

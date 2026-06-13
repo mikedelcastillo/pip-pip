@@ -117,8 +117,23 @@ PIP_SHIPS.push({
     id: "djibouti",
     name: "Djibouti",
     texture: "ship_6",
-    description: "Nothing special yet",
+    description: "Lobs area-of-effect grenades",
     Ship: class extends PipShip{
-        stats = createShipStats()
+        // Grenadier: the tactical weapon fires "grenade" bullets that detonate
+        // with area-of-effect damage when they end their life (lifespan expiry,
+        // wall, or contact). 60 base damage at the blast centre falls off
+        // linearly to ~0 at the 220-unit edge. A slow-moving heavy round so the
+        // lob arc reads, on the tactical's own ammo/reload.
+        stats = createShipStats({
+            tactical: {
+                bulletKind: "grenade",
+                explosionRadius: 220,
+                damage: createRange(60),
+                bullet: {
+                    velocity: 45,
+                    radius: 16,
+                },
+            },
+        })
     },
 })

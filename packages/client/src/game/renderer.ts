@@ -458,11 +458,19 @@ export class PipPipRenderer{
                 graphic.bullet = undefined
             }
 
+            // A grenade detonates with a far bigger burst than a normal bullet's
+            // little puff; scale the explosion with its blast radius so the
+            // visual reads as the AoE that the server just resolved.
+            const isGrenade = bullet.type === "grenade"
+            const explosionSize = isGrenade
+                ? Math.max(16, bullet.explosionRadius / 4)
+                : 8
+
             emitExplosion(
                 this.particleSystem,
                 bullet.physics.position.x,
                 bullet.physics.position.y,
-                8,
+                explosionSize,
             )
         })
 
@@ -636,11 +644,14 @@ export class PipPipRenderer{
             }
             graphic.graphic.clear()
 
-            // Tactical cannon rounds draw a thicker amber trail so they read as
-            // distinct heavy shots; primary fire stays the thin white streak.
-            const isTactical = graphic.bullet?.type === "tactical"
-            const trailWidth = isTactical ? 11 : 5
-            const trailColor = isTactical ? 0xFFAA33 : 0xFFFFFF
+            // Distinct trail per weapon: grenades draw a fat green round, the
+            // tactical cannon a thicker amber streak, and primary fire stays the
+            // thin white streak.
+            const bulletType = graphic.bullet?.type
+            const isGrenade = bulletType === "grenade"
+            const isTactical = bulletType === "tactical"
+            const trailWidth = isGrenade ? 14 : isTactical ? 11 : 5
+            const trailColor = isGrenade ? 0x33DD55 : isTactical ? 0xFFAA33 : 0xFFFFFF
 
             for(let i = 1; i < graphic.positions.length; i++){
                 const prev = graphic.positions[i - 1]

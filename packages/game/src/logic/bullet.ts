@@ -5,7 +5,7 @@ import { PipPlayer } from "./player"
 import { PipPipGame } from "."
 import { tickDown } from "./utils"
 
-export type BulletType = "primary" | "tactical"
+export type BulletType = "primary" | "tactical" | "grenade"
 
 export type BulletParams = {
     position: Vector2,
@@ -21,6 +21,12 @@ export type BulletParams = {
     // amounts. Damage is only ever applied server-side (in dealDamage).
     damage?: number,
     type?: BulletType,
+
+    // Area-of-effect blast radius for a "grenade" bullet. When the grenade ends
+    // its life (lifespan expiry OR contact) it detonates and damages every
+    // player within this radius, with linear distance falloff. Ignored for
+    // non-grenade bullets. Networked so the client can reconstruct the blast.
+    explosionRadius?: number,
 }
 
 export const BULLET_DEFAULT_LIFESPAN = 20 * 8 // eight seconds
@@ -34,6 +40,11 @@ export class Bullet{
 
     damage = 0
     type: BulletType = "primary"
+
+    // AoE blast radius for grenades (0 for every other bullet). Read by the
+    // game when a grenade detonates and networked so the client renders a
+    // matching explosion.
+    explosionRadius = 0
 
     // Server tick on which this bullet was fired. Lag-compensated hit detection
     // anchors the target rewind to this moment so the target's hitbox stays
@@ -72,6 +83,7 @@ export class Bullet{
         this.lifespan = BULLET_DEFAULT_LIFESPAN
         this.damage = params.damage ?? 0
         this.type = params.type ?? "primary"
+        this.explosionRadius = params.explosionRadius ?? 0
         this.spawnTick = this.pool.game.tickNumber
 
         this.dead = false
@@ -85,6 +97,7 @@ export class Bullet{
         this.lifespan = 0
         this.damage = 0
         this.type = "primary"
+        this.explosionRadius = 0
         this.spawnTick = -1
         this.owner = undefined
         this.physics.position.x = 0

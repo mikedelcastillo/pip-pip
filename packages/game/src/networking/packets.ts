@@ -87,7 +87,11 @@ export const packetManager = new PacketManager({
         velocityX: $float16,
         velocityY: $float16,
         radius: $float16,
+        // 0 = primary, 1 = tactical, 2 = grenade (see the encode helper below).
         bulletType: $uint8,
+        // AoE blast radius for grenade bullets (0 for primary/tactical) so the
+        // client can reconstruct the grenade and size its explosion to match.
+        explosionRadius: $float16,
     }),
 
     // One global header prepended once per outgoing message carrying the
@@ -304,7 +308,10 @@ export const encode = {
         velocityX: bullet.physics.velocity.x,
         velocityY: bullet.physics.velocity.y,
         radius: bullet.physics.radius,
-        bulletType: bullet.type === "tactical" ? 1 : 0,
+        // Bullet type wire mapping: 0 = primary, 1 = tactical, 2 = grenade.
+        // The client reverses this same mapping in processPackets (client.ts).
+        bulletType: bullet.type === "grenade" ? 2 : bullet.type === "tactical" ? 1 : 0,
+        explosionRadius: bullet.explosionRadius,
     }),
 
     serverTickHeader: (game: PipPipGame) => packetManager.serializers.serverTickHeader.encode({

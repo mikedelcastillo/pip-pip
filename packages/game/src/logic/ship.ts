@@ -51,6 +51,13 @@ export type ShipStats = {
             velocity: number,
             radius: number,
         },
+        // What the tactical weapon fires. "cannon" (default) is the existing
+        // heavy single-target round (spawned as a "tactical" bullet). "grenade"
+        // spawns a "grenade" bullet that detonates with area-of-effect damage
+        // when it ends its life; explosionRadius is its blast radius in world
+        // units (ignored for "cannon").
+        bulletKind: "cannon" | "grenade",
+        explosionRadius: number,
     },
     bullet: {
         velocity: number,
@@ -122,6 +129,8 @@ export const DEFAULT_SHIP_STATS: ShipStats = {
             velocity: 60,
             radius: 14,
         },
+        bulletKind: "cannon",
+        explosionRadius: 0,
     },
     bullet: {
         velocity: 100,

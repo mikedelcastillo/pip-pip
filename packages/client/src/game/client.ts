@@ -50,6 +50,14 @@ export const processPackets = (gameContext: GameContext) => {
         for (const packet of packets.playerShootBullet || []) {
             const player = game.players[packet.playerId]
             if (typeof player !== "undefined") {
+                // Reverse the wire mapping from packets.ts: 0 = primary,
+                // 1 = tactical, 2 = grenade. Grenades also carry their blast
+                // radius so the client renders a matching explosion on death.
+                const type = packet.bulletType === 2
+                    ? "grenade"
+                    : packet.bulletType === 1
+                        ? "tactical"
+                        : "primary"
                 game.bullets.new({
                     position: new Vector2(packet.positionX, packet.positionY),
                     velocity: new Vector2(packet.velocityX, packet.velocityY),
@@ -57,7 +65,8 @@ export const processPackets = (gameContext: GameContext) => {
                     speed: player.ship.stats.bullet.velocity,
                     radius: packet.radius,
                     rotation: 0,
-                    type: packet.bulletType === 1 ? "tactical" : "primary",
+                    type,
+                    explosionRadius: packet.explosionRadius,
                 })
             }
         }

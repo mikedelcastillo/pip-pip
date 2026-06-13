@@ -76,7 +76,8 @@ Engine / gameplay:
 - [x] **Secondary/tactical weapon** — implemented the stubbed cannon. (#2)
 - [x] **Procedural audio system** — Web Audio SFX synth on game events + mute toggle + canonical "pip pip" chirp. (#7)
 - [x] **Particle + screen-shake juice** — explosions, hit sparks, thruster trails. (#3)
-- [ ] More weapons: grenades, different bullet/projectile types, more ship-specific kits.
+- [x] **Grenades** — AoE explosion projectile (linear distance falloff, owner self-damage) fired via Djibouti's tactical (`bulletKind: "grenade"`, radius 220). (#28)
+- [ ] More projectile types / more ship-specific kits.
 - [x] **Bullet spray patterns** per weapon (count+angle cone, pellet-damage split; Mono=twin-barrel, Flora=5-pellet scatter). (#15)
 - [ ] Map power-ups (pickups: health, ammo, speed, shield).
 - [x] **AI / training-grounds bots** — host adds bots (`/bot`, `/bots N`, `/clearbots`); server brain chases/aims/shoots nearest; bots broadcast to clients as normal players. (#18)
@@ -247,4 +248,6 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 23 | `2c09b70`   | Slash-command autocomplete in chat                | `git revert 2c09b70`|
 | 24 | `df27462`   | docs(loop): production verification + cadence     | `git revert df27462`|
 | 25 | `e1559ed`   | Map selection screen (lobby Map tab)              | `git revert e1559ed`|
-| 26 | (latest)    | Animated pixel-art homepage background            | `git revert <sha>`  |
+| 26 | `2fb4a36`   | Animated pixel-art homepage background            | `git revert 2fb4a36`|
+| 27 | `ce782c8`   | chore: untrack src-root .js.map + ignore previews | `git revert ce782c8`|
+| 28 | (latest)    | Grenade AoE weapon (Djibouti tactical)            | `git revert <sha>`  |
