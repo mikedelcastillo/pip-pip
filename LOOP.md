@@ -186,4 +186,5 @@ Verified, prioritized. `[x]` = fixed and shipped.
 | 4  | `aa8a98e`   | Fix variable-length packet framing (>=256 bytes) | `git revert aa8a98e`|
 | 5  | `17539f0`   | Fix player damage misses (lag-comp + swept collision) | `git revert 17539f0`|
 | 6  | `95aa379`   | Particle refinement: wall bounce, pixel squares, local-only shake | `git revert 95aa379`|
-| 7  | (latest)    | Procedural Web-Audio SFX system + mute toggle | `git revert <sha>`  |
+| 7  | `72d7b18`   | Procedural Web-Audio SFX system + mute toggle | `git revert 72d7b18`|
+| 8  | (latest)    | chore: stop tracking compiled .js.map in client src | `git revert <sha>`|
