@@ -415,4 +415,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 123| `d6b1326`   | TDM team health-bar colors (teammate green / enemy red) + debug bot-path overlay (` toggles; client-side A* display of each bot's route + target) | `git revert d6b1326`|
 | 124| `82da816`   | Harden bot nav: stuck detection + unstick escape (BFS to nearest open cell) + wall-avoidance nudge + escape when path unreachable, so bots stop wedging in pockets | `git revert 82da816`|
 | 125| `62f41b4`   | Spectator controls: Space/Right/Left (+pad) cycle watched players, WASD free-roams the camera, bottom Deploy panel to return (fixes top objective overlap) | `git revert 62f41b4`|
-| 126| (latest)    | Map engine Phase 1: new GridMapData format (palette of block types + 45 degree diagonal tile shapes), greedy-meshed rect collision (Clash 89->9 walls), diagonal->segWall, all 8 maps migrated losslessly | `git revert <sha>` |
+| 126| `8c82a46`   | Map engine Phase 1: new GridMapData format (palette of block types + 45 degree diagonal tile shapes), greedy-meshed rect collision (Clash 89->9 walls), diagonal->segWall, all 8 maps migrated losslessly | `git revert 8c82a46`|
+| 127| (latest)    | FIX Railway client build (TS 4.8.4): narrow BotGoal via direct goal.kind check, not an aliased bool (older client TS would not narrow the union, breaking the prod build) | `git revert <sha>` |

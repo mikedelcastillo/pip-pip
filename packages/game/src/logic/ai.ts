@@ -334,9 +334,13 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
     // enemy. The same nav/path routing is reused either way, so a bot routes
     // around walls toward a powerup exactly as it does toward an enemy.
     const seekingPowerup = goal.kind === "powerup"
-    const moveTargetX = seekingPowerup === true ? goal.powerup.position.x : found?.target.ship.physics.position.x ?? botX
-    const moveTargetY = seekingPowerup === true ? goal.powerup.position.y : found?.target.ship.physics.position.y ?? botY
-    const moveAngle = seekingPowerup === true ? goal.angle : angle
+    // Check goal.kind DIRECTLY in each ternary (not via the aliased seekingPowerup
+    // bool): the client compiles with an older TypeScript that does not narrow a
+    // discriminated union through an aliased condition, so goal.powerup/goal.angle
+    // would not type-check there. The direct check narrows on every TS version.
+    const moveTargetX = goal.kind === "powerup" ? goal.powerup.position.x : (found?.target.ship.physics.position.x ?? botX)
+    const moveTargetY = goal.kind === "powerup" ? goal.powerup.position.y : (found?.target.ship.physics.position.y ?? botY)
+    const moveAngle = goal.kind === "powerup" ? goal.angle : angle
 
     // Decide whether the lane to the MOVE target is clear. With no nav context
     // (the wall-free pure tests) the lane is treated as clear, so behaviour is
