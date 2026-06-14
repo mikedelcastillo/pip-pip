@@ -10,6 +10,7 @@ import {
     ServerSnapshot,
     TelegramBot,
     TelegramConfig,
+    TelegramUpdate,
 } from "@pip-pip/server/src/telegram"
 
 // A fixed snapshot the command formatters read from. Kept tiny but realistic.
@@ -291,5 +292,59 @@ describe("TelegramBot.handleUpdate", () => {
         await bot?.handleUpdate({ update_id: 2, message: { text: "/ping" } })
         await bot?.handleUpdate({ update_id: 3, message: { chat: { id: 1 }, from: { id: 1 } } })
         expect(send).not.toHaveBeenCalled()
+    })
+})
+
+// Regression for the infinite reboot loop: an admin /reboot exits the process
+// before its offset is confirmed back to Telegram, so on restart Telegram
+// redelivers the same /reboot and the server reboots forever. skipBacklog must
+// drain (acknowledge) that stale command on startup WITHOUT executing it.
+describe("TelegramBot.skipBacklog (breaks the reboot loop)", () => {
+    const peekOffset = (bot: TelegramBot) => (bot as unknown as { offset: number }).offset
+
+    it("drains a stale /reboot backlog without executing it, advancing the offset", async () => {
+        const send = vi.fn(async () => {})
+        const onReboot = vi.fn()
+        const stale: TelegramUpdate = {
+            update_id: 7,
+            message: { text: "/reboot", chat: { id: 111 }, from: { id: 111 } },
+        }
+        // The drain poll (offset -1) surfaces the stale /reboot; later polls are
+        // empty. nextOffset advances past the stale update so it is confirmed.
+        const fetchUpdates = vi.fn(async (offset: number) => {
+            if(offset < 0) return { updates: [stale], nextOffset: 8 }
+            return { updates: [], nextOffset: offset }
+        })
+        const bot = new TelegramBot({
+            config: { token: "t", adminIds: [111] }, send, getSnapshot, onReboot, fetchUpdates,
+        })
+
+        await bot.skipBacklog()
+
+        // Drained with a -1 offset and no long-poll wait.
+        expect(fetchUpdates).toHaveBeenCalledWith(-1, 0)
+        // The stale /reboot was acknowledged, NEVER executed: no reboot, no reply.
+        expect(onReboot).not.toHaveBeenCalled()
+        expect(send).not.toHaveBeenCalled()
+        // Offset advanced past the backlog so the next poll cannot redeliver it.
+        expect(peekOffset(bot)).toBe(8)
+    })
+
+    it("leaves the offset untouched when there is no backlog", async () => {
+        const fetchUpdates = vi.fn(async (offset: number) => ({
+            updates: [] as TelegramUpdate[],
+            nextOffset: offset,
+        }))
+        const bot = new TelegramBot({
+            config: { token: "t", adminIds: [111] },
+            send: vi.fn(async () => {}),
+            getSnapshot,
+            fetchUpdates,
+        })
+
+        await bot.skipBacklog()
+
+        // No pending updates: offset stays at its initial 0 (never set to -1).
+        expect(peekOffset(bot)).toBe(0)
     })
 })

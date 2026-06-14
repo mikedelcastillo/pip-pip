@@ -273,12 +273,22 @@ export async function fetchUpdates(
 
 // ---- The bot wired together ------------------------------------------------
 
+// The poll function the bot uses to fetch updates. Injectable so the loop and
+// the startup backlog-skip are unit-testable without real network. Defaults to
+// the real fetchUpdates bound to the bot's token.
+export type FetchUpdatesFn = (
+    offset: number,
+    timeoutSeconds?: number,
+) => Promise<{ updates: TelegramUpdate[], nextOffset: number }>
+
 export type TelegramBotDeps = {
     config: TelegramConfig,
     send: SendFn,
     getSnapshot: () => ServerSnapshot,
     // Performs the actual process exit. Injectable so tests don't kill the runner.
     onReboot?: () => void,
+    // The update poller. Injectable for tests; defaults to the real fetchUpdates.
+    fetchUpdates?: FetchUpdatesFn,
 }
 
 export class TelegramBot{
@@ -286,6 +296,7 @@ export class TelegramBot{
     private send: SendFn
     private getSnapshot: () => ServerSnapshot
     private onReboot: () => void
+    private fetchUpdates: FetchUpdatesFn
     private offset = 0
     private polling = false
 
@@ -294,6 +305,25 @@ export class TelegramBot{
         this.send = deps.send
         this.getSnapshot = deps.getSnapshot
         this.onReboot = deps.onReboot ?? (() => process.exit(0))
+        this.fetchUpdates = deps.fetchUpdates
+            ?? ((offset, timeoutSeconds) => fetchUpdates(this.config.token, offset, timeoutSeconds))
+    }
+
+    // Advance the offset PAST any updates that were queued while the bot was
+    // offline, WITHOUT executing them. A control bot must never run stale
+    // commands on startup. Crucially this also breaks an infinite reboot loop:
+    // a /reboot exits the process (process.exit) before the advanced offset is
+    // ever confirmed back to Telegram, so on the next start Telegram redelivers
+    // the SAME /reboot and the server reboots again, forever. Draining the
+    // backlog here acknowledges that stale /reboot (the next real poll uses the
+    // advanced offset, which confirms everything up to it) so it is never run
+    // again. Uses offset -1 (Telegram returns only the most recent pending
+    // update) with no long-poll wait. No-op when nothing is pending.
+    async skipBacklog(){
+        const { updates, nextOffset } = await this.fetchUpdates(-1, 0)
+        if(updates.length > 0){
+            this.offset = nextOffset
+        }
     }
 
     // Send `text` to every admin id. Each send is independently wrapped, so one
@@ -329,9 +359,17 @@ export class TelegramBot{
         if(this.polling) return
         this.polling = true
         const loop = async () => {
+            // Drop any backlog (e.g. a stale /reboot left over from a prior exit)
+            // before processing live updates, so the bot never re-runs old
+            // commands and an unconfirmed /reboot can no longer loop forever.
+            try{
+                await this.skipBacklog()
+            } catch(error){
+                console.warn("[telegram] skipBacklog failed:", error)
+            }
             while(this.polling){
                 try{
-                    const { updates, nextOffset } = await fetchUpdates(this.config.token, this.offset)
+                    const { updates, nextOffset } = await this.fetchUpdates(this.offset)
                     this.offset = nextOffset
                     for(const update of updates){
                         await this.handleUpdate(update)
