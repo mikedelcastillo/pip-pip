@@ -1,5 +1,14 @@
 @import "../styles/variables"
 
+// "Leave" button pinned to the top-left of the lobby overlay (the top-right is
+// the audio toggle). Mirrors AudioVolumeToggle's .corner so the two sit
+// symmetrically and stay reachable by thumb on mobile.
+.leaveCorner
+    position: absolute
+    top: $screen-margin-dynamic
+    left: $screen-margin-dynamic
+    z-index: 10
+
 .overlayContainer
     position: absolute
     inset: $screen-margin-dynamic

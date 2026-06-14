@@ -342,4 +342,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 50 | `dfd8635`   | Translucent player-list background (see game behind)    | `git revert dfd8635` |
 | 51 | `b65e461`   | HOTFIX reconcile runaway (ship flew corner-to-corner)   | `git revert b65e461` |
 | 52 | `79bc833`   | Tunable movement/physics config (friction/accel/agility) | `git revert 79bc833` |
-| 53 | (latest)    | Homepage parallax star field (slow upward drift)        | `git revert <sha>` |
+| 53 | `4d5dc7d`   | Homepage parallax star field (slow upward drift)        | `git revert 4d5dc7d` |
+| 54 | (latest)    | Leave Lobby button (return to home, mobile + desktop)   | `git revert <sha>` |

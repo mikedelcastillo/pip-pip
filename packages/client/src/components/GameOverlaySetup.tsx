@@ -7,6 +7,7 @@ import GameChat from "./GameChat"
 import ShipSelect from "./ShipSelect"
 import MapSelect from "./MapSelect"
 import AudioVolumeToggle from "./AudioVolumeToggle"
+import LeaveButton from "./LeaveButton"
 import audioStyles from "./AudioVolumeToggle.module.sass"
 import styles from "./GameOverlaySetup.module.sass"
 
@@ -43,6 +44,7 @@ export default function GameOverlaySetup() {
 
     return (
         <div className="game-overlay">
+            <LeaveButton className={styles.leaveCorner} />
             <AudioVolumeToggle className={audioStyles.corner} />
             <div className={styles.overlayContainer}>
                 <div className={styles.setupContainer}>

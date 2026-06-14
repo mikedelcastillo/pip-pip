@@ -4,6 +4,7 @@ import GameChat from "./GameChat"
 import GamePlayerList from "./GamePlayerList"
 import GameButton from "./GameButton"
 import AudioVolumeToggle from "./AudioVolumeToggle"
+import LeaveButton from "./LeaveButton"
 import HostControls from "./HostControls"
 import KillFeed from "./KillFeed"
 import Minimap from "./Minimap"
@@ -45,6 +46,7 @@ export default function GameOverlayMatch() {
                         Host
                     </GameButton>
                 )}
+                <LeaveButton className={styles.controlButton} />
             </div>
 
             {/* Transient kill feed, top-right under the control cluster. */}
