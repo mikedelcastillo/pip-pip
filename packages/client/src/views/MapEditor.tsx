@@ -38,6 +38,19 @@ const COLOR_GRID = "rgba(255, 255, 255, 0.08)"
 const COLOR_GRID_STRONG = "rgba(255, 255, 255, 0.18)"
 const COLOR_COLLISION = "rgba(51, 221, 85, 0.9)"
 
+// Viewport: cells are BASE_CELL * scale pixels, and the grid's top-left corner
+// sits at (offsetX, offsetY) on screen. The author pans (trackpad two-finger
+// scroll / two-finger touch drag) and zooms (Mac trackpad pinch -> ctrl+wheel,
+// or two-finger touch pinch) around the cursor/midpoint, so a big map feels
+// like a native canvas. Scale is clamped so it never collapses or explodes.
+const BASE_CELL = 34
+const MIN_SCALE = 0.12
+const MAX_SCALE = 4
+
+function clampScale(scale: number): number{
+    return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale))
+}
+
 // The full brush list the palette shows: erase first, then every shape from the
 // shared editor palette, then the spawn marker last.
 type BrushDef = { brush: EditorBrush, label: string, color: string }
@@ -70,6 +83,13 @@ export default function MapEditor(){
     const mapRef = useRef<EditorMap>(new EditorMap(DEFAULT_COLS, DEFAULT_ROWS))
     const [version, setVersion] = useState(0)
     const bump = useCallback(() => setVersion((v) => v + 1), [])
+
+    // The pan/zoom viewport. Held in a ref (mutated by gesture handlers without a
+    // re-render) - `ready` is false until the first fit so a fresh/resized grid
+    // auto-fits the canvas. Active touch pointers are tracked so one finger paints
+    // and two fingers pinch/pan.
+    const viewRef = useRef({ scale: 1, offsetX: 0, offsetY: 0, ready: false })
+    const pointersRef = useRef<Map<number, { x: number, y: number }>>(new Map())
 
     const [brush, setBrush] = useState<EditorBrush>("full")
     const [name, setName] = useState(DEFAULT_MAP_NAME)
@@ -110,11 +130,36 @@ export default function MapEditor(){
         // model itself is a ref, so `version` is the only meaningful dependency.
     }, [version])
 
-    // Pixel size of one cell on screen. Chosen so the whole grid fits the canvas
-    // box; recomputed on every draw from the live canvas size and grid dims.
-    const drawCellSize = useCallback((map: EditorMap, canvasW: number, canvasH: number) => {
-        return Math.max(4, Math.floor(Math.min(canvasW / map.cols, canvasH / map.rows)))
+    // Canvas CSS size (rounded up, never 0) so geometry maths stay finite.
+    const canvasSize = useCallback(() => {
+        const canvas = canvasRef.current
+        if(canvas === null) return { w: 1, h: 1 }
+        const rect = canvas.getBoundingClientRect()
+        return { w: Math.max(1, rect.width), h: Math.max(1, rect.height) }
     }, [])
+
+    // Fit + centre the whole grid in the canvas (the default view, and what the
+    // "Fit" button / a grid resize returns to). Leaves a small margin so edge
+    // cells are not flush against the frame.
+    const fitView = useCallback(() => {
+        const map = mapRef.current
+        const { w, h } = canvasSize()
+        const scale = clampScale(Math.min(w / (map.cols * BASE_CELL), h / (map.rows * BASE_CELL)) * 0.92)
+        const cell = BASE_CELL * scale
+        const v = viewRef.current
+        v.scale = scale
+        v.offsetX = (w - map.cols * cell) / 2
+        v.offsetY = (h - map.rows * cell) / 2
+        v.ready = true
+    }, [canvasSize])
+
+    // Current on-screen geometry: cell pixel size + the grid's top-left origin.
+    // Fits on first use so the canvas always shows the grid before any gesture.
+    const geometry = useCallback(() => {
+        if(viewRef.current.ready === false) fitView()
+        const v = viewRef.current
+        return { cell: BASE_CELL * v.scale, ox: v.offsetX, oy: v.offsetY }
+    }, [fitView])
 
     // Draw the entire editor: grid lines, painted tiles (squares / diagonals /
     // deco), spawn markers, and (optionally) the loadGridMap collision overlay.
@@ -134,12 +179,12 @@ export default function MapEditor(){
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
         ctx.imageSmoothingEnabled = false
 
-        const cell = drawCellSize(map, cssW, cssH)
+        const geo = geometry()
+        const cell = geo.cell
         const gridW = cell * map.cols
         const gridH = cell * map.rows
-        // Centre the grid in the canvas box.
-        const ox = Math.floor((cssW - gridW) / 2)
-        const oy = Math.floor((cssH - gridH) / 2)
+        const ox = geo.ox
+        const oy = geo.oy
 
         // Backdrop behind the grid so empty cells read as dark space.
         ctx.fillStyle = "#0D090B"
@@ -208,7 +253,7 @@ export default function MapEditor(){
             }
             ctx.stroke()
         }
-    }, [collision, drawCellSize])
+    }, [collision, geometry])
 
     // Redraw on any model bump, collision recompute, or collision toggle.
     useEffect(() => {
@@ -232,18 +277,12 @@ export default function MapEditor(){
         if(canvas === null) return null
         const map = mapRef.current
         const rect = canvas.getBoundingClientRect()
-        const cssW = Math.max(1, rect.width)
-        const cssH = Math.max(1, rect.height)
-        const cell = drawCellSize(map, cssW, cssH)
-        const gridW = cell * map.cols
-        const gridH = cell * map.rows
-        const ox = Math.floor((cssW - gridW) / 2)
-        const oy = Math.floor((cssH - gridH) / 2)
+        const { cell, ox, oy } = geometry()
         const col = Math.floor((clientX - rect.left - ox) / cell)
         const row = Math.floor((clientY - rect.top - oy) / cell)
         if(map.inBounds(col, row) === false) return null
         return { col, row }
-    }, [drawCellSize])
+    }, [geometry])
 
     const paintAt = useCallback((clientX: number, clientY: number) => {
         const cellPos = cellFromEvent(clientX, clientY)
@@ -261,6 +300,25 @@ export default function MapEditor(){
         }
     }, [cellFromEvent, bump, draw])
 
+    // Zoom by `ratio` around a canvas-relative focal point, keeping the world
+    // point under the focal fixed (natural pinch / scroll-wheel zoom).
+    const applyZoom = useCallback((focalX: number, focalY: number, ratio: number) => {
+        const v = viewRef.current
+        const newScale = clampScale(v.scale * ratio)
+        const worldX = (focalX - v.offsetX) / (BASE_CELL * v.scale)
+        const worldY = (focalY - v.offsetY) / (BASE_CELL * v.scale)
+        v.scale = newScale
+        v.offsetX = focalX - worldX * BASE_CELL * newScale
+        v.offsetY = focalY - worldY * BASE_CELL * newScale
+    }, [])
+
+    // Slide the viewport by a screen-space delta (trackpad scroll / two-finger drag).
+    const applyPan = useCallback((dx: number, dy: number) => {
+        const v = viewRef.current
+        v.offsetX += dx
+        v.offsetY += dy
+    }, [])
+
     // Pointer-event wiring. Pointer Events unify mouse + touch + pen, so a single
     // set of handlers paints on desktop and mobile. setPointerCapture keeps the
     // drag alive even if the finger/cursor briefly leaves the canvas. touchAction
@@ -270,25 +328,62 @@ export default function MapEditor(){
         const canvas = canvasRef.current
         if(canvas === null) return
 
+        const pointers = pointersRef.current
         let painting = false
+        // Pinch/pan gesture state while two pointers are down.
+        let gesture: { dist: number, midX: number, midY: number } | null = null
+
+        // Distance + midpoint (canvas-relative) of the two active pointers.
+        const pinchState = () => {
+            const rect = canvas.getBoundingClientRect()
+            const pts = Array.from(pointers.values())
+            const ax = pts[0].x - rect.left, ay = pts[0].y - rect.top
+            const bx = pts[1].x - rect.left, by = pts[1].y - rect.top
+            return { dist: Math.max(1, Math.hypot(bx - ax, by - ay)), midX: (ax + bx) / 2, midY: (ay + by) / 2 }
+        }
 
         const onDown = (e: PointerEvent) => {
-            painting = true
-            lastCellRef.current = null
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
             canvas.setPointerCapture(e.pointerId)
-            paintAt(e.clientX, e.clientY)
+            if(pointers.size === 1){
+                painting = true
+                lastCellRef.current = null
+                paintAt(e.clientX, e.clientY)
+            } else if(pointers.size === 2){
+                // A second finger turns the drag into a pinch/pan gesture: stop
+                // painting and seed the gesture from the current two-finger pose.
+                painting = false
+                gesture = pinchState()
+            }
             e.preventDefault()
         }
         const onMove = (e: PointerEvent) => {
-            if(painting === false) return
-            paintAt(e.clientX, e.clientY)
+            if(pointers.has(e.pointerId) === false) return
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+            if(pointers.size >= 2){
+                const next = pinchState()
+                if(gesture !== null){
+                    // Zoom around the previous midpoint by the distance ratio, then
+                    // pan by how far the midpoint moved: a natural pinch + drag.
+                    applyZoom(gesture.midX, gesture.midY, next.dist / gesture.dist)
+                    applyPan(next.midX - gesture.midX, next.midY - gesture.midY)
+                    draw()
+                }
+                gesture = next
+            } else if(painting){
+                paintAt(e.clientX, e.clientY)
+            }
             e.preventDefault()
         }
         const onUp = (e: PointerEvent) => {
-            painting = false
-            lastCellRef.current = null
+            pointers.delete(e.pointerId)
             if(canvas.hasPointerCapture(e.pointerId)){
                 canvas.releasePointerCapture(e.pointerId)
+            }
+            if(pointers.size < 2) gesture = null
+            if(pointers.size === 0){
+                painting = false
+                lastCellRef.current = null
             }
         }
 
@@ -305,7 +400,29 @@ export default function MapEditor(){
             canvas.removeEventListener("pointercancel", onUp)
             canvas.removeEventListener("pointerleave", onUp)
         }
-    }, [paintAt])
+    }, [paintAt, applyZoom, applyPan, draw])
+
+    // Native trackpad: a Mac pinch arrives as wheel + ctrlKey (so does Ctrl+wheel)
+    // -> zoom around the cursor; a plain two-finger scroll -> pan. passive:false so
+    // we can preventDefault and stop the page from scrolling/zooming underneath.
+    useEffect(() => {
+        const canvas = canvasRef.current
+        if(canvas === null) return
+        const onWheel = (e: WheelEvent) => {
+            e.preventDefault()
+            const rect = canvas.getBoundingClientRect()
+            const fx = e.clientX - rect.left
+            const fy = e.clientY - rect.top
+            if(e.ctrlKey){
+                applyZoom(fx, fy, Math.exp(-e.deltaY * 0.01))
+            } else{
+                applyPan(-e.deltaX, -e.deltaY)
+            }
+            draw()
+        }
+        canvas.addEventListener("wheel", onWheel, { passive: false })
+        return () => canvas.removeEventListener("wheel", onWheel)
+    }, [applyZoom, applyPan, draw])
 
     // Commit the size inputs to the model, clamping into [MIN_GRID, MAX_GRID].
     // Called on blur / Enter so we don't resize on every keystroke.
@@ -317,6 +434,8 @@ export default function MapEditor(){
         const map = mapRef.current
         if(map.cols !== nextCols || map.rows !== nextRows){
             map.resize(nextCols, nextRows)
+            // Re-fit the viewport to the new grid (geometry() refits when !ready).
+            viewRef.current.ready = false
             bump()
             draw()
         }
@@ -356,6 +475,8 @@ export default function MapEditor(){
                 setName(map.name)
                 setColsInput(String(map.cols))
                 setRowsInput(String(map.rows))
+                // Re-fit the viewport to the imported grid.
+                viewRef.current.ready = false
                 bump()
                 draw()
                 setMessage(`Loaded ${map.name}`)
@@ -372,6 +493,12 @@ export default function MapEditor(){
         draw()
         setMessage("Cleared")
     }, [bump, draw])
+
+    // Reset the pan/zoom to fit the whole grid (geometry() refits when !ready).
+    const fitNow = useCallback(() => {
+        viewRef.current.ready = false
+        draw()
+    }, [draw])
 
     const spawnCount = mapRef.current.spawns.length
 
@@ -451,8 +578,10 @@ export default function MapEditor(){
                         <div className={styles.actions}>
                             <GameButton onClick={onExport}>Download JSON</GameButton>
                             <GameButton accent onClick={() => fileInputRef.current?.click()}>Import</GameButton>
+                            <GameButton accent onClick={fitNow}>Fit view</GameButton>
                             <GameButton accent onClick={onClear}>Clear</GameButton>
                         </div>
+                        <div className={styles.hint}>Scroll to pan, pinch (or ctrl+scroll) to zoom. Two fingers pan/zoom on touch.</div>
                         {message.length > 0 && <div className={styles.message}>{message}</div>}
 
                         <input
