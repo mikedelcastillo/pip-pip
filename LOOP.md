@@ -345,4 +345,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 53 | `4d5dc7d`   | Homepage parallax star field (slow upward drift)        | `git revert 4d5dc7d` |
 | 54 | `a12bb6f`   | Leave Lobby button (return to home, mobile + desktop)   | `git revert a12bb6f` |
 | 55 | `ae9d305`   | Tactical keybind Q/E (+ controls help)                  | `git revert ae9d305` |
-| 56 | (latest)    | Invisibility (cloak) power-up (timed buff)              | `git revert <sha>` |
+| 56 | `6aad0bc`   | Invisibility (cloak) power-up (timed buff)              | `git revert 6aad0bc` |
+| 57 | (latest)    | Map preview thumbnails in the map selector             | `git revert <sha>` |

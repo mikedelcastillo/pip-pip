@@ -40,17 +40,13 @@
             border-color: $color-main
             background-color: $color-dark-3
 
+        // Wraps the static MapPreview canvas thumbnail. Lets the canvas size
+        // itself (and shrink on narrow cards) without overflowing the card.
         .preview
             display: flex
             align-items: center
             justify-content: center
-            width: 4em
-            height: 4em
-            font-size: 1.5em
-            color: $color-accent
-            background-color: $color-dark-1
-            border: $border-size solid $color-border
-            border-radius: $border-radius
+            max-width: 100%
 
         .name
             font-size: 2em

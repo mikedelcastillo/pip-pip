@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
 import { GAME_CONTEXT } from "../game"
 import { useGameStore } from "../game/store"
+import MapPreview from "./MapPreview"
 import styles from "./MapSelect.module.sass"
 
 // A cheap, read-only preview digest for each map. We instantiate each map once
@@ -40,7 +41,9 @@ export default function MapSelect() {
                             className={cardClasses.join(" ")}
                             onClick={() => select(index)}
                         >
-                            <div className={styles.preview}>{index + 1}</div>
+                            <div className={styles.preview}>
+                                <MapPreview mapType={mapType} />
+                            </div>
                             <div className={styles.name}>{mapType.name}</div>
                             <div className={styles.stats}>
                                 <div className={styles.stat}>

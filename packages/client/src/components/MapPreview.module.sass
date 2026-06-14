@@ -1,0 +1,12 @@
+@import "../styles/variables"
+
+// Static map-layout thumbnail used inside each map card in the map selector.
+// On-brand panel chrome matching the card's inner preview slot. The backing
+// store is dpr-scaled in JS; CSS just sizes/clamps the element.
+.preview
+    display: block
+    max-width: 100%
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    background-color: $color-dark-1
+    image-rendering: pixelated
