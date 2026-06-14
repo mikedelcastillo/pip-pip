@@ -167,6 +167,19 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 
 ## Decision log
 
+- **D12 — HOTFIX: reconcile runaway ("tossed corner to corner").** D11's `reconcileTo`
+  shifted the current position by the prediction error at the acked seq but left the
+  retained (unacknowledged) `predictedStates` on their OLD base. So whenever the client
+  ran on a *persistent* offset from the server (constant prediction error — e.g. spawn
+  quantization, or server input-queue cadence ≠ client cadence), the SAME error was
+  re-measured against the stale-based predictions and re-applied EVERY tick. It compounded
+  and the ship flew off screen on the slightest movement. Caught by a new multi-tick
+  regression test (60 ticks, constant offset) that diverged to x≈111525 instead of ~600.
+  Fix: after correcting, re-base the retained predictions by the same error so the next
+  ack measures ~0 in steady state (and clear the stale tail on a hard-resync). My D11 unit
+  tests only exercised single reconcile calls, which is why they missed it — the new tests
+  cover the multi-tick loop. Lesson: netcode correctness needs multi-tick/integration
+  tests, not just per-call assertions.
 - **D11 — finished the client-side prediction & reconciliation (THE mid-join/respawn
   offset bug).** The netcode rework (e9fa70b) built all the scaffolding — server-side
   authoritative sim from a queued input stream, the owner-only `ownPlayerState` packet
@@ -326,4 +339,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 47 | `766f7b2`   | Harden $string to fixed byte width (M6, C1 class) | `git revert 766f7b2`|
 | 48 | `1882b8d`   | Fix client prediction/reconciliation (mid-join + respawn offset) | `git revert 1882b8d` |
 | 49 | `9d9d626`   | Playwright e2e harness (mobile-touch + desktop-click)   | `git revert 9d9d626` |
-| 50 | (latest)    | Translucent player-list background (see game behind)    | `git revert <sha>` |
+| 50 | `dfd8635`   | Translucent player-list background (see game behind)    | `git revert dfd8635` |
+| 51 | (latest)    | HOTFIX reconcile runaway (ship flew corner-to-corner)   | `git revert <sha>` |

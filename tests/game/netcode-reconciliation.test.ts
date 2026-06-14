@@ -133,6 +133,73 @@ describe("PipPlayer.reconcileTo", () => {
     })
 })
 
+// Regression for the "tossed corner to corner on small movement" runaway: when
+// there is a PERSISTENT prediction error (client and server agree on motion but
+// the client started offset by e — e.g. spawn quantization), reconcileTo must
+// correct it ONCE and converge, NOT re-apply the same error every tick. The
+// first version shifted the current position by the error but left the retained
+// predictedStates on the old base, so the same error was re-measured and
+// compounded each tick → the ship flew off.
+describe("reconcileTo convergence over many ticks (no runaway)", () => {
+    it("converges to the authoritative trajectory under a constant offset", () => {
+        const game = makeGame()
+        const p = new PipPlayer(game, "AA")
+        p.setShip(BLU)
+        game.spawnPlayer(p, 0, 0)
+
+        const d = 10        // per-tick movement (identical client & server)
+        const e = 5         // constant offset: client starts ahead of server
+        const delay = 3     // server acks `delay` ticks behind
+        const ticks = 60
+
+        // Client starts offset from the authoritative trajectory by +e.
+        p.ship.physics.position.x = e
+
+        for(let t = 1; t <= ticks; t++){
+            p.advanceInputSeq()                 // seq = t
+            p.ship.physics.position.x += d      // predict one step
+            p.recordPredictedState()
+            if(t > delay){
+                const ackSeq = t - delay
+                const authPos = ackSeq * d      // server truth at ackSeq (base 0)
+                p.reconcileTo(authPos, 0, 0, 0, ackSeq)
+            }
+        }
+
+        // Reconciled current should sit on the authoritative trajectory plus the
+        // unacked lead (~ticks*d), NOT drift away by e per tick. Allow a couple
+        // of ticks of slack for the prediction lead.
+        const expected = ticks * d
+        expect(Math.abs(p.ship.physics.position.x - expected)).toBeLessThan(3 * d)
+    })
+
+    it("re-bases retained predictions so a repeated error is not double-applied", () => {
+        const game = makeGame()
+        const p = new PipPlayer(game, "AA")
+        p.setShip(BLU)
+        game.spawnPlayer(p, 0, 0)
+
+        // Two predicted frames: seq1 @ x=10, seq2 @ x=20.
+        for(const x of [10, 20]){
+            p.advanceInputSeq()
+            p.ship.physics.position.x = x
+            p.recordPredictedState()
+        }
+
+        // Ack seq1 with a +4 error (auth=14 vs predicted 10): current shifts to 24.
+        p.reconcileTo(14, 0, 0, 0, 1)
+        expect(p.ship.physics.position.x).toBe(24)
+        // The retained seq2 prediction must have been re-based 10 -> 24.
+        expect(p.predictedStates.find(s => s.seq === 2)?.positionX).toBe(24)
+
+        // Now ack seq2 with the authoritative value CONSISTENT with that same
+        // motion (14 + 10 = 24). A correctly re-based prediction yields ZERO
+        // further shift; the old (buggy) code would have re-applied +4 -> 28.
+        p.reconcileTo(24, 0, 0, 0, 2)
+        expect(p.ship.physics.position.x).toBe(24)
+    })
+})
+
 // The PRIMARY root cause of the "others see me severely offset" bug: the client
 // never advanced inputSeq, so every input was sent as seq 0. The server's
 // wrap-safe dedupe (pushInputFrame) collapses same-seq frames, so whenever two

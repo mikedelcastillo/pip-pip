@@ -405,16 +405,31 @@ export class PipPlayer{
         if(typeof this.ship === "undefined") return
 
         if(typeof acked === "undefined"){
-            // No prediction to reconcile against — snap to authoritative state.
+            // No prediction to reconcile against (cold start / post-spawn gap) —
+            // snap to authoritative state and drop the now-stale tail so the next
+            // ack measures error against a fresh, correctly-based prediction.
             this.ship.physics.position.x = positionX
             this.ship.physics.position.y = positionY
             this.ship.physics.velocity.x = velocityX
             this.ship.physics.velocity.y = velocityY
+            this.predictedStates = []
             return
         }
 
-        this.ship.physics.position.x += positionX - acked.positionX
-        this.ship.physics.position.y += positionY - acked.positionY
+        const errorX = positionX - acked.positionX
+        const errorY = positionY - acked.positionY
+        this.ship.physics.position.x += errorX
+        this.ship.physics.position.y += errorY
+        // CRUCIAL: re-base the retained (unacknowledged) predictions onto the
+        // corrected trajectory. Without this, a PERSISTENT error (the client
+        // running on a constant offset from the server) is re-measured against
+        // the stale-based predictions and re-applied EVERY tick — it compounds
+        // and the ship flies off "corner to corner". Re-basing makes the next
+        // ack's error ~0 in steady state, so corrections converge instead.
+        for(const state of this.predictedStates){
+            state.positionX += errorX
+            state.positionY += errorY
+        }
     }
 
     update(){
