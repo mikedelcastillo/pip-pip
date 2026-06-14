@@ -952,13 +952,18 @@ export class PipPipGame{
             target.score.deaths += 1
             target.setSpawned(false)
             target.timings.spawnTimeout = 20 * 3 // 3 seconds
+            // Only a kill by SOMEONE ELSE credits a kill. A suicide gives no kill
+            // (and no damage-dealt credit, gated above).
             if(dealer.id !== target.id){
                 dealer.score.kills += 1
-                this.events.emit("playerKill", {
-                    killer: dealer,
-                    killed: target,
-                })
             }
+            // Always announce the death so it shows in the kill feed - including a
+            // suicide, where killer === killed and the client renders it as
+            // "killed themselves". The multi-kill streak ignores self-kills.
+            this.events.emit("playerKill", {
+                killer: dealer,
+                killed: target,
+            })
         }
     }
 

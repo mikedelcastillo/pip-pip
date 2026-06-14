@@ -20,11 +20,14 @@ export default function KillFeed() {
             {kills.map((kill) => {
                 const remaining = KILL_FEED_DURATION_MS - (now - kill.time)
                 const opacity = Math.max(0, Math.min(1, remaining / FADE_MS))
+                // A suicide arrives with killer === killed; show it as the player
+                // killing themselves rather than a confusing "X killed X".
+                const suicide = kill.killerName === kill.killedName
                 return (
                     <div key={kill.id} className={styles.entry} style={{ opacity }}>
                         <span className={styles.player}>{kill.killerName}</span>
                         <span className={styles.skull}>☠</span>
-                        <span className={styles.player}>{kill.killedName}</span>
+                        <span className={styles.player}>{suicide ? "themselves" : kill.killedName}</span>
                     </div>
                 )
             })}

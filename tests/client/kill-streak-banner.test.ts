@@ -81,6 +81,17 @@ describe("currentMultiKill", () => {
         expect(tier?.count).toBe(2)
     })
 
+    it("does NOT count a suicide (killer === killed) toward the streak", () => {
+        const now = 10_000
+        const feed = [
+            makeEntry({ id: 1, time: now - 2000 }),
+            // A self-kill by the local player: a death, not a frag.
+            makeEntry({ id: 2, time: now - 500, killedName: "ME" }),
+        ]
+        // Only the one real kill counts, so there is no multi-kill (null below 2).
+        expect(currentMultiKill(feed, "ME", now)).toBeNull()
+    })
+
     it("escalates to Triple Kill on three kills inside the window", () => {
         const now = 10_000
         const feed = [

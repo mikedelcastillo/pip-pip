@@ -393,4 +393,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 101| `635b86b`   | End-of-match top-3 podium + MVP on the results screen | `git revert 635b86b`|
 | 102| `f671ae8`   | Rapid Fire powerup: timed buff that speeds up weapon fire (networked) | `git revert f671ae8`|
 | 103| `a133d7b`   | A suicide counts as a death only (no kill, no damage-dealt credit, no kill feed) | `git revert a133d7b`|
-| 104| (latest)    | Gamepad UI navigation (focus all buttons/cards/menus with a controller) + focus ring | `git revert <sha>` |
+| 104| `1890c6e`   | Gamepad UI navigation (focus all buttons/cards/menus with a controller) + focus ring | `git revert 1890c6e`|
+| 105| (latest)    | Suicides show in the kill feed as "killed themselves" (still no kill/score; not a multi-kill) | `git revert <sha>` |

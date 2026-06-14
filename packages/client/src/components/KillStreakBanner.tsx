@@ -22,10 +22,10 @@ export interface MultiKillTier {
 
 // Pure helper: how many kills the LOCAL player landed inside the rolling window
 // ending at `now`, mapped to its multi-kill tier (or null below 2). A "kill" is a
-// kill-feed entry whose killerName matches localName; self-kills (the local name
-// also killed) still count as the player's frag. Entries exactly at the window
-// edge are excluded, mirroring visibleKills' strict age check. Kept pure (no
-// store/Date access) so the windowing + tier mapping is trivially unit-testable.
+// kill-feed entry whose killerName matches localName; SUICIDES (the local name
+// also killed) do NOT count - dying to your own grenade is not a frag. Entries
+// exactly at the window edge are excluded, mirroring visibleKills' strict age
+// check. Kept pure (no store/Date access) so it is trivially unit-testable.
 export function currentMultiKill(
     feed: KillEntry[],
     localName: string,
@@ -38,6 +38,8 @@ export function currentMultiKill(
     let count = 0
     for (const entry of feed) {
         if (entry.killerName !== localName) continue
+        // A suicide (killer === killed) is a death, not a frag - never count it.
+        if (entry.killerName === entry.killedName) continue
         if (now - entry.time >= windowMs) continue
         count += 1
     }
