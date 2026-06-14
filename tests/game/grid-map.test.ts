@@ -154,6 +154,36 @@ describe("loader: full tiles -> merged rect walls", () => {
         const map = loadGridMap("tiles", data)
         expect(map.tiles.length).toBe(4)
     })
+
+    it("carries the palette SHAPE and block key onto each render tile (Phase 2)", () => {
+        // A mixed palette so the loader has both a square and a slope to tag.
+        const data: GridMapData = {
+            name: "shapes",
+            cellSize: TILE_SIZE,
+            cols: 2,
+            rows: 1,
+            tiles: [1, 2],
+            spawns: [],
+            palette: [
+                { key: "wall", shape: "full" },
+                { key: "slope", shape: "diag_tr" },
+            ],
+        }
+        const map = loadGridMap("shapes", data)
+        expect(map.tiles.length).toBe(2)
+
+        // The renderer reads tile.shape + tile.block to draw slopes vs squares
+        // and to vary block styling, so the loader must emit both from the palette.
+        const full = map.tiles.find(t => t.shape === "full")
+        const slope = map.tiles.find(t => t.shape === "diag_tr")
+        expect(full).toBeDefined()
+        expect(slope).toBeDefined()
+        expect(full?.block).toBe("wall")
+        expect(slope?.block).toBe("slope")
+        // texture stays the palette key (legacy sprite path is unaffected).
+        expect(full?.texture).toBe("wall")
+        expect(slope?.texture).toBe("slope")
+    })
 })
 
 describe("diagonal tiles", () => {
@@ -308,6 +338,17 @@ describe("migration: legacy JSON -> grid map preserves geometry", () => {
         expect(gridCounts).toEqual(legacyCounts)
         // And the same total tile count.
         expect(grid.tiles.length).toBe(legacy.tiles.length)
+    })
+
+    it("keeps migrated tiles as deco SQUARES so old maps look unchanged (Phase 2)", () => {
+        const grid = loadGridMap("test", convertJSONMapToGrid("test", TEST_MAP as JSONMapSource))
+        // Every migrated tile is a render-only "deco" square: the renderer draws
+        // deco (and full) as a square, so legacy maps keep today's blocky look and
+        // no tile becomes a slope by accident.
+        expect(grid.tiles.length).toBeGreaterThan(0)
+        for(const t of grid.tiles){
+            expect(t.shape).toBe("deco")
+        }
     })
 
     it("builds a nav grid from a migrated legacy map", () => {

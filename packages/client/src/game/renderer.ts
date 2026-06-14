@@ -8,8 +8,9 @@ import { assetLoader } from "./assets"
 import { CRTFilter, GlitchFilter, PixelateFilter, BulgePinchFilter } from "pixi-filters"
 import { DisplacementFilter } from "@pixi/filter-displacement"
 import { Point } from "pixi.js"
-import { SHIP_DAIMETER, TILE_SIZE } from "@pip-pip/game/src/logic/constants"
+import { SHIP_DAIMETER } from "@pip-pip/game/src/logic/constants"
 import { PipGameTile } from "@pip-pip/game/src/logic/map"
+import { blockStyleFor, tilePolygon, polygonToFlat } from "./mapGraphics"
 import { COLORS, DIMS } from "./styles"
 import { Bullet } from "@pip-pip/game/src/logic/bullet"
 import { Powerup, POWERUP_RADIUS } from "@pip-pip/game/src/logic/powerup"
@@ -305,21 +306,114 @@ export class ParticleGraphic extends PoolableGraphic {
     }
 }
 
-export class MapTileGraphic {
-    id: string
-    sprite: PIXI.Sprite
+// The static map drawn as a SINGLE vector layer instead of one sprite per tile.
+// Every tile becomes a filled polygon (square for full/deco, triangle for a
+// diagonal slope matching its 45-degree segWall) painted into one PIXI.Graphics
+// in one pass. A diagonal tile also gets a thin darker edge along its hypotenuse
+// so the slope reads with a touch of depth, keeping the dark blocky aesthetic.
+//
+// PERFORMANCE: the map only changes on setMap, so this layer is rebuilt there
+// and never per frame. Collapsing N tiles into one display object already kills
+// the per-tile object overhead; on top of that we cacheAsBitmap the container so
+// the GPU does a single blit per frame regardless of tile count. For very large
+// maps whose pixel bounds would blow past the GPU's max texture size, caching is
+// skipped and the vector layer is drawn directly (still one batched Graphics),
+// so big maps stay correct and cheap either way.
+export class MapLayerGraphic {
+    // Above this many world pixels on either axis the cached bitmap would risk
+    // exceeding the GPU max texture size, so we leave the layer as live vector
+    // graphics (one batched draw) instead of caching it.
+    static MAX_CACHE_EXTENT = 4096
 
-    constructor(tile: PipGameTile){
-        this.id = ""
+    container = new PIXI.Container()
+    graphic = new PIXI.Graphics()
 
-        const spriteTexture = assetLoader.get(tile.texture)
-        this.sprite = new PIXI.Sprite(spriteTexture)
-        this.sprite.anchor.set(0.5)
-        this.sprite.width = TILE_SIZE
-        this.sprite.height = TILE_SIZE
-        this.sprite.position.x = tile.x
-        this.sprite.position.y = tile.y
+    constructor(){
+        this.container.addChild(this.graphic)
     }
+
+    // Redraw every tile into the single Graphics. Pure-ish: reads only the tile
+    // list. Called on init and every setMap; nothing here runs per frame.
+    rebuild(tiles: PipGameTile[]){
+        const g = this.graphic
+        g.clear()
+
+        let minX = Infinity
+        let minY = Infinity
+        let maxX = -Infinity
+        let maxY = -Infinity
+
+        for(const tile of tiles){
+            const style = blockStyleFor(tile)
+            const points = tilePolygon(tile)
+            const flat = polygonToFlat(points)
+
+            // Solid face fill for the tile body.
+            g.beginFill(style.face, 1)
+            g.drawPolygon(flat)
+            g.endFill()
+
+            // A thin bevel edge for a touch of depth. For a diagonal we stroke
+            // ONLY the hypotenuse (the slope edge a ship glides along) so it reads
+            // as a clean slope; the hypotenuse is the longest of the right
+            // triangle's three edges. For a square a faint full outline gives the
+            // blocky grid its seams.
+            const isDiagonal = points.length === 3
+            g.lineStyle({ width: 2, color: style.edge, alpha: 0.9 })
+            if(isDiagonal){
+                const hyp = longestEdge(points)
+                g.moveTo(hyp.a.x, hyp.a.y)
+                g.lineTo(hyp.b.x, hyp.b.y)
+            } else{
+                g.drawPolygon(flat)
+            }
+            g.lineStyle(0)
+
+            for(const p of points){
+                if(p.x < minX) minX = p.x
+                if(p.x > maxX) maxX = p.x
+                if(p.y < minY) minY = p.y
+                if(p.y > maxY) maxY = p.y
+            }
+        }
+
+        // Cache the whole static layer to a bitmap so the per-frame cost is a
+        // single blit, UNLESS the map is so large the bitmap would risk the GPU
+        // max texture size, in which case keep it as live (still single-draw)
+        // vector graphics. cacheAsBitmap must be reset to false before redrawing
+        // (handled by the false-set below running first on a rebuild).
+        this.container.cacheAsBitmap = false
+        const spanX = maxX - minX
+        const spanY = maxY - minY
+        const cacheable = Number.isFinite(spanX) && Number.isFinite(spanY) &&
+            spanX <= MapLayerGraphic.MAX_CACHE_EXTENT &&
+            spanY <= MapLayerGraphic.MAX_CACHE_EXTENT &&
+            tiles.length > 0
+        this.container.cacheAsBitmap = cacheable
+    }
+
+    destroy(){
+        this.container.cacheAsBitmap = false
+        this.graphic.clear()
+        this.container.removeChild(this.graphic)
+        this.graphic.destroy()
+        this.container.destroy({ children: true })
+    }
+}
+
+// The longest of a triangle's three edges - its hypotenuse for the right
+// triangles tilePolygon produces. Pure helper used only when stroking a slope.
+function longestEdge(points: { x: number, y: number }[]){
+    let best = { a: points[0], b: points[1], len: -1 }
+    for(let i = 0; i < points.length; i++){
+        const a = points[i]
+        const b = points[(i + 1) % points.length]
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const len = dx * dx + dy * dy
+        if(len > best.len) best = { a, b, len }
+    }
+    return best
 }
 
 export class PlayerGraphic {
@@ -400,7 +494,10 @@ export class PipPipRenderer{
     powerups: GraphicPool<PowerupGraphic>
     particles: GraphicPool<ParticleGraphic>
     players: Record<string, PlayerGraphic> = {}
-    mapTiles: MapTileGraphic[] = []
+
+    // The whole static map as one cached vector layer (see MapLayerGraphic).
+    // Rebuilt only on setMap; never touched per frame.
+    mapLayer = new MapLayerGraphic()
 
     // Particle wall-bounce segments, derived from game.physics.segWalls. Walls
     // only change on setMap, so this is cached here and rebuilt in
@@ -459,6 +556,11 @@ export class PipPipRenderer{
         this.viewportContainer.addChild(this.mapForegroundContainer)
         this.viewportContainer.addChild(this.particlesContainer)
         this.viewportContainer.addChild(this.damagesContainer)
+
+        // The static map layer lives in the background container (under ships /
+        // bullets), as a single cached vector layer instead of one sprite per
+        // tile. updateMapGraphics rebuilds it on init and every setMap.
+        this.mapBackgroundContainer.addChild(this.mapLayer.container)
 
         // The bot-path debug layer lives just above the map floor so routes read
         // over the tiles but never occlude ships / bullets.
@@ -651,18 +753,11 @@ export class PipPipRenderer{
             this.app.renderer.backgroundColor = this.game.mapType.background ?? 0x150E12
         }
 
-        for(const graphic of this.mapTiles){
-            this.mapBackgroundContainer.removeChild(graphic.sprite)
-        }
-
-        this.mapTiles = []
-
-        for(const tile of this.game.map.tiles){
-            const graphic = new MapTileGraphic(tile)
-            this.mapBackgroundContainer.addChild(graphic.sprite)
-
-            this.mapTiles.push(graphic)
-        }
+        // Rebuild the single cached map layer from the current map's tiles. This
+        // replaces the old one-sprite-per-tile loop: every tile (square or slope)
+        // is drawn into one Graphics and the whole layer is cached, so a large
+        // map costs a single blit per frame instead of N sprites.
+        this.mapLayer.rebuild(this.game.map.tiles)
 
         // Walls only change with the map, so rebuild the particle wall-bounce
         // list here (init + every setMap) instead of allocating it per frame.
@@ -1120,6 +1215,10 @@ export class PipPipRenderer{
         this.powerups.destroy()
         this.damages.destroy()
         this.particles.destroy()
+
+        // Turning off the map layer cache here releases its cache RenderTexture
+        // before app.destroy frees the rest of the tree.
+        this.mapLayer.container.cacheAsBitmap = false
 
         // Remove the canvas from the DOM before destroying the app.
         if(typeof this.container !== "undefined"){

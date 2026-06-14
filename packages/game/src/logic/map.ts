@@ -23,9 +23,24 @@ export type PipGameMapBounds = {
     },
 }
 
+// The render-side shape of a tile. Mirrors the grid-map TileShape so the
+// renderer can draw a diagonal as a triangle/slope that matches its 45-degree
+// segWall collision, instead of treating every tile as a square. Kept as a
+// plain string union (no import from grid-map) so map.ts stays the low-level
+// model the rest of the game depends on. "full" and "deco" both render as
+// squares; the four "diag_*" values render as the matching half-tile triangle.
+export type PipGameTileShape = "full" | "diag_tl" | "diag_tr" | "diag_bl" | "diag_br" | "deco"
+
 export type PipGameTile = {
     x: number, y: number,
     texture: string,
+    // The tile's render shape and its palette block key. Both are OPTIONAL and
+    // additive: the legacy JSONPipGameMap loader (below) omits them, so an
+    // undefined shape reads as a plain square and an undefined block falls back
+    // to the texture. The grid loader fills them in from the palette so new maps
+    // can render slopes and varied block styles.
+    shape?: PipGameTileShape,
+    block?: string,
 }
 
 export class PipGameMap{
