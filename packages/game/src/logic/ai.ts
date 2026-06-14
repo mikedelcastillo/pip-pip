@@ -171,7 +171,7 @@ export type BotTarget = {
 // the NEAREST one with NO bot-vs-human priority: a bot fights whoever is closest,
 // real player or bot alike, so a mixed room behaves consistently. Pure +
 // testable: no mutation, returns the target plus the geometry the brain needs.
-export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[]): BotTarget | undefined{
+export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[], useTeams = false): BotTarget | undefined{
     const botX = bot.ship.physics.position.x
     const botY = bot.ship.physics.position.y
 
@@ -180,6 +180,11 @@ export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[]): BotTarge
     for(const other of players){
         if(other === bot) continue
         if(other.spawned === false) continue
+        // In team modes a bot must not target an ally: dealDamage blocks teammate
+        // damage, so a bot locked onto a teammate would orbit and fire harmlessly
+        // forever, contributing nothing. Mirror the dealDamage team guard. FFA is
+        // unaffected (useTeams is false there, and every team is the -1 sentinel).
+        if(useTeams === true && other.team === bot.team) continue
 
         const dx = other.ship.physics.position.x - botX
         const dy = other.ship.physics.position.y - botY
@@ -679,7 +684,7 @@ function applyStuckEscape(bot: PipPlayer, nav: BotNavContext){
 // refreshed EVERY tick so the bot stays responsive. The path itself recomputes
 // at most every PATH_RECOMPUTE_TICKS inside maybeRecomputePath. Together these
 // keep the bot loop from doing real work on most ticks.
-export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () => number = Math.random, nav?: BotNavContext, powerups: Powerup[] = []){
+export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () => number = Math.random, nav?: BotNavContext, powerups: Powerup[] = [], useTeams = false){
     const jitter = bot.skill?.aimJitter ?? 0
     const aimNoise = nextAimBias(bot, jitter, rng)
 
@@ -704,7 +709,7 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
         bot.aiDecisionCooldown--
         bot.inputs.useWeapon = false
         bot.inputs.useTactical = false
-        const quick = findNearestEnemy(bot, players)
+        const quick = findNearestEnemy(bot, players, useTeams)
         if(typeof quick !== "undefined"){
             bot.inputs.aimRotation = perceivedAimAngle(bot, quick) + aimNoise
         }
@@ -718,7 +723,7 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
 
     bot.aiDecisionCooldown = AI_DECISION_TICKS
 
-    const found = findNearestEnemy(bot, players)
+    const found = findNearestEnemy(bot, players, useTeams)
 
     // Decide the goal this tick: stick with the enemy, or detour to a nearby
     // worthwhile powerup. Pure + deterministic; with no powerups it always returns

@@ -908,7 +908,7 @@ export class PipPipGame{
                         if(typeof activePowerups === "undefined"){
                             activePowerups = this.powerups.getActive()
                         }
-                        updateBotInputs(player, allPlayers, Math.random, nav, activePowerups)
+                        updateBotInputs(player, allPlayers, Math.random, nav, activePowerups, this.settings.useTeams)
                     }
                 }
             }
