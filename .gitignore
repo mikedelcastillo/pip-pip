@@ -123,3 +123,5 @@ playwright-report/
 /e2e-*.png
 /game-*.png
 /.playwright-mcp/
+/sel-*.png
+/defer-*.png

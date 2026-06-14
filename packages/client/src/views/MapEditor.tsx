@@ -33,6 +33,14 @@ import {
     editorMapIssue,
     mirrorMap,
     MirrorAxis,
+    CellRect,
+    EditorClip,
+    normalizeRect,
+    extractClip,
+    clearRegion,
+    stampClip,
+    rotateClipCW,
+    flipClip,
 } from "../game/mapEditor"
 import { blockFaceCss } from "../game/mapGraphics"
 import { trackEvent, trackPageView } from "../analytics"
@@ -182,8 +190,13 @@ const HALF_TOOLS: ToolDef[] = HALF_BRUSHES.map((b) => ({
 // model's DrawMode stays exactly the paint modes); it is a VIEW-only mode that, on
 // a single tap, reads the tapped cell's brush back into the active brush and then
 // auto-returns to freehand so the author paints immediately with the picked brush
-// (Aseprite-like). EditorMode is therefore DrawMode widened by "pick".
-type EditorMode = DrawMode | "pick"
+// (Aseprite-like). "select" is the SELECTION / TRANSFORM tool: a one-finger drag
+// marquees a rectangular region, which then becomes the active selection the
+// action toolbar moves / copies / cuts / pastes / rotates / flips / deletes.
+// Neither pick nor select is a DrawMode (they never paint a cell SET), so the
+// pure model's DrawMode stays exactly the paint modes; EditorMode is DrawMode
+// widened by "pick" and "select".
+type EditorMode = DrawMode | "pick" | "select"
 type ModeDef = { mode: EditorMode, label: string }
 const MODE_DEFS: ModeDef[] = [
     { mode: "freehand", label: "Freehand" },
@@ -191,7 +204,17 @@ const MODE_DEFS: ModeDef[] = [
     { mode: "line", label: "Line" },
     { mode: "fill", label: "Fill" },
     { mode: "pick", label: "Pick (eyedropper)" },
+    { mode: "select", label: "Select (marquee)" },
 ]
+
+// The SELECTION marquee / active-selection outline colour: a bright cyan dashed
+// rectangle, deliberately DISTINCT from the amber export-bounds outline so the
+// author never confuses "the region I selected" with "the region that exports".
+const COLOR_SELECTION = "rgba(80, 220, 255, 0.95)"
+// The translucent tint a FLOATING CLIP's tiles render at while it follows a drag
+// (or sits floating after a paste / move), so it reads as "lifted, not yet
+// stamped" content hovering over the map.
+const CLIP_OVERLAY_ALPHA = 0.66
 
 // Translucent fill for the live rect/line ERASE preview overlay drawn while
 // dragging, so the author sees the cells a stroke would clear before committing.
@@ -347,6 +370,36 @@ export default function MapEditor(){
     // this to render the translucent preview overlay; pointer-up reads it to
     // compute the committed cell set.
     const shapeRef = useRef<{ start: Cell, current: Cell } | null>(null)
+
+    // SELECTION / TRANSFORM state. The active SELECTION is an inclusive cell rect
+    // (null = nothing selected); a FLOATING CLIP is content lifted off the map (by
+    // a move, a paste, or a rotate/flip of the selected region) that renders as a
+    // translucent overlay and STAMPS into the map on commit. The CLIPBOARD holds a
+    // copy/cut clip for paste. All three are mirrored into refs so the imperative
+    // pointer handlers + draw() read the live values without re-binding; React
+    // state drives the action toolbar's visibility + the Paste disabled flag.
+    const [selection, setSelection] = useState<CellRect | null>(null)
+    const selectionRef = useRef<CellRect | null>(selection)
+    selectionRef.current = selection
+    // The floating clip and the cell its top-left currently sits at. Kept in
+    // refs (mutated by the move drag without a re-render per frame) AND mirrored
+    // into state so the toolbar re-renders when a clip appears/clears.
+    const [hasFloating, setHasFloating] = useState(false)
+    const clipRef = useRef<EditorClip | null>(null)
+    const clipPosRef = useRef<{ col: number, row: number }>({ col: 0, row: 0 })
+    // The copy/cut clipboard (a detached clip). State so the toolbar can disable
+    // Paste when empty; the ref is read by the imperative paste action.
+    const [clipboardEmpty, setClipboardEmpty] = useState(true)
+    const clipboardRef = useRef<EditorClip | null>(null)
+    // The in-progress marquee drag for select mode: the down cell + the current
+    // cell. Held in a ref so the high-rate drag updates the dashed preview without
+    // a React re-render per move. null when no marquee is open.
+    const marqueeRef = useRef<{ start: Cell, current: Cell } | null>(null)
+    // Whether the floating clip already has an OPEN history step (a move/transform
+    // LIFT clears the source region under one open step, committed only when the
+    // clip is stamped, so the whole lift -> stamp is ONE undo step). A PASTE leaves
+    // this false, so commitFloatingClip opens its own step around the stamp.
+    const floatingHistoryOpenRef = useRef(false)
 
     useEffect(() => {
         trackPageView("/editor")
@@ -564,6 +617,71 @@ export default function MapEditor(){
             }
         }
 
+        // FLOATING CLIP overlay: a lifted clip (mid-move, pasted, or rotated/
+        // flipped) renders its tiles translucent at its current cell offset so the
+        // author sees the content hovering before it stamps. Culled to the visible
+        // window like the painted tiles, so a big clip stays O(viewport).
+        const clip = clipRef.current
+        if(clip !== null){
+            const at = clipPosRef.current
+            ctx.save()
+            ctx.globalAlpha = CLIP_OVERLAY_ALPHA
+            for(const tile of clip.tiles){
+                const col = at.col + tile.col
+                const row = at.row + tile.row
+                if(col < startCol || col >= endCol || row < startRow || row >= endRow) continue
+                drawTile(ctx, tile.shape, blockFaceCss(tile.key), ox + col * cell, oy + row * cell, cell)
+            }
+            ctx.restore()
+            // Clip spawns: draw the same green ring as a placed spawn so a clip with
+            // spawn markers reads correctly while floating.
+            ctx.save()
+            ctx.globalAlpha = CLIP_OVERLAY_ALPHA
+            ctx.strokeStyle = COLOR_SPAWN
+            ctx.fillStyle = "rgba(51, 221, 85, 0.25)"
+            ctx.lineWidth = 2
+            for(const [c, r] of clip.spawns){
+                const col = at.col + c
+                const row = at.row + r
+                if(col < startCol || col >= endCol || row < startRow || row >= endRow) continue
+                const cx = ox + col * cell + cell / 2
+                const cy = oy + row * cell + cell / 2
+                const rr = Math.max(3, cell * 0.32)
+                ctx.beginPath()
+                ctx.arc(cx, cy, rr, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.stroke()
+            }
+            ctx.restore()
+        }
+
+        // SELECTION rectangle: the live marquee while dragging, otherwise the
+        // active selection (or, when a clip is floating, the clip's current
+        // footprint). A bright cyan dashed outline, distinct from the amber
+        // export-bounds outline, so "selected region" never reads as "exports".
+        const marquee = marqueeRef.current
+        let selRect: CellRect | null = null
+        if(modeRef.current === "select" && marquee !== null){
+            selRect = normalizeRect(marquee.start, marquee.current)
+        } else if(clip !== null){
+            const at = clipPosRef.current
+            selRect = { minCol: at.col, minRow: at.row, maxCol: at.col + clip.cols - 1, maxRow: at.row + clip.rows - 1 }
+        } else if(selectionRef.current !== null){
+            selRect = selectionRef.current
+        }
+        if(selRect !== null){
+            const sx = ox + selRect.minCol * cell
+            const sy = oy + selRect.minRow * cell
+            const sw = (selRect.maxCol - selRect.minCol + 1) * cell
+            const sh = (selRect.maxRow - selRect.minRow + 1) * cell
+            ctx.save()
+            ctx.strokeStyle = COLOR_SELECTION
+            ctx.lineWidth = 2
+            ctx.setLineDash([5, 3])
+            ctx.strokeRect(sx + 0.5, sy + 0.5, sw, sh)
+            ctx.restore()
+        }
+
         // Optional collision overlay from loadGridMap: outline every rect wall
         // and draw every segment wall in the world->cell scale. World units are
         // cellSize per cell, so dividing by cellSize maps world back to cells.
@@ -692,6 +810,240 @@ export default function MapEditor(){
         return changed
     }, [bump, draw, markDirty])
 
+    // SELECTION / TRANSFORM actions. Each MAP MUTATION commits as ONE undo step:
+    // a move/transform LIFT opens a history step (clearing the source) that the
+    // matching STAMP closes, so lift -> drag/rotate/flip -> stamp is a single step;
+    // a paste opens + closes its own step around the stamp; copy mutates nothing
+    // (no step); cut and delete each commit one step.
+
+    // STAMP any floating clip back into the map and clear the floating state. If a
+    // history step is already open (from a move/transform lift) it is committed
+    // here; otherwise (a paste) one is opened around the stamp. A no-op stamp
+    // commits nothing. Returns true if the map changed. Always clears the floating
+    // clip + selection so the caller lands in a clean state.
+    const commitFloatingClip = useCallback(() => {
+        const clip = clipRef.current
+        if(clip === null) return false
+        const at = clipPosRef.current
+        const history = historyRef.current
+        const alreadyOpen = floatingHistoryOpenRef.current
+        if(alreadyOpen === false) history.begin(mapRef.current)
+        const changed = stampClip(mapRef.current, clip, at.col, at.row)
+        clipRef.current = null
+        floatingHistoryOpenRef.current = false
+        setHasFloating(false)
+        if(history.commit(mapRef.current)){
+            refreshHistoryFlags()
+            markDirty()
+        }
+        if(changed){
+            bump()
+            draw()
+        }
+        return changed
+    }, [bump, draw, markDirty, refreshHistoryFlags])
+
+    // LIFT the active selection into a floating clip: open ONE history step,
+    // extract the region's content into a clip, CLEAR the source region, and place
+    // the clip back at the selection's top-left so it visually stays put. Used by
+    // a move drag and by rotate/flip when nothing is floating yet. Returns the clip
+    // (or null when there is no selection / nothing to lift). The open step is
+    // closed later by commitFloatingClip when the clip is stamped.
+    const liftSelectionToClip = useCallback((): EditorClip | null => {
+        const sel = selectionRef.current
+        if(sel === null) return null
+        const clip = extractClip(mapRef.current, sel)
+        historyRef.current.begin(mapRef.current)
+        const cleared = clearRegion(mapRef.current, sel)
+        floatingHistoryOpenRef.current = true
+        clipRef.current = clip
+        clipPosRef.current = { col: sel.minCol, row: sel.minRow }
+        setHasFloating(true)
+        if(cleared){
+            markDirty()
+            bump()
+        }
+        draw()
+        return clip
+    }, [bump, draw, markDirty])
+
+    // COPY: snapshot the selected region (or the floating clip, if one is up) into
+    // the clipboard. No map change, so no undo step.
+    const onCopy = useCallback(() => {
+        let clip: EditorClip | null = clipRef.current
+        if(clip === null){
+            const sel = selectionRef.current
+            if(sel === null) return
+            clip = extractClip(mapRef.current, sel)
+        }
+        clipboardRef.current = clip
+        setClipboardEmpty(false)
+        setMessage("Copied selection")
+    }, [])
+
+    // CUT: copy the selected region to the clipboard, then CLEAR it as ONE undo
+    // step. The selection stays (now an empty source) so the author can paste
+    // elsewhere or re-select. A floating clip is copied + dropped (the lift already
+    // cleared its source under an open step, which is cancelled here).
+    const onCut = useCallback(() => {
+        const floating = clipRef.current
+        if(floating !== null){
+            // The clip is already lifted (source cleared under an open step): copy
+            // it to the clipboard and drop the float, keeping the source-clear as
+            // the committed edit so cut = "remove + clipboard".
+            clipboardRef.current = floating
+            setClipboardEmpty(false)
+            const history = historyRef.current
+            clipRef.current = null
+            floatingHistoryOpenRef.current = false
+            setHasFloating(false)
+            if(history.commit(mapRef.current)){
+                refreshHistoryFlags()
+                markDirty()
+            }
+            bump()
+            draw()
+            setMessage("Cut selection")
+            return
+        }
+        const sel = selectionRef.current
+        if(sel === null) return
+        clipboardRef.current = extractClip(mapRef.current, sel)
+        setClipboardEmpty(false)
+        const history = historyRef.current
+        history.begin(mapRef.current)
+        const changed = clearRegion(mapRef.current, sel)
+        if(changed && history.commit(mapRef.current)){
+            refreshHistoryFlags()
+            markDirty()
+            bump()
+            draw()
+        } else{
+            history.cancel()
+        }
+        setMessage("Cut selection")
+    }, [bump, draw, markDirty, refreshHistoryFlags])
+
+    // PASTE: create a floating clip from the clipboard, placed at the current
+    // selection's top-left (or, with no selection, the centre cell of the
+    // viewport). Any clip already floating is stamped first so paste never silently
+    // drops in-flight content. The new float stamps on commit (one undo step).
+    const onPaste = useCallback(() => {
+        const source = clipboardRef.current
+        if(source === null) return
+        commitFloatingClip()
+        const sel = selectionRef.current
+        let at: { col: number, row: number }
+        if(sel !== null){
+            at = { col: sel.minCol, row: sel.minRow }
+        } else{
+            // Centre of the viewport, in cells, so a paste with nothing selected
+            // lands where the author is looking.
+            const { w, h } = canvasSize()
+            const c = cellFromEvent(w / 2, h / 2)
+            at = c !== null ? { col: c.col, row: c.row } : { col: 0, row: 0 }
+        }
+        clipRef.current = source
+        clipPosRef.current = at
+        floatingHistoryOpenRef.current = false
+        setHasFloating(true)
+        // Select the pasted footprint so the toolbar + outline track the new clip.
+        setSelection({ minCol: at.col, minRow: at.row, maxCol: at.col + source.cols - 1, maxRow: at.row + source.rows - 1 })
+        draw()
+        setMessage("Pasted clip")
+    }, [canvasSize, cellFromEvent, commitFloatingClip, draw])
+
+    // ROTATE the floating clip 90 degrees clockwise (lifting the selection into one
+    // first when nothing is floating yet). The clip stays floating and re-renders;
+    // it stamps on commit. The selection footprint follows the new (swapped) dims.
+    const onRotate = useCallback(() => {
+        let clip = clipRef.current
+        if(clip === null){
+            clip = liftSelectionToClip()
+            if(clip === null) return
+        }
+        const rotated = rotateClipCW(clip)
+        clipRef.current = rotated
+        const at = clipPosRef.current
+        setSelection({ minCol: at.col, minRow: at.row, maxCol: at.col + rotated.cols - 1, maxRow: at.row + rotated.rows - 1 })
+        draw()
+        setMessage("Rotated 90 degrees")
+    }, [draw, liftSelectionToClip])
+
+    // FLIP the floating clip across the given axis (lifting the selection into one
+    // first when nothing is floating yet). Dims are unchanged, so the footprint
+    // stays; the clip stamps on commit.
+    const onFlip = useCallback((axis: MirrorAxis) => {
+        let clip = clipRef.current
+        if(clip === null){
+            clip = liftSelectionToClip()
+            if(clip === null) return
+        }
+        clipRef.current = flipClip(clip, axis)
+        draw()
+        setMessage(axis === "horizontal" ? "Flipped horizontally" : "Flipped vertically")
+    }, [draw, liftSelectionToClip])
+
+    // DELETE the selection's content as ONE undo step, then clear the selection. A
+    // floating clip is simply discarded (its lift already cleared the source under
+    // an open step, which is committed here so the content stays removed).
+    const onDeleteSelection = useCallback(() => {
+        const floating = clipRef.current
+        if(floating !== null){
+            const history = historyRef.current
+            clipRef.current = null
+            floatingHistoryOpenRef.current = false
+            setHasFloating(false)
+            if(history.commit(mapRef.current)){
+                refreshHistoryFlags()
+                markDirty()
+            }
+            setSelection(null)
+            bump()
+            draw()
+            setMessage("Deleted selection")
+            return
+        }
+        const sel = selectionRef.current
+        if(sel === null) return
+        const history = historyRef.current
+        history.begin(mapRef.current)
+        const changed = clearRegion(mapRef.current, sel)
+        if(changed && history.commit(mapRef.current)){
+            refreshHistoryFlags()
+            markDirty()
+            bump()
+            draw()
+        } else{
+            history.cancel()
+        }
+        setSelection(null)
+        setMessage("Deleted selection")
+    }, [bump, draw, markDirty, refreshHistoryFlags])
+
+    // DESELECT / COMMIT: stamp any floating clip back into the map (one undo step)
+    // and clear the selection, landing in a clean canvas state. Also called when
+    // switching away from select mode so a floating clip is never silently lost.
+    const onDeselect = useCallback(() => {
+        commitFloatingClip()
+        marqueeRef.current = null
+        setSelection(null)
+        draw()
+    }, [commitFloatingClip, draw])
+
+    // Leaving SELECT mode COMMITS the selection: stamp any floating clip into the
+    // map (one undo step) and clear the selection, so switching to another tool
+    // never strands lifted content or leaves a dangling marquee. Runs only on the
+    // transition INTO a non-select mode (the dep is `mode`).
+    useEffect(() => {
+        if(mode === "select") return
+        if(clipRef.current === null && selectionRef.current === null && marqueeRef.current === null) return
+        commitFloatingClip()
+        marqueeRef.current = null
+        setSelection(null)
+        draw()
+    }, [mode, commitFloatingClip, draw])
+
     // Zoom by `ratio` around a canvas-relative focal point, keeping the world
     // point under the focal fixed (natural pinch / scroll-wheel zoom).
     const applyZoom = useCallback((focalX: number, focalY: number, ratio: number) => {
@@ -736,6 +1088,32 @@ export default function MapEditor(){
         let downX = 0
         let downY = 0
         let drewThisGesture = false
+        // SELECT mode sub-gesture: "marquee" draws a new selection rectangle,
+        // "move" drags the active selection's content as a floating clip. null when
+        // the live single-pointer gesture is not a select gesture. moveOriginCell +
+        // moveClipStart capture where the move drag began so the clip's position
+        // tracks the pointer's cell delta.
+        let selectKind: "marquee" | "move" | null = null
+        let moveOriginCell: Cell = [0, 0]
+        let moveClipStart: { col: number, row: number } = { col: 0, row: 0 }
+        // Whether a move drag has LIFTED the selection into a floating clip yet (the
+        // lift happens on the first real cell move, so a tap inside a selection does
+        // not disturb the map and a pinch that starts on a selection never lifts).
+        let moveLifted = false
+
+        // The current MOVE-able footprint in cells: a floating clip's footprint
+        // (its position + dims) when one is up, otherwise the active selection.
+        // null when there is nothing to move. Read at pointer-down to decide
+        // whether a press lands inside the selection (a move) or outside (a new
+        // marquee).
+        const footprintRect = (): CellRect | null => {
+            const clip = clipRef.current
+            if(clip !== null){
+                const at = clipPosRef.current
+                return { minCol: at.col, minRow: at.row, maxCol: at.col + clip.cols - 1, maxRow: at.row + clip.rows - 1 }
+            }
+            return selectionRef.current
+        }
 
         // Distance + midpoint (canvas-relative) of the two active pointers.
         const pinchState = () => {
@@ -780,6 +1158,40 @@ export default function MapEditor(){
                     e.preventDefault()
                     return
                 }
+                if(m === "select"){
+                    // SELECT mode: a one-finger drag is either a MOVE (the down cell
+                    // sits inside the active selection / floating clip footprint) or
+                    // a fresh MARQUEE. Neither opens a PAINT history step here: the
+                    // lift/stamp actions own selection history. A two-finger pinch is
+                    // handled by the pointers.size === 2 branch, so a select gesture
+                    // never fires during a pinch.
+                    painting = true
+                    drewThisGesture = false
+                    moveLifted = false
+                    downX = e.clientX
+                    downY = e.clientY
+                    const cellPos = cellFromEvent(e.clientX, e.clientY)
+                    const footprint = footprintRect()
+                    if(cellPos !== null && footprint !== null
+                        && cellPos.col >= footprint.minCol && cellPos.col <= footprint.maxCol
+                        && cellPos.row >= footprint.minRow && cellPos.row <= footprint.maxRow){
+                        // Inside the current selection / clip: start a MOVE drag. The
+                        // actual lift is deferred to the first cell move (onMove).
+                        selectKind = "move"
+                        moveOriginCell = [cellPos.col, cellPos.row]
+                        moveClipStart = { col: footprint.minCol, row: footprint.minRow }
+                    } else if(cellPos !== null){
+                        // Outside any current footprint: a fresh marquee begins. Any
+                        // clip still floating is STAMPED first (one undo step) so a
+                        // new selection never strands lifted content on the canvas.
+                        if(clipRef.current !== null) commitFloatingClip()
+                        selectKind = "marquee"
+                        marqueeRef.current = { start: [cellPos.col, cellPos.row], current: [cellPos.col, cellPos.row] }
+                        draw()
+                    }
+                    e.preventDefault()
+                    return
+                }
                 painting = true
                 lastCellRef.current = null
                 drewThisGesture = false
@@ -817,7 +1229,22 @@ export default function MapEditor(){
                 // already painted cells; a gesture that has not drawn anything
                 // (a tap that turned into a pinch) is cancelled, so pinch-to-zoom
                 // never drops a tile/spawn/fill under the first finger.
-                if(shapeRef.current !== null){
+                if(selectKind !== null){
+                    // A select gesture became a pinch: a not-yet-dragged marquee is
+                    // dropped (pinch never selects), and a MOVE that already lifted
+                    // a clip simply stops dragging (the clip stays floating where it
+                    // is, still pending its stamp). A move that never lifted leaves
+                    // the map untouched. Either way the pinch never paints/selects.
+                    painting = false
+                    if(selectKind === "marquee"){
+                        marqueeRef.current = null
+                        draw()
+                    }
+                    selectKind = null
+                    drewThisGesture = false
+                    moveLifted = false
+                    gesture = pinchState()
+                } else if(shapeRef.current !== null){
                     abandonGesture()
                 } else{
                     painting = false
@@ -846,6 +1273,51 @@ export default function MapEditor(){
                     draw()
                 }
                 gesture = next
+            } else if(painting && selectKind !== null){
+                // SELECT drag. A marquee updates its current cell and re-renders the
+                // dashed preview; a move drags the floating clip by the pointer's
+                // cell delta, LIFTING the selection into a clip on the first real
+                // move (so a tap inside a selection disturbs nothing).
+                const cellPos = cellFromEvent(e.clientX, e.clientY)
+                if(cellPos !== null){
+                    if(selectKind === "marquee"){
+                        const mq = marqueeRef.current
+                        if(mq !== null && (mq.current[0] !== cellPos.col || mq.current[1] !== cellPos.row)){
+                            marqueeRef.current = { start: mq.start, current: [cellPos.col, cellPos.row] }
+                            drewThisGesture = true
+                            draw()
+                        }
+                    } else if(selectKind === "move"){
+                        const dCol = cellPos.col - moveOriginCell[0]
+                        const dRow = cellPos.row - moveOriginCell[1]
+                        if(moveLifted === false){
+                            // Only lift once the pointer leaves its start cell, so a
+                            // tap-inside is not a move and a pinch never lifts.
+                            if(dCol !== 0 || dRow !== 0){
+                                if(clipRef.current === null){
+                                    if(liftSelectionToClip() === null){ selectKind = null; return }
+                                }
+                                moveLifted = true
+                                drewThisGesture = true
+                            }
+                        }
+                        if(moveLifted){
+                            clipPosRef.current = { col: moveClipStart.col + dCol, row: moveClipStart.row + dRow }
+                            // Keep the active-selection footprint following the clip
+                            // so the dashed outline tracks it.
+                            const c = clipRef.current
+                            if(c !== null){
+                                setSelection({
+                                    minCol: clipPosRef.current.col,
+                                    minRow: clipPosRef.current.row,
+                                    maxCol: clipPosRef.current.col + c.cols - 1,
+                                    maxRow: clipPosRef.current.row + c.rows - 1,
+                                })
+                            }
+                            draw()
+                        }
+                    }
+                }
             } else if(painting){
                 if(shapeRef.current !== null){
                     // Rect/line drag: update the current cell and re-render the
@@ -883,6 +1355,9 @@ export default function MapEditor(){
         const onUp = (e: PointerEvent) => {
             const wasPainting = painting
             const openShape = shapeRef.current
+            const wasSelect = selectKind
+            const wasMarquee = marqueeRef.current
+            const didDrag = drewThisGesture
             pointers.delete(e.pointerId)
             if(canvas.hasPointerCapture(e.pointerId)){
                 canvas.releasePointerCapture(e.pointerId)
@@ -891,7 +1366,28 @@ export default function MapEditor(){
             if(pointers.size === 0){
                 painting = false
                 lastCellRef.current = null
-                if(wasPainting && openShape !== null){
+                if(wasSelect !== null){
+                    // Close a SELECT gesture. A MARQUEE that actually dragged becomes
+                    // the new active selection; a marquee TAP (no drag) clears any
+                    // selection (stamping a floating clip first so it is not lost). A
+                    // MOVE just leaves its clip floating where the drag ended (it
+                    // stamps later on deselect / mode switch / Enter).
+                    selectKind = null
+                    drewThisGesture = false
+                    moveLifted = false
+                    if(wasMarquee !== null){
+                        marqueeRef.current = null
+                        if(didDrag){
+                            setSelection(normalizeRect(wasMarquee.start, wasMarquee.current))
+                        } else{
+                            // A tap with no drag: clear the selection (committing any
+                            // floating clip into the map first so it is not dropped).
+                            commitFloatingClip()
+                            setSelection(null)
+                        }
+                    }
+                    draw()
+                } else if(wasPainting && openShape !== null){
                     // Close a rect/line gesture: compute the final cell set and
                     // apply the active brush to every cell in ONE batch, then commit
                     // the history step opened at pointer-down (a no-op shape commits
@@ -929,7 +1425,18 @@ export default function MapEditor(){
                 } else if(wasPainting && historyRef.current.commit(mapRef.current)){
                     // A freehand DRAG already painted its cells: commit the one step.
                     refreshHistoryFlags()
-                } else{
+                } else if(floatingHistoryOpenRef.current === false){
+                    // Nothing of this gesture survives, so drop its pending snapshot.
+                    // GUARD: do NOT cancel when a floating clip is holding an OPEN
+                    // history step (floatingHistoryOpenRef === true). That happens when
+                    // a move LIFT (or a cut/delete of a float) cleared the source under
+                    // a begin() and a pinch then ended the gesture early: wasSelect and
+                    // wasPainting were already reset, so this terminal path runs even
+                    // though the lift's pre-clear pending snapshot must live on. The map
+                    // stays mutated (source cleared, clip floating), and the eventual
+                    // commitFloatingClip / cut / delete is the ONLY thing that may close
+                    // this step. Cancelling here would discard the pre-lift snapshot and
+                    // make that committed move un-undoable, so we leave the step open.
                     historyRef.current.cancel()
                 }
                 gestureMode = null
@@ -950,7 +1457,7 @@ export default function MapEditor(){
             canvas.removeEventListener("pointercancel", onUp)
             canvas.removeEventListener("pointerleave", onUp)
         }
-    }, [paintAt, applyCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags])
+    }, [paintAt, applyCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip])
 
     // Native trackpad: a Mac pinch arrives as wheel + ctrlKey (so does Ctrl+wheel)
     // -> zoom around the cursor; a plain two-finger scroll -> pan. passive:false so
@@ -1180,8 +1687,32 @@ export default function MapEditor(){
                     redo()
                     return
                 }
+                // Clipboard shortcuts, gated to SELECT mode so they never shadow the
+                // browser's copy/paste while painting. Cmd/Ctrl+C copies, +X cuts,
+                // +V pastes the selection / clipboard clip.
+                if(modeRef.current === "select"){
+                    if(lower === "c"){ e.preventDefault(); onCopy(); return }
+                    if(lower === "x"){ e.preventDefault(); onCut(); return }
+                    if(lower === "v"){ e.preventDefault(); onPaste(); return }
+                }
             }
             if(e.metaKey || e.ctrlKey || e.altKey) return
+
+            // SELECT-mode keys (no modifier): Enter / Escape COMMIT (stamp any
+            // floating clip + deselect), Delete / Backspace clears the selection.
+            // Gated to select mode so they never affect painting elsewhere.
+            if(modeRef.current === "select"){
+                if(e.key === "Enter" || e.key === "Escape"){
+                    e.preventDefault()
+                    onDeselect()
+                    return
+                }
+                if(e.key === "Delete" || e.key === "Backspace"){
+                    e.preventDefault()
+                    onDeleteSelection()
+                    return
+                }
+            }
 
             const key = e.key.toLowerCase()
             const toolBrush = brushForKey(e.key)
@@ -1200,7 +1731,7 @@ export default function MapEditor(){
         }
         window.addEventListener("keydown", onKeyDown)
         return () => window.removeEventListener("keydown", onKeyDown)
-    }, [confirmLeave, onExport, fitNow, undo, redo])
+    }, [confirmLeave, onExport, fitNow, undo, redo, onCopy, onCut, onPaste, onDeselect, onDeleteSelection])
 
     // The active material's face colour as a CSS hex, derived from the shared
     // TILE_BLOCK_STYLES so the rail's block/slope icons (and the material picker
@@ -1512,6 +2043,69 @@ export default function MapEditor(){
                 {message.length > 0 && <span className={styles.statusMsg}>{message}</span>}
             </div>
 
+            {/* SELECTION ACTION TOOLBAR: appears whenever a selection (or floating
+                clip) is active. A compact row of >= 44px buttons with portal
+                Tooltips, pinned bottom-centre ABOVE the status bar so it never
+                overlaps the rails / top bar / status bar at 393px. Move is a hint
+                (the gesture is dragging inside the selection); Paste disables when
+                the clipboard is empty. MOBILE-first: every action is reachable by
+                thumb without the Alt/Ctrl keys a phone lacks. */}
+            {(selection !== null || hasFloating) && (
+                <div className={styles.selectBar} role="toolbar" aria-label="Selection actions">
+                    <span className={styles.selectHint} title="Drag inside the selection to move it">
+                        <SelectActionIcon kind="move" />
+                        <span className={styles.selectHintLabel}>Drag to move</span>
+                    </span>
+                    <Tooltip label="Copy" shortcut={`${MOD_KEY}+C`} placement="bottom-left">
+                        <button type="button" className={styles.selectButton} onClick={onCopy} aria-label="Copy selection" title="Copy">
+                            <SelectActionIcon kind="copy" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Cut" shortcut={`${MOD_KEY}+X`} placement="bottom-left">
+                        <button type="button" className={styles.selectButton} onClick={onCut} aria-label="Cut selection" title="Cut">
+                            <SelectActionIcon kind="cut" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Paste" shortcut={`${MOD_KEY}+V`} placement="bottom-left">
+                        <button
+                            type="button"
+                            className={styles.selectButton}
+                            onClick={onPaste}
+                            disabled={clipboardEmpty}
+                            aria-label="Paste clip"
+                            title="Paste"
+                        >
+                            <SelectActionIcon kind="paste" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Rotate 90 CW" placement="bottom-left">
+                        <button type="button" className={styles.selectButton} onClick={onRotate} aria-label="Rotate selection 90 degrees clockwise" title="Rotate">
+                            <SelectActionIcon kind="rotate" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Flip horizontal" placement="bottom-left">
+                        <button type="button" className={styles.selectButton} onClick={() => onFlip("horizontal")} aria-label="Flip selection horizontally" title="Flip H">
+                            <SelectActionIcon kind="flipH" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Flip vertical" placement="bottom-left">
+                        <button type="button" className={styles.selectButton} onClick={() => onFlip("vertical")} aria-label="Flip selection vertically" title="Flip V">
+                            <SelectActionIcon kind="flipV" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Delete" shortcut="Del" placement="bottom-left">
+                        <button type="button" className={styles.selectButton} onClick={onDeleteSelection} aria-label="Delete selection" title="Delete">
+                            <SelectActionIcon kind="delete" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Deselect" shortcut="Enter" placement="bottom-left">
+                        <button type="button" className={styles.selectButton} onClick={onDeselect} aria-label="Deselect (commit)" title="Deselect">
+                            <SelectActionIcon kind="deselect" />
+                        </button>
+                    </Tooltip>
+                </div>
+            )}
+
             {/* Options popover: map settings + actions, hidden until opened. */}
             {optionsOpen && (
                 <>
@@ -1563,7 +2157,8 @@ export default function MapEditor(){
                             <GameButton accent onClick={onClear}>Clear</GameButton>
                         </div>
                         <div className={styles.hint}>
-                            Pick a draw mode (freehand, rectangle, line, fill) on the left, then a brush.
+                            Pick a draw mode (freehand, rectangle, line, fill, select) on the left, then a brush.
+                            The Select tool marquees a region you can move, copy, rotate, flip or delete.
                             Scroll to pan, pinch (or ctrl+scroll) to zoom. Two fingers pan/zoom on touch.
                             Press F to fit, Cmd/Ctrl+S to download.
                         </div>
@@ -1584,6 +2179,9 @@ export default function MapEditor(){
                                 <div className={styles.shortcutRow}><dt><kbd>F</kbd></dt><dd>Fit view</dd></div>
                                 <div className={styles.shortcutRow}><dt><kbd>O</kbd></dt><dd>Options</dd></div>
                                 <div className={styles.shortcutRow}><dt><kbd>Cmd/Ctrl+S</kbd></dt><dd>Download JSON</dd></div>
+                                <div className={styles.shortcutRow}><dt><kbd>Enter / Esc</kbd></dt><dd>Commit / deselect (Select tool)</dd></div>
+                                <div className={styles.shortcutRow}><dt><kbd>Del</kbd></dt><dd>Delete selection (Select tool)</dd></div>
+                                <div className={styles.shortcutRow}><dt><kbd>Cmd/Ctrl+C/X/V</kbd></dt><dd>Copy / cut / paste (Select tool)</dd></div>
                             </dl>
                             <div className={styles.hint}>
                                 One finger (or left-drag) paints. Two fingers pan and pinch-zoom (trackpad:
@@ -1906,6 +2504,14 @@ function ModeIcon({ mode }: { mode: EditorMode }){
             </svg>
         )
     }
+    if(mode === "select"){
+        // A marquee: a dashed selection rectangle, signalling "select a region".
+        return (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="1" strokeDasharray="3 2.5" />
+            </svg>
+        )
+    }
     if(mode === "freehand"){
         // A pencil drawing a freehand squiggle.
         return (
@@ -1985,6 +2591,91 @@ function RedoIcon(){
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 14l5-5-5-5" />
             <path d="M20 9H10a6 6 0 0 0 0 12h3" />
+        </svg>
+    )
+}
+
+// The glyphs for the selection action toolbar. Each is a 20px line icon so the
+// row reads at a glance: move (four-way arrows), copy (stacked sheets), cut
+// (scissors), paste (clipboard), rotate (a curved arrow), flip H / flip V
+// (mirrored triangles across a dashed axis), delete (a trash can), deselect (a
+// dashed box with an x). currentColor so the button's own colour drives them.
+function SelectActionIcon({ kind }: { kind: "move" | "copy" | "cut" | "paste" | "rotate" | "flipH" | "flipV" | "delete" | "deselect" }){
+    const common = {
+        width: 20, height: 20, viewBox: "0 0 24 24", fill: "none",
+        stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const,
+    }
+    if(kind === "move"){
+        return (
+            <svg {...common}>
+                <path d="M12 3v18M3 12h18" />
+                <path d="M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5" />
+            </svg>
+        )
+    }
+    if(kind === "copy"){
+        return (
+            <svg {...common}>
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+            </svg>
+        )
+    }
+    if(kind === "cut"){
+        return (
+            <svg {...common}>
+                <circle cx="6" cy="6" r="2.5" />
+                <circle cx="6" cy="18" r="2.5" />
+                <path d="M8 7.5L20 18M8 16.5L20 6" />
+            </svg>
+        )
+    }
+    if(kind === "paste"){
+        return (
+            <svg {...common}>
+                <rect x="6" y="4" width="12" height="16" rx="2" />
+                <path d="M9 4V3h6v1" />
+            </svg>
+        )
+    }
+    if(kind === "rotate"){
+        return (
+            <svg {...common}>
+                <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+                <path d="M20 5v6h-6" />
+            </svg>
+        )
+    }
+    if(kind === "flipH"){
+        return (
+            <svg {...common}>
+                <path d="M12 3v18" strokeDasharray="3 2" />
+                <path d="M9 7l-5 5 5 5z" />
+                <path d="M15 7l5 5-5 5z" />
+            </svg>
+        )
+    }
+    if(kind === "flipV"){
+        return (
+            <svg {...common}>
+                <path d="M3 12h18" strokeDasharray="3 2" />
+                <path d="M7 9l5-5 5 5z" />
+                <path d="M7 15l5 5 5-5z" />
+            </svg>
+        )
+    }
+    if(kind === "delete"){
+        return (
+            <svg {...common}>
+                <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+            </svg>
+        )
+    }
+    // deselect: a dashed box with a small x, "drop the selection".
+    return (
+        <svg {...common}>
+            <rect x="3" y="3" width="18" height="18" rx="1" strokeDasharray="3 2.5" />
+            <path d="M9 9l6 6M15 9l-6 6" />
         </svg>
     )
 }

@@ -40,7 +40,17 @@ import {
     FILL_BOUNDS_MARGIN,
     FILL_CELL_CAP,
     Cell,
+    CellRect,
+    EditorClip,
+    normalizeRect,
+    extractClip,
+    clearRegion,
+    stampClip,
+    rotateShapeCW,
+    rotateClipCW,
+    flipClip,
 } from "../../packages/client/src/game/mapEditor"
+import { TileShape } from "../../packages/game/src/logic/grid-map"
 import { loadGridMap } from "../../packages/game/src/logic/grid-map"
 import { TILE_BLOCK_STYLES, blockFaceCss } from "../../packages/client/src/game/mapGraphics"
 
@@ -1619,5 +1629,403 @@ describe("mirrorMap (build a symmetric arena)", () => {
         mirrorMap(map, "horizontal")
         expect(map.tileAt(3, 0)).toBe(before)
         expect(map.hasSpawn(3, 2)).toBe(true)
+    })
+})
+
+// Look a clip tile up by its relative (col, row), or undefined when that cell of
+// the clip is empty. Lets a test assert "the clip holds shape X at (c, r)".
+function clipTileAt(clip: EditorClip, col: number, row: number){
+    return clip.tiles.find((t) => t.col === col && t.row === row)
+}
+// A clip's spawn coordinates as a sorted key set, for order-independent compares.
+function clipSpawnKeys(clip: EditorClip): string[]{
+    return clip.spawns.map(([c, r]) => cellKey(c, r)).sort()
+}
+// Two clips are equal in content (dims + tiles + spawns), order-independently.
+function clipsEqual(a: EditorClip, b: EditorClip): boolean{
+    if(a.cols !== b.cols || a.rows !== b.rows) return false
+    if(a.tiles.length !== b.tiles.length) return false
+    for(const t of a.tiles){
+        const m = clipTileAt(b, t.col, t.row)
+        if(typeof m === "undefined" || m.shape !== t.shape || m.key !== t.key) return false
+    }
+    const aKeys = clipSpawnKeys(a)
+    const bKeys = clipSpawnKeys(b)
+    if(aKeys.length !== bKeys.length) return false
+    for(let i = 0; i < aKeys.length; i++){
+        if(aKeys[i] !== bKeys[i]) return false
+    }
+    return true
+}
+
+describe("normalizeRect", () => {
+    it("normalises corners in any diagonal order to the same inclusive rect", () => {
+        const forward = normalizeRect([2, 3], [5, 7])
+        const reverse = normalizeRect([5, 7], [2, 3])
+        expect(forward).toEqual({ minCol: 2, minRow: 3, maxCol: 5, maxRow: 7 })
+        expect(reverse).toEqual(forward)
+    })
+
+    it("a single cell makes a 1x1 rect (min == max)", () => {
+        expect(normalizeRect([4, 9], [4, 9])).toEqual({ minCol: 4, minRow: 9, maxCol: 4, maxRow: 9 })
+    })
+})
+
+describe("rotateShapeCW (90 degrees clockwise shape rotation)", () => {
+    it("leaves full and deco unchanged (rotationally symmetric)", () => {
+        expect(rotateShapeCW("full")).toBe("full")
+        expect(rotateShapeCW("deco")).toBe("deco")
+    })
+
+    it("walks each diagonal's right-angle corner one quarter-turn clockwise", () => {
+        expect(rotateShapeCW("diag_tl")).toBe("diag_tr")
+        expect(rotateShapeCW("diag_tr")).toBe("diag_br")
+        expect(rotateShapeCW("diag_br")).toBe("diag_bl")
+        expect(rotateShapeCW("diag_bl")).toBe("diag_tl")
+    })
+
+    it("walks each half-tile's filled edge one quarter-turn clockwise", () => {
+        expect(rotateShapeCW("half_top")).toBe("half_right")
+        expect(rotateShapeCW("half_right")).toBe("half_bottom")
+        expect(rotateShapeCW("half_bottom")).toBe("half_left")
+        expect(rotateShapeCW("half_left")).toBe("half_top")
+    })
+
+    it("applying it FOUR times returns the original for EVERY shape", () => {
+        const shapes: TileShape[] = ["full", "deco", "diag_tl", "diag_tr", "diag_bl", "diag_br", "half_top", "half_bottom", "half_left", "half_right"]
+        for(const s of shapes){
+            expect(rotateShapeCW(rotateShapeCW(rotateShapeCW(rotateShapeCW(s))))).toBe(s)
+        }
+    })
+})
+
+describe("rotateClipCW (90 degrees clockwise clip rotation)", () => {
+    it("swaps the dimensions (MxN clip becomes NxM)", () => {
+        const clip: EditorClip = { cols: 3, rows: 2, tiles: [], spawns: [] }
+        const rotated = rotateClipCW(clip)
+        expect(rotated.cols).toBe(2)
+        expect(rotated.rows).toBe(3)
+    })
+
+    it("rotates a known small clip to the expected cell layout + shapes", () => {
+        // A 3x2 clip (3 wide, 2 tall) with a full top-left and a diag_tl top-right.
+        const clip: EditorClip = {
+            cols: 3, rows: 2,
+            tiles: [
+                { col: 0, row: 0, shape: "full", key: "tile_default" },
+                { col: 2, row: 0, shape: "diag_tl", key: "rust" },
+            ],
+            spawns: [[1, 1]],
+        }
+        const rotated = rotateClipCW(clip)
+        // dims swap to 2x3
+        expect(rotated.cols).toBe(2)
+        expect(rotated.rows).toBe(3)
+        // (0,0) -> (rows-1-0, 0) = (1, 0); shape full stays full
+        const a = clipTileAt(rotated, 1, 0)
+        expect(a).toBeDefined()
+        expect(a?.shape).toBe("full")
+        expect(a?.key).toBe("tile_default")
+        // (2,0) -> (rows-1-0, 2) = (1, 2); diag_tl rotates to diag_tr, key kept
+        const b = clipTileAt(rotated, 1, 2)
+        expect(b).toBeDefined()
+        expect(b?.shape).toBe("diag_tr")
+        expect(b?.key).toBe("rust")
+        // spawn (1,1) -> (rows-1-1, 1) = (0, 1)
+        expect(rotated.spawns).toEqual([[0, 1]])
+    })
+
+    it("FOUR rotations round-trip to the original clip (cells + shapes + spawns)", () => {
+        const clip: EditorClip = {
+            cols: 4, rows: 3,
+            tiles: [
+                { col: 0, row: 0, shape: "diag_bl", key: "teal" },
+                { col: 3, row: 0, shape: "half_top", key: "slate" },
+                { col: 1, row: 2, shape: "full", key: "tile_default" },
+            ],
+            spawns: [[2, 1], [0, 2]],
+        }
+        const fourTimes = rotateClipCW(rotateClipCW(rotateClipCW(rotateClipCW(clip))))
+        expect(clipsEqual(fourTimes, clip)).toBe(true)
+        // The original is untouched (rotateClipCW is pure).
+        expect(clip.cols).toBe(4)
+        expect(clip.rows).toBe(3)
+    })
+})
+
+describe("flipClip (mirror a clip via the existing mirrorShape)", () => {
+    const clip: EditorClip = {
+        cols: 3, rows: 2,
+        tiles: [
+            { col: 0, row: 0, shape: "diag_tl", key: "rust" },
+            { col: 2, row: 1, shape: "half_left", key: "teal" },
+        ],
+        spawns: [[1, 0]],
+    }
+
+    it("flips coordinates + shapes horizontally", () => {
+        const flipped = flipClip(clip, "horizontal")
+        expect(flipped.cols).toBe(3)
+        expect(flipped.rows).toBe(2)
+        // (0,0) -> (cols-1-0, 0) = (2,0); diag_tl mirrors H to diag_tr
+        const a = clipTileAt(flipped, 2, 0)
+        expect(a?.shape).toBe("diag_tr")
+        expect(a?.key).toBe("rust")
+        // (2,1) -> (0,1); half_left mirrors H to half_right
+        const b = clipTileAt(flipped, 0, 1)
+        expect(b?.shape).toBe("half_right")
+        // spawn (1,0) -> (1,0) (centre column of a 3-wide clip)
+        expect(flipped.spawns).toEqual([[1, 0]])
+    })
+
+    it("flips coordinates + shapes vertically", () => {
+        const flipped = flipClip(clip, "vertical")
+        // (0,0) -> (0, rows-1-0) = (0,1); diag_tl mirrors V to diag_bl
+        const a = clipTileAt(flipped, 0, 1)
+        expect(a?.shape).toBe("diag_bl")
+        // (2,1) -> (2,0); half_left is unchanged by a vertical flip
+        const b = clipTileAt(flipped, 2, 0)
+        expect(b?.shape).toBe("half_left")
+        // spawn (1,0) -> (1,1)
+        expect(flipped.spawns).toEqual([[1, 1]])
+    })
+
+    it("flipping twice on the same axis round-trips to the original", () => {
+        expect(clipsEqual(flipClip(flipClip(clip, "horizontal"), "horizontal"), clip)).toBe(true)
+        expect(clipsEqual(flipClip(flipClip(clip, "vertical"), "vertical"), clip)).toBe(true)
+        // Pure: the input clip is untouched.
+        expect(clip.tiles.length).toBe(2)
+    })
+})
+
+describe("extractClip + clearRegion + stampClip", () => {
+    it("extractClip copies a region into clip-relative coords without mutating the map", () => {
+        const map = new EditorMap()
+        map.setCell(5, 7, "full", "rust")
+        map.setCell(6, 7, "diag_tr", "teal")
+        map.setCell(5, 8, "spawn")
+        const rect: CellRect = { minCol: 5, minRow: 7, maxCol: 6, maxRow: 8 }
+        const clip = extractClip(map, rect)
+        expect(clip.cols).toBe(2)
+        expect(clip.rows).toBe(2)
+        // The min corner (5,7) maps to clip (0,0).
+        expect(clipTileAt(clip, 0, 0)).toEqual({ col: 0, row: 0, shape: "full", key: "rust" })
+        expect(clipTileAt(clip, 1, 0)).toEqual({ col: 1, row: 0, shape: "diag_tr", key: "teal" })
+        // The spawn at (5,8) maps to clip-relative (0,1).
+        expect(clip.spawns).toEqual([[0, 1]])
+        // The source map is untouched.
+        expect(map.tileAt(5, 7)).not.toBe(0)
+        expect(map.hasSpawn(5, 8)).toBe(true)
+    })
+
+    it("clearRegion removes exactly the cells in the rect and nothing outside it", () => {
+        const map = new EditorMap()
+        // A 3x3 block plus two tiles JUST outside the clear rect.
+        for(let c = 0; c < 3; c++){
+            for(let r = 0; r < 3; r++){
+                map.setCell(c, r, "full")
+            }
+        }
+        map.setCell(3, 1, "full") // one column right of the rect
+        map.setCell(1, 1, "spawn") // a spawn inside (replaces the tile there)
+        map.setCell(-1, -1, "deco") // outside, up-left
+        const rect: CellRect = { minCol: 0, minRow: 0, maxCol: 2, maxRow: 2 }
+        expect(clearRegion(map, rect)).toBe(true)
+        // Everything inside the rect is gone.
+        for(let c = 0; c < 3; c++){
+            for(let r = 0; r < 3; r++){
+                expect(map.tileAt(c, r)).toBe(0)
+            }
+        }
+        expect(map.hasSpawn(1, 1)).toBe(false)
+        // The two outside cells survive.
+        expect(map.tileAt(3, 1)).not.toBe(0)
+        expect(map.tileAt(-1, -1)).not.toBe(0)
+        // Clearing an already-empty rect is a no-op (returns false).
+        expect(clearRegion(map, { minCol: 10, minRow: 10, maxCol: 12, maxRow: 12 })).toBe(false)
+    })
+
+    it("extract + stamp ROUND-TRIPS a region elsewhere (tiles shapes/keys + spawns)", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full", "rust")
+        map.setCell(1, 0, "diag_bl", "teal")
+        map.setCell(0, 1, "half_right", "accent")
+        map.setCell(1, 1, "spawn")
+        const rect: CellRect = { minCol: 0, minRow: 0, maxCol: 1, maxRow: 1 }
+        const clip = extractClip(map, rect)
+
+        // Stamp the clip far away; the destination matches the source exactly.
+        expect(stampClip(map, clip, 10, 20)).toBe(true)
+        // Tiles: same shapes + keys at the offset destination.
+        expect(map.palette[map.tileAt(10, 20) - 1]).toEqual({ shape: "full", key: "rust" })
+        expect(map.palette[map.tileAt(11, 20) - 1]).toEqual({ shape: "diag_bl", key: "teal" })
+        expect(map.palette[map.tileAt(10, 21) - 1]).toEqual({ shape: "half_right", key: "accent" })
+        // The spawn round-trips to the offset cell.
+        expect(map.hasSpawn(11, 21)).toBe(true)
+    })
+
+    it("stampClip respects spawn/tile exclusion (a stamped tile evicts a spawn under it)", () => {
+        const map = new EditorMap()
+        map.setCell(3, 3, "spawn")
+        const clip: EditorClip = {
+            cols: 1, rows: 1,
+            tiles: [{ col: 0, row: 0, shape: "full", key: "rust" }],
+            spawns: [],
+        }
+        expect(stampClip(map, clip, 3, 3)).toBe(true)
+        // The full block evicts the spawn (mutual exclusion holds via setCell).
+        expect(map.hasSpawn(3, 3)).toBe(false)
+        expect(map.tileAt(3, 3)).not.toBe(0)
+    })
+
+    it("stampClip keeps the palette APPEND-ONLY (a new colour grows it, existing reused)", () => {
+        const map = new EditorMap()
+        const seedLength = map.palette.length
+        const seed = map.palette.map((e) => ({ ...e }))
+        const clip: EditorClip = {
+            cols: 2, rows: 1,
+            tiles: [
+                { col: 0, row: 0, shape: "full", key: "tile_default" }, // reuses seed entry
+                { col: 1, row: 0, shape: "full", key: "rust" }, // new -> appends
+            ],
+            spawns: [],
+        }
+        stampClip(map, clip, 0, 0)
+        // The default-block tile reused the seed entry; only the rust entry appended.
+        expect(map.palette.length).toBe(seedLength + 1)
+        // Every seed entry is byte-identical at its ORIGINAL index.
+        seed.forEach((entry, i) => expect(map.palette[i]).toEqual(entry))
+        expect(map.palette[map.tileAt(0, 0) - 1]).toEqual({ shape: "full", key: "tile_default" })
+        expect(map.palette[map.tileAt(1, 0) - 1]).toEqual({ shape: "full", key: "rust" })
+    })
+
+    it("a deco clip tile stamps as the non-colliding tile_hidden", () => {
+        const map = new EditorMap()
+        const clip: EditorClip = {
+            cols: 1, rows: 1,
+            tiles: [{ col: 0, row: 0, shape: "deco", key: "tile_hidden" }],
+            spawns: [],
+        }
+        stampClip(map, clip, 4, 4)
+        expect(map.palette[map.tileAt(4, 4) - 1]).toEqual({ shape: "deco", key: "tile_hidden" })
+    })
+
+    it("stamping the same clip twice on a cell does NOT remove its spawn (guarded toggle)", () => {
+        const map = new EditorMap()
+        const clip: EditorClip = { cols: 1, rows: 1, tiles: [], spawns: [[0, 0]] }
+        stampClip(map, clip, 2, 2)
+        expect(map.hasSpawn(2, 2)).toBe(true)
+        // A second stamp must keep the spawn (toggleSpawn would otherwise flip it off).
+        stampClip(map, clip, 2, 2)
+        expect(map.hasSpawn(2, 2)).toBe(true)
+    })
+})
+
+describe("move/cut as ONE undo step (selection history granularity)", () => {
+    // Mirrors how the view performs a MOVE: lift (begin history, clear source),
+    // stamp at a new offset, commit ONCE. The whole move undoes in a single step.
+    it("a move (lift source + stamp elsewhere) undoes as ONE step", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full", "rust")
+        map.setCell(1, 0, "diag_tr", "teal")
+        const history = new EditorHistory()
+        const rect: CellRect = { minCol: 0, minRow: 0, maxCol: 1, maxRow: 0 }
+
+        const clip = extractClip(map, rect)
+        history.begin(map)
+        clearRegion(map, rect)
+        stampClip(map, clip, 5, 5)
+        expect(history.commit(map)).toBe(true)
+
+        // Source is empty, destination holds the moved tiles.
+        expect(map.tileAt(0, 0)).toBe(0)
+        expect(map.tileAt(1, 0)).toBe(0)
+        expect(map.palette[map.tileAt(5, 5) - 1]).toEqual({ shape: "full", key: "rust" })
+        expect(map.palette[map.tileAt(6, 5) - 1]).toEqual({ shape: "diag_tr", key: "teal" })
+
+        // ONE undo restores the original layout exactly.
+        expect(history.undo(map)).toBe(true)
+        expect(map.palette[map.tileAt(0, 0) - 1]).toEqual({ shape: "full", key: "rust" })
+        expect(map.palette[map.tileAt(1, 0) - 1]).toEqual({ shape: "diag_tr", key: "teal" })
+        expect(map.tileAt(5, 5)).toBe(0)
+        expect(map.tileAt(6, 5)).toBe(0)
+    })
+
+    it("a cut (clear region) undoes as ONE step", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full")
+        map.setCell(1, 0, "full")
+        const history = new EditorHistory()
+        const rect: CellRect = { minCol: 0, minRow: 0, maxCol: 1, maxRow: 0 }
+
+        history.begin(map)
+        clearRegion(map, rect)
+        expect(history.commit(map)).toBe(true)
+        expect(map.tiles.size).toBe(0)
+
+        expect(history.undo(map)).toBe(true)
+        expect(map.tiles.size).toBe(2)
+    })
+
+    // REGRESSION (mobile pinch undo-integrity): a move LIFT opens the history step
+    // and clears the source, then the gesture is INTERRUPTED before the stamp (a
+    // second finger lands -> pinch, fingers lift). The view must leave that open
+    // step ALONE (not cancel it), so the deferred stamp + commit later still lands
+    // the whole move as ONE undo step. This models the open step surviving across
+    // the interruption: there is NO cancel() between the lift and the late commit.
+    it("a move whose stamp is DEFERRED past a gesture interruption still undoes as ONE step", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full", "rust")
+        map.setCell(1, 0, "diag_tr", "teal")
+        const history = new EditorHistory()
+        const rect: CellRect = { minCol: 0, minRow: 0, maxCol: 1, maxRow: 0 }
+
+        // Lift: open the step and clear the source. The clip is now "floating".
+        const clip = extractClip(map, rect)
+        history.begin(map)
+        clearRegion(map, rect)
+
+        // ...gesture interrupted here (pinch + lift). The open step is left intact:
+        // crucially NO history.cancel() runs, so the pre-lift snapshot survives.
+
+        // Later: the floating clip is committed (deselect / mode switch / Enter).
+        stampClip(map, clip, 5, 5)
+        expect(history.commit(map)).toBe(true)
+
+        // Source moved to the new location.
+        expect(map.tileAt(0, 0)).toBe(0)
+        expect(map.tileAt(1, 0)).toBe(0)
+        expect(map.palette[map.tileAt(5, 5) - 1]).toEqual({ shape: "full", key: "rust" })
+        expect(map.palette[map.tileAt(6, 5) - 1]).toEqual({ shape: "diag_tr", key: "teal" })
+
+        // ONE undo restores the original layout: the move is undoable.
+        expect(history.undo(map)).toBe(true)
+        expect(map.palette[map.tileAt(0, 0) - 1]).toEqual({ shape: "full", key: "rust" })
+        expect(map.palette[map.tileAt(1, 0) - 1]).toEqual({ shape: "diag_tr", key: "teal" })
+        expect(map.tileAt(5, 5)).toBe(0)
+        expect(map.tileAt(6, 5)).toBe(0)
+    })
+
+    // Documents WHY the view must NOT cancel an open lift step on interruption:
+    // cancelling between the lift and the deferred stamp drops the pre-lift
+    // snapshot, leaving the map mutated (source cleared, content stamped) with NO
+    // undo entry. This is the exact regression the terminal-cancel guard prevents.
+    it("cancelling an open lift step before its deferred stamp loses the undo entry", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full", "rust")
+        const history = new EditorHistory()
+        const rect: CellRect = { minCol: 0, minRow: 0, maxCol: 0, maxRow: 0 }
+
+        const clip = extractClip(map, rect)
+        history.begin(map)
+        clearRegion(map, rect)
+        history.cancel() // the BUGGY terminal cancel: drops the pre-lift snapshot.
+
+        stampClip(map, clip, 5, 5)
+        // pending is null, so commit pushes nothing and the move is un-undoable.
+        expect(history.commit(map)).toBe(false)
+        expect(history.canUndo()).toBe(false)
+        expect(map.tileAt(0, 0)).toBe(0)
+        expect(map.palette[map.tileAt(5, 5) - 1]).toEqual({ shape: "full", key: "rust" })
     })
 })

@@ -674,6 +674,184 @@ export function mirrorMap(map: EditorMap, axis: MirrorAxis): boolean{
     return changed
 }
 
+// SELECTION / TRANSFORM (Aseprite-style). A SELECTION is an inclusive rectangle
+// of cells the author marqueed; lifting its content produces a FLOATING CLIP
+// (the cells copied into clip-relative coordinates) that can be moved, rotated,
+// flipped, copied/cut/pasted, then stamped back into the map. All of it lives in
+// this PURE model so the region transforms unit-test independently of the view.
+
+// An inclusive rectangle of cells in MAP coordinates. minCol..maxCol and
+// minRow..maxRow are both inclusive, so a 1x1 selection has min == max. The view
+// builds this from a marquee drag (any diagonal order) via normalizeRect.
+export type CellRect = {
+    minCol: number,
+    minRow: number,
+    maxCol: number,
+    maxRow: number,
+}
+
+// Normalise two marquee corners (in any diagonal order) into an inclusive
+// CellRect by taking the min/max of each axis, so (5,7)->(2,3) and (2,3)->(5,7)
+// describe the same rectangle. Pure + unit-tested.
+export function normalizeRect(a: Cell, b: Cell): CellRect{
+    return {
+        minCol: Math.min(a[0], b[0]),
+        minRow: Math.min(a[1], b[1]),
+        maxCol: Math.max(a[0], b[0]),
+        maxRow: Math.max(a[1], b[1]),
+    }
+}
+
+// A single tile inside a floating clip, in clip-RELATIVE coordinates (col/row are
+// 0-based offsets from the clip's top-left). The shape + key are the resolved
+// tile content (the same {shape, key} a palette entry holds), so a clip is
+// self-contained and never depends on the source map's palette indices.
+export type EditorClipTile = {
+    col: number,
+    row: number,
+    shape: TileShape,
+    key: string,
+}
+
+// A FLOATING CLIP: a rectangular region's content captured in clip-relative
+// coordinates. `cols`/`rows` are the clip's dimensions; `tiles` holds only the
+// non-empty cells (sparse), and `spawns` holds relative spawn coordinates. A clip
+// is fully detached from any map: it stamps back via setCell/toggleSpawn so the
+// destination map's append-only palette + spawn/tile exclusion always hold.
+export type EditorClip = {
+    cols: number,
+    rows: number,
+    tiles: EditorClipTile[],
+    spawns: [number, number][],
+}
+
+// Copy the cells in an inclusive rect into a self-contained clip in clip-relative
+// coordinates, WITHOUT mutating the map. Each painted tile resolves to its
+// {shape, key} (so the clip carries no palette indices) and each spawn translates
+// to clip-relative coords. An out-of-palette tile value is skipped (it cannot be
+// reproduced). Pure + unit-tested.
+export function extractClip(map: EditorMap, rect: CellRect): EditorClip{
+    const cols = rect.maxCol - rect.minCol + 1
+    const rows = rect.maxRow - rect.minRow + 1
+    const tiles: EditorClipTile[] = []
+    for(let row = rect.minRow; row <= rect.maxRow; row++){
+        for(let col = rect.minCol; col <= rect.maxCol; col++){
+            const value = map.tileAt(col, row)
+            if(value <= 0) continue
+            const entry = map.palette[value - 1]
+            if(typeof entry === "undefined") continue
+            tiles.push({ col: col - rect.minCol, row: row - rect.minRow, shape: entry.shape, key: entry.key })
+        }
+    }
+    const spawns: [number, number][] = []
+    for(const [c, r] of map.spawns){
+        if(c < rect.minCol || c > rect.maxCol || r < rect.minRow || r > rect.maxRow) continue
+        spawns.push([c - rect.minCol, r - rect.minRow])
+    }
+    return { cols, rows, tiles, spawns }
+}
+
+// Delete every tile + spawn inside an inclusive rect, returning true if anything
+// changed. Used by Cut (after extracting) and Delete. Writes through the map's
+// own containers so a later snapshot/undo captures exactly the cleared state.
+export function clearRegion(map: EditorMap, rect: CellRect): boolean{
+    let changed = false
+    for(let row = rect.minRow; row <= rect.maxRow; row++){
+        for(let col = rect.minCol; col <= rect.maxCol; col++){
+            const key = cellKey(col, row)
+            if(map.tiles.has(key)){
+                map.tiles.delete(key)
+                changed = true
+            }
+            if(map.removeSpawn(col, row)) changed = true
+        }
+    }
+    return changed
+}
+
+// Write a clip into the map at an offset (atCol, atRow = where the clip's
+// top-left lands), OVERWRITING the destination cells. Tiles route through setCell
+// (which resolves the {shape, key} via the APPEND-ONLY paletteValueFor and evicts
+// any spawn) and spawns route through a guarded toggleSpawn (only added when not
+// already present, since toggleSpawn flips). A clip tile whose shape is "deco"
+// keeps its tile_hidden key through setCell's materialKeyForBrush. Returns true
+// if anything changed. Pure w.r.t. the clip; only the map is mutated.
+export function stampClip(map: EditorMap, clip: EditorClip, atCol: number, atRow: number): boolean{
+    let changed = false
+    for(const tile of clip.tiles){
+        const col = atCol + tile.col
+        const row = atRow + tile.row
+        // The tile's shape IS a valid brush (TileShape is a subset of EditorBrush);
+        // its key is the material so the colour is preserved. setCell appends the
+        // {shape, key} to the palette if new and evicts any spawn underneath.
+        if(map.setCell(col, row, tile.shape, tile.key)) changed = true
+    }
+    for(const [c, r] of clip.spawns){
+        const col = atCol + c
+        const row = atRow + r
+        // toggleSpawn flips, so guard: only add a spawn where there is not one
+        // already (stamping twice on the same cell must not remove it).
+        if(map.hasSpawn(col, row) === false){
+            map.toggleSpawn(col, row)
+            changed = true
+        }
+    }
+    return changed
+}
+
+// Rotate a single tile SHAPE 90 degrees CLOCKWISE. Full + deco are
+// rotationally symmetric (unchanged). A diagonal's right-angle corner walks one
+// quarter-turn clockwise around the cell (tl -> tr -> br -> bl -> tl), and a
+// half-tile's filled edge walks the same way (top -> right -> bottom -> left ->
+// top). Applying this four times returns the original shape. Pure + unit-tested.
+export function rotateShapeCW(shape: TileShape): TileShape{
+    if(shape === "diag_tl") return "diag_tr"
+    if(shape === "diag_tr") return "diag_br"
+    if(shape === "diag_br") return "diag_bl"
+    if(shape === "diag_bl") return "diag_tl"
+    if(shape === "half_top") return "half_right"
+    if(shape === "half_right") return "half_bottom"
+    if(shape === "half_bottom") return "half_left"
+    if(shape === "half_left") return "half_top"
+    return shape
+}
+
+// Rotate a whole clip 90 degrees CLOCKWISE. The dimensions swap (an MxN clip
+// becomes NxM), each cell (c, r) maps to (rows - 1 - r, c), and each tile's shape
+// rotates via rotateShapeCW. Spawns map the same way. Pure: returns a new clip,
+// leaving the input untouched. Applying it four times round-trips to the original
+// clip (cells + shapes + spawns). Unit-tested.
+export function rotateClipCW(clip: EditorClip): EditorClip{
+    const tiles: EditorClipTile[] = clip.tiles.map((t) => ({
+        col: clip.rows - 1 - t.row,
+        row: t.col,
+        shape: rotateShapeCW(t.shape),
+        key: t.key,
+    }))
+    const spawns: [number, number][] = clip.spawns.map(([c, r]) => [clip.rows - 1 - r, c] as [number, number])
+    return { cols: clip.rows, rows: clip.cols, tiles, spawns }
+}
+
+// Mirror a whole clip across the given axis: a horizontal flip reflects columns
+// (c -> cols - 1 - c) and a vertical flip reflects rows (r -> rows - 1 - r), with
+// each tile's shape reflected via the EXISTING mirrorShape. Spawns flip the same
+// way. Pure: returns a new clip. Flipping twice on the same axis round-trips to
+// the original (mirrorShape is an involution and the coordinate flip is too).
+// Unit-tested.
+export function flipClip(clip: EditorClip, axis: MirrorAxis): EditorClip{
+    const tiles: EditorClipTile[] = clip.tiles.map((t) => ({
+        col: axis === "horizontal" ? clip.cols - 1 - t.col : t.col,
+        row: axis === "vertical" ? clip.rows - 1 - t.row : t.row,
+        shape: mirrorShape(t.shape, axis),
+        key: t.key,
+    }))
+    const spawns: [number, number][] = clip.spawns.map(([c, r]) => [
+        axis === "horizontal" ? clip.cols - 1 - c : c,
+        axis === "vertical" ? clip.rows - 1 - r : r,
+    ] as [number, number])
+    return { cols: clip.cols, rows: clip.rows, tiles, spawns }
+}
+
 // The brush that corresponds to a cell's CURRENT content, for the eyedropper /
 // PICK tool: a single tap reads the cell back into the active brush so the author
 // can re-select "the thing already painted there" without guessing. A spawn WINS

@@ -365,6 +365,82 @@
     overflow: hidden
     text-overflow: ellipsis
 
+// SELECTION ACTION TOOLBAR: a compact row of >= 44px action buttons that appears
+// while a selection (or floating clip) is active. Pinned bottom-CENTRE, sitting
+// ABOVE the status bar so it never overlaps the rails, top bar, or status bar at
+// 393px. Wraps onto a second line on a very narrow phone rather than running off
+// the edge, and scrolls horizontally as a last resort. pointer-events stay on so
+// the buttons are tappable (unlike the inert status bar).
+.selectBar
+    +panel
+    position: absolute
+    left: 50%
+    bottom: calc(3.4em + var(--inset-bottom))
+    transform: translateX(-50%)
+    z-index: 22
+    display: flex
+    flex-wrap: wrap
+    align-items: center
+    justify-content: center
+    gap: 0.3em
+    padding: 0.35em
+    max-width: calc(100% - 1.2em)
+
+// A single selection action button. 44px tap target, frosted like the rail tools.
+.selectButton
+    appearance: none
+    -webkit-appearance: none
+    background: $color-dark-2
+    border: $border-size solid transparent
+    border-radius: $border-radius
+    color: $color-text
+    cursor: pointer
+    display: flex
+    align-items: center
+    justify-content: center
+    width: 44px
+    height: 44px
+    padding: 0
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
+    transition: border-color 80ms, background-color 80ms, color 80ms
+
+    @media (hover: hover)
+        &:hover
+            border-color: $color-accent
+            color: $color-main
+
+    &:active
+        transform: translateY(1px)
+
+    &:disabled
+        cursor: default
+        opacity: 0.32
+        border-color: $color-border
+
+    &:disabled:hover
+        border-color: $color-border
+        color: $color-text
+
+    &:disabled:active
+        transform: none
+
+// The non-interactive "drag inside to move" hint at the head of the toolbar, so
+// the move affordance is discoverable on touch where there is no cursor change.
+.selectHint
+    display: flex
+    align-items: center
+    gap: 0.3em
+    min-height: 44px
+    padding: 0 0.4em
+    color: $color-accent
+    font-family: $font-family-game
+    font-size: 0.85em
+
+.selectHintLabel
+    @media (max-width: 420px)
+        display: none
+
 // OPTIONS POPOVER: a tidy panel anchored top-right that holds map settings +
 // actions, hidden until the gear is tapped. A transparent scrim behind it
 // dismisses on outside tap. On a narrow phone it widens toward full-width so
