@@ -187,10 +187,13 @@ export type ShipTimings = {
     healthRegenerationHeal: number,
     invincibility: number,
     // Timed buffs from powerups. While > 0 the ship is hasted (faster
-    // acceleration) / shielded (takes no damage). Set by applyPowerupEffect,
+    // acceleration) / shielded (takes no damage) / invisible (cloaked, hard for
+    // enemies to see). `invisibility` is a DISTINCT timer from the `invincibility`
+    // no-damage timer above — they are unrelated. Set by applyPowerupEffect,
     // ticked down each tick in update(), networked via playerShipTimings.
     haste: number,
     shield: number,
+    invisibility: number,
 }
 
 export type ShipCapacities = {
@@ -230,6 +233,7 @@ export class PipShip{
 
         haste: 0,
         shield: 0,
+        invisibility: 0,
     }
 
     capacities: ShipCapacities = {
@@ -251,10 +255,11 @@ export class PipShip{
         this.capacities.tactical = this.stats.tactical.capacity
         this.capacities.weapon = this.stats.weapon.capacity
 
-        // Clear timed buffs on (re)spawn so a fresh ship starts un-hasted and
-        // unshielded; everything else respawns clean already.
+        // Clear timed buffs on (re)spawn so a fresh ship starts un-hasted,
+        // unshielded and un-cloaked; everything else respawns clean already.
         this.timings.haste = 0
         this.timings.shield = 0
+        this.timings.invisibility = 0
     }
 
     setPlayer(player: PipPlayer){
@@ -292,6 +297,13 @@ export class PipShip{
     // checks this and deals zero to a shielded target.
     get isShielded(){
         return this.timings.shield > 0 || this.timings.invincibility > 0
+    }
+
+    // Cloaked while the "invis" buff is running. Purely a visibility state — it
+    // does NOT block damage (that is isShielded). The renderer fades the ship out
+    // for enemies (and dims, but keeps, the local player's own ship) while true.
+    get isInvisible(){
+        return this.timings.invisibility > 0
     }
 
     get isReloading(){
@@ -398,6 +410,7 @@ export class PipShip{
         this.timings.tacticalRate = tickDown(this.timings.tacticalRate)
         this.timings.haste = tickDown(this.timings.haste)
         this.timings.shield = tickDown(this.timings.shield)
+        this.timings.invisibility = tickDown(this.timings.invisibility)
 
         // take input from player
         if(typeof this.player !== "undefined"){

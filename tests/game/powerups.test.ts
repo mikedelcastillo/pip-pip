@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { Vector2 } from "@pip-pip/core/src/physics"
-import { HASTE_TICKS, SHIELD_TICKS } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, applyPowerupEffect } from "@pip-pip/game/src/logic/powerup"
 
 // Ship index 3 ("Blu") uses pure default stats, so its numbers are predictable.
 const BLU = 3
@@ -288,5 +288,83 @@ describe("map powerups", () => {
         game.setPhase(PipPipGamePhase.SETUP)
         for(let i = 0; i < game.POWERUP_SPAWN_INTERVAL_TICKS * 5; i++) game.update()
         expect(game.powerups.getActive()).toHaveLength(0)
+    })
+
+    it("cloaks a player that overlaps an invis powerup", () => {
+        const { game, player } = makeArena()
+        expect(player.ship.timings.invisibility).toBe(0)
+        expect(player.ship.isInvisible).toBe(false)
+
+        game.powerups.new({
+            position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
+            type: "invis",
+        })
+
+        game.update()
+
+        expect(player.ship.timings.invisibility).toBeGreaterThan(0)
+        expect(player.ship.isInvisible).toBe(true)
+    })
+})
+
+describe("invisibility (cloak) buff", () => {
+    it("applyPowerupEffect sets the invisibility timer to INVIS_TICKS", () => {
+        const { player } = makeArena()
+        expect(player.ship.timings.invisibility).toBe(0)
+
+        applyPowerupEffect("invis", player)
+
+        expect(player.ship.timings.invisibility).toBe(INVIS_TICKS)
+    })
+
+    it("INVIS_TICKS fits in a uint8 so it survives the playerShipTimings wire", () => {
+        expect(INVIS_TICKS).toBeLessThanOrEqual(255)
+    })
+
+    it("isInvisible reflects the invisibility timer", () => {
+        const { player } = makeArena()
+        expect(player.ship.isInvisible).toBe(false)
+
+        player.ship.timings.invisibility = 1
+        expect(player.ship.isInvisible).toBe(true)
+
+        player.ship.timings.invisibility = 0
+        expect(player.ship.isInvisible).toBe(false)
+    })
+
+    it("invisibility is DISTINCT from the invincibility no-damage timer", () => {
+        const { player } = makeArena()
+
+        // The cloak does not block damage (that is isShielded), and the legacy
+        // invincibility timer does not cloak the ship.
+        player.ship.timings.invisibility = INVIS_TICKS
+        expect(player.ship.isInvisible).toBe(true)
+        expect(player.ship.isShielded).toBe(false)
+
+        player.ship.timings.invisibility = 0
+        player.ship.timings.invincibility = 5
+        expect(player.ship.isInvisible).toBe(false)
+        expect(player.ship.isShielded).toBe(true)
+    })
+
+    it("the invisibility timer ticks down to 0 over its duration", () => {
+        const { game, player } = makeArena()
+        player.ship.timings.invisibility = INVIS_TICKS
+        expect(player.ship.timings.invisibility).toBeGreaterThan(0)
+
+        for(let i = 0; i < INVIS_TICKS + 5; i++) game.update()
+
+        expect(player.ship.timings.invisibility).toBe(0)
+        expect(player.ship.isInvisible).toBe(false)
+    })
+
+    it("reset() clears the invisibility timer", () => {
+        const { player } = makeArena()
+        player.ship.timings.invisibility = INVIS_TICKS
+
+        player.ship.reset()
+
+        expect(player.ship.timings.invisibility).toBe(0)
+        expect(player.ship.isInvisible).toBe(false)
     })
 })

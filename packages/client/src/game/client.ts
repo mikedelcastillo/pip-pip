@@ -176,6 +176,7 @@ export const processPackets = (gameContext: GameContext) => {
                 player.ship.timings.invincibility = values.invincibility
                 player.ship.timings.haste = values.haste
                 player.ship.timings.shield = values.shield
+                player.ship.timings.invisibility = values.invisibility
             }
         }
 

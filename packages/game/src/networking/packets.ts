@@ -126,11 +126,14 @@ export const packetManager = new PacketManager({
         healthRegenerationRest: $uint8,
         healthRegenerationHeal: $uint8,
         invincibility: $uint8,
-        // Timed-buff timers (HASTE_TICKS / SHIELD_TICKS). uint8, so durations
-        // must stay <= 255 ticks. Networked so remote ships' buffs are known
-        // (for the visual) and the local player's prediction uses the same haste.
+        // Timed-buff timers (HASTE_TICKS / SHIELD_TICKS / INVIS_TICKS). uint8, so
+        // durations must stay <= 255 ticks. Networked so remote ships' buffs are
+        // known (for the visual) and the local player's prediction uses the same
+        // haste. `invisibility` drives the cloak fade and is DISTINCT from the
+        // `invincibility` no-damage timer above.
         haste: $uint8,
         shield: $uint8,
+        invisibility: $uint8,
     }),
 
     playerShipCapacities: new Packet({
@@ -304,6 +307,7 @@ export const encode = {
         invincibility: player.ship.timings.invincibility,
         haste: player.ship.timings.haste,
         shield: player.ship.timings.shield,
+        invisibility: player.ship.timings.invisibility,
     }),
     playerShipCapacities: (player: PipPlayer) => packetManager.serializers.playerShipCapacities.encode({
         playerId: player.id,

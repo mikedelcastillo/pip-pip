@@ -217,14 +217,15 @@ export class DamageGraphic extends PoolableGraphic {
 
 // On-brand procedural powerup pickup: a small glowing diamond (rotated square)
 // with a soft outer halo, colour per type (green = health, amber = ammo, cyan =
-// haste, purple = shield). No art assets — drawn with Pixi Graphics and
-// pulsed/spun in render().
+// haste, purple = shield, pale ghost-white = invis cloak). No art assets — drawn
+// with Pixi Graphics and pulsed/spun in render().
 export class PowerupGraphic extends PoolableGraphic {
     static COLORS: Record<string, number> = {
         health: 0x33DD55,
         ammo: 0xFFAA33,
         haste: 0x33CCFF,
         shield: 0xAA66FF,
+        invis: 0xCCE6FF,
     }
 
     powerup?: Powerup
@@ -731,6 +732,17 @@ export class PipPipRenderer{
 
             graphic.container.visible = graphic.player.spawned
 
+            // CLOAK: a ship with the "invis" buff fades out. From the viewer's
+            // seat an ENEMY (any remote ship) drops to near-zero alpha so it is
+            // effectively invisible; the LOCAL player keeps a faint outline so
+            // they can still see where they are while cloaked. Alpha rides on the
+            // ship sprite only (shipContainer) — the health bar / buff overlays
+            // stay fully readable. Full alpha is restored the instant the timer
+            // ends.
+            graphic.shipContainer.alpha = graphic.player.ship.isInvisible
+                ? (isClient ? 0.35 : 0.05)
+                : 1
+
             graphic.overlayGraphic.clear()
             graphic.overlayGraphic.lineStyle({
                 width: DIMS.HEALTH_BAR_HEIGHT + DIMS.HEALTH_BAR_BORDER * 2,
@@ -766,6 +778,18 @@ export class PipPipRenderer{
                 graphic.overlayGraphic.beginFill(PowerupGraphic.COLORS.haste, 0.12 + buffPulse * 0.08)
                 graphic.overlayGraphic.drawCircle(0, 0, SHIP_DAIMETER * 0.55)
                 graphic.overlayGraphic.endFill()
+            }
+            // CLOAK cue: a faint ghost-white shimmer ring. Only drawn for the
+            // LOCAL player (and spectate target) — the overlay is on a sibling of
+            // the faded ship sprite, so drawing it for enemies would betray a
+            // cloaked ship that is meant to be unseen.
+            if(graphic.player.ship.isInvisible && (isClient || graphic.player === followPlayer)){
+                graphic.overlayGraphic.lineStyle({
+                    width: 2,
+                    color: PowerupGraphic.COLORS.invis,
+                    alpha: 0.25 + buffPulse * 0.25,
+                })
+                graphic.overlayGraphic.drawCircle(0, 0, SHIP_DAIMETER * 0.6 + buffPulse * 3)
             }
 
             // Track whichever player the camera should follow this frame (the

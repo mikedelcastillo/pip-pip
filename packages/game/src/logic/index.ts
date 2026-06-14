@@ -529,9 +529,17 @@ export class PipPipGame{
         const position = this.randomPowerupPosition()
         if(typeof position === "undefined") return
 
-        // Pick uniformly among ALL powerup types so haste/shield actually appear
-        // on the field alongside health/ammo. Extend this pool as types are added.
-        const types: PowerupType[] = ["health", "ammo", "haste", "shield"]
+        // Weighted pool: each entry is one "ticket", so a type listed more often
+        // is more likely. health/ammo/haste/shield each get 2 tickets; the strong
+        // "invis" cloak gets a single ticket so it shows up roughly half as often.
+        // Extend this pool (adjust the repeats to tune rarity) as types are added.
+        const types: PowerupType[] = [
+            "health", "health",
+            "ammo", "ammo",
+            "haste", "haste",
+            "shield", "shield",
+            "invis",
+        ]
         const type = types[Math.floor(Math.random() * types.length)]
 
         this.powerups.new({ position, type })

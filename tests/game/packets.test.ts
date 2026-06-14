@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { packetManager } from "@pip-pip/game/src/networking/packets"
+import { POWERUP_TYPE_TO_CODE, POWERUP_CODE_TO_TYPE } from "@pip-pip/game/src/logic/powerup"
 
 // These guard the wire format shared by client and server. A change to a packet's
 // field set or serializer that breaks compatibility shows up here as a round-trip
@@ -63,7 +64,7 @@ describe("game packetManager wire format", () => {
         expect(decoded.powerupPickup?.[0]).toEqual({ id: "wxyz", playerId: "ab" })
     })
 
-    it("round-trips playerShipTimings including haste/shield (uint8)", () => {
+    it("round-trips playerShipTimings including haste/shield/invisibility (uint8)", () => {
         const timings = {
             playerId: "ab",
             weaponReload: 12,
@@ -75,12 +76,26 @@ describe("game packetManager wire format", () => {
             invincibility: 60,
             haste: 120,
             shield: 100,
+            invisibility: 120,
         }
         const out = packetManager.decode(packetManager.encode("playerShipTimings", timings)).playerShipTimings?.[0]
         expect(out).toEqual(timings)
         // Durations must fit uint8 (<= 255) so they survive the wire untouched.
         expect(out?.haste).toBe(120)
         expect(out?.shield).toBe(100)
+        // invisibility is a distinct timer from invincibility — both round-trip.
+        expect(out?.invisibility).toBe(120)
+        expect(out?.invincibility).toBe(60)
+    })
+
+    it("round-trips the invis powerup wire code through powerupSpawn", () => {
+        const code = POWERUP_TYPE_TO_CODE.invis
+        const decoded = packetManager.decode(
+            packetManager.encode("powerupSpawn", { id: "inv1", type: code, x: 0, y: 0 }),
+        ).powerupSpawn?.[0]
+        expect(decoded?.type).toBe(code)
+        // The client reverses the code back to "invis" via POWERUP_CODE_TO_TYPE.
+        expect(POWERUP_CODE_TO_TYPE[decoded?.type ?? -1]).toBe("invis")
     })
 
     it("round-trips playerInputs within float16 precision", () => {
