@@ -7,11 +7,17 @@ import {
 } from "./gamepad"
 import { useUiStore } from "../store/ui"
 import { BindingInputState, isActionActive } from "../store/keybindings"
+import { createAimState, resolveAimRotation } from "./aim"
 
 // A scroll past this magnitude (in WheelEvent delta units, accumulated since the
 // last tick) counts as a wheel "tick" in that direction. Small enough to catch a
 // single notch on a mouse wheel, large enough to ignore stray trackpad jitter.
 const WHEEL_THRESHOLD = 1
+
+// The local client's aim latch, held across ticks so releasing a touch/gamepad
+// stick keeps the last aimed direction. Module-level like touchState/gamepadState:
+// there is a single local client.
+const aimState = createAimState()
 
 export function processInputs(context: GameContext){
     const { mouse, keyboard, game } = context
@@ -64,13 +70,16 @@ export function processInputs(context: GameContext){
         clientPlayer.inputs.movementAmount = 0
     }
 
-    // aiming
-    const mouseAngle = Math.atan2(
-        mouse.state.position.y - window.innerHeight / 2,
-        mouse.state.position.x - window.innerWidth / 2,
-    )
-
-    clientPlayer.inputs.aimRotation = mouseAngle
+    // aiming. Detect whether the mouse actually moved since last tick and derive
+    // its angle, but DO NOT write aim yet: a touch/gamepad stick may own it, and
+    // on stick release we hold the latch rather than snapping back to the mouse.
+    // Aim is resolved once below, after the pad has been polled.
+    const mouseX = mouse.state.position.x
+    const mouseY = mouse.state.position.y
+    const mouseMoved = mouseX !== aimState.lastMouseX || mouseY !== aimState.lastMouseY
+    aimState.lastMouseX = mouseX
+    aimState.lastMouseY = mouseY
+    const mouseAngle = Math.atan2(mouseY - window.innerHeight / 2, mouseX - window.innerWidth / 2)
 
     // shooting: every action is driven entirely by its bindings now. The
     // default bindings reproduce the old behavior (left-click + Space fire,
@@ -94,11 +103,8 @@ export function processInputs(context: GameContext){
             clientPlayer.inputs.movementAmount = touchState.movementAmount
         }
 
-        // Aim + fire: the right stick steers the crosshair and, while deflected,
-        // also fires — classic twin-stick, reachable one-thumbed.
-        if(touchState.aimActive){
-            clientPlayer.inputs.aimRotation = touchState.aimRotation
-        }
+        // Aim is resolved centrally below (so a released stick holds its angle);
+        // the right stick's contribution is folded in there.
 
         // OR-in the touch action intents so a fire/tactical/reload tap is never
         // clobbered by an idle keyboard/mouse on a touch device.
@@ -125,10 +131,7 @@ export function processInputs(context: GameContext){
             clientPlayer.inputs.movementAmount = gamepadState.movementAmount
         }
 
-        // Aim: the right stick steers the crosshair while deflected.
-        if(gamepadState.aimActive){
-            clientPlayer.inputs.aimRotation = gamepadState.aimRotation
-        }
+        // Aim is resolved centrally below (so a released stick holds its angle).
 
         // OR-in the action buttons so a held trigger/bumper fires even with an
         // idle keyboard/mouse.
@@ -136,6 +139,17 @@ export function processInputs(context: GameContext){
         clientPlayer.inputs.useTactical = clientPlayer.inputs.useTactical || gamepadState.useTactical
         clientPlayer.inputs.doReload = clientPlayer.inputs.doReload || gamepadState.doReload
     }
+
+    // Resolve aim once, after both sticks have been read this tick. An actively
+    // deflected stick wins (gamepad over touch, matching the old override order);
+    // otherwise the mouse only re-takes aim when it moved; otherwise the latched
+    // angle holds, so letting go of a stick keeps the last aimed direction.
+    const stickAim =
+        gamepadState.active && gamepadState.aimActive ? gamepadState.aimRotation
+            : touchState.active && touchState.aimActive ? touchState.aimRotation
+                : null
+    aimState.rotation = resolveAimRotation(aimState.rotation, mouseMoved, mouseAngle, stickAim)
+    clientPlayer.inputs.aimRotation = aimState.rotation
 
     // Tag this tick's input with a fresh, monotonically increasing sequence so
     // the server can acknowledge how far it has consumed our stream and the
