@@ -10,7 +10,11 @@
         max-width: 34em
         margin: auto
         border-collapse: collapse
-        background-color: $color-dark-2
+        // Translucent so the match stays visible behind the scoreboard. The
+        // blur keeps the small stat text legible over moving ships/bullets.
+        background-color: transparentize($color-dark-2, 0.35)
+        backdrop-filter: blur(3px)
+        -webkit-backdrop-filter: blur(3px)
         border: $border-size solid $color-border
         border-radius: $border-radius
         overflow: hidden
@@ -47,7 +51,7 @@
         color: $color-main
         text-transform: uppercase
         letter-spacing: 0.05em
-        background-color: $color-dark-3
+        background-color: transparentize($color-dark-3, 0.2)
         th
             font-weight: normal
             border-bottom: $border-size solid $color-border

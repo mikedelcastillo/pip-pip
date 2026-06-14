@@ -325,4 +325,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 46 | `576f962`   | Fix H2 player-snap distance typo (vertical jumps) | `git revert 576f962`|
 | 47 | `766f7b2`   | Harden $string to fixed byte width (M6, C1 class) | `git revert 766f7b2`|
 | 48 | `1882b8d`   | Fix client prediction/reconciliation (mid-join + respawn offset) | `git revert 1882b8d` |
-| 49 | (latest)    | Playwright e2e harness (mobile-touch + desktop-click)   | `git revert <sha>` |
+| 49 | `9d9d626`   | Playwright e2e harness (mobile-touch + desktop-click)   | `git revert 9d9d626` |
+| 50 | (latest)    | Translucent player-list background (see game behind)    | `git revert <sha>` |
