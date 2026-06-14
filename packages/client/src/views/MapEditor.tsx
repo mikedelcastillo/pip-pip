@@ -1461,6 +1461,31 @@ export default function MapEditor(){
                             Scroll to pan, pinch (or ctrl+scroll) to zoom. Two fingers pan/zoom on touch.
                             Press F to fit, Cmd/Ctrl+S to download.
                         </div>
+
+                        <details className={styles.shortcuts}>
+                            <summary>Keyboard shortcuts and controls</summary>
+                            <dl className={styles.shortcutList}>
+                                {(Object.keys(SHORTCUT_FOR) as EditorBrush[])
+                                    .filter((b) => SHORTCUT_FOR[b].length > 0)
+                                    .map((b) => (
+                                        <div key={b} className={styles.shortcutRow}>
+                                            <dt><kbd>{SHORTCUT_FOR[b]}</kbd></dt>
+                                            <dd>{LABEL_FOR[b]}</dd>
+                                        </div>
+                                    ))}
+                                <div className={styles.shortcutRow}><dt><kbd>Cmd/Ctrl+Z</kbd></dt><dd>Undo</dd></div>
+                                <div className={styles.shortcutRow}><dt><kbd>Cmd/Ctrl+Shift+Z</kbd></dt><dd>Redo</dd></div>
+                                <div className={styles.shortcutRow}><dt><kbd>F</kbd></dt><dd>Fit view</dd></div>
+                                <div className={styles.shortcutRow}><dt><kbd>O</kbd></dt><dd>Options</dd></div>
+                                <div className={styles.shortcutRow}><dt><kbd>Cmd/Ctrl+S</kbd></dt><dd>Download JSON</dd></div>
+                            </dl>
+                            <div className={styles.hint}>
+                                One finger (or left-drag) paints. Two fingers pan and pinch-zoom (trackpad:
+                                scroll pans, ctrl+scroll zooms). Alt+click picks the brush under the cursor.
+                                The four half-block shapes live in the Half tool flyout; the four slope
+                                directions in the Auto slope flyout.
+                            </div>
+                        </details>
                     </div>
                 </>
             )}
