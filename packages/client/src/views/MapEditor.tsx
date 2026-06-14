@@ -933,6 +933,21 @@ type TooltipPlacement = "right" | "bottom-left"
 // touch: touch devices fire no hover, so the bubble simply never shows and the
 // trigger's own title=/aria-label keep the shortcut discoverable. Positioned
 // imperatively off the trigger's measured rect each time it opens.
+//
+// Show the focus-driven tooltip ONLY for keyboard focus, never the residual
+// focus a tap leaves on a button: on touch, tapping a tool focuses it, and an
+// ungated onFocus would flash the bubble until blur. :focus-visible matches
+// keyboard focus but not pointer/touch focus, so it is the right gate.
+function isKeyboardFocus(target: EventTarget | null): boolean{
+    if(target === null || !(target instanceof Element)) return false
+    try{
+        return target.matches(":focus-visible")
+    } catch{
+        // Engines without :focus-visible: stay hover-only so it never flashes on touch.
+        return false
+    }
+}
+
 function Tooltip({ label, shortcut, placement = "right", children }: {
     label: string,
     shortcut?: string,
@@ -965,7 +980,7 @@ function Tooltip({ label, shortcut, placement = "right", children }: {
             className={styles.tooltipWrap}
             onPointerEnter={(e) => { if(e.pointerType !== "touch") show() }}
             onPointerLeave={hide}
-            onFocus={show}
+            onFocus={(e) => { if(isKeyboardFocus(e.target)) show() }}
             onBlur={hide}
         >
             {children}
