@@ -115,11 +115,20 @@ function normalizeCommandAliases(message: string){
     return message
 }
 
-// Drop rate-limit state for connections that have left the lobby so the map
-// does not grow without bound over the server's lifetime.
-function pruneChatState(game: PipPipGame){
+// Drop rate-limit state for connections that have left the SERVER so the map does
+// not grow without bound. chatRateStates is a single server-wide map, so it must be
+// pruned against every live connection (lobby.server.connections), NOT one lobby's
+// players: pruning against game.players deletes every OTHER lobby's bucket on each
+// of this lobby's ticks, and takeChatToken then re-seeds the missing id with a full
+// burst, neutralizing the flood limiter for everyone whenever 2+ lobbies are live.
+function pruneChatState(context: GameTickContext){
+    const { lobby } = context
+    // Test/headless contexts may omit the lobby; skip pruning rather than wipe state
+    // (those contexts are short-lived, so the map cannot grow without bound there).
+    if(typeof lobby === "undefined" || typeof lobby.server === "undefined") return
+    const connections = lobby.server.connections
     for(const id of chatRateStates.keys()){
-        if(!(id in game.players)) chatRateStates.delete(id)
+        if(!(id in connections)) chatRateStates.delete(id)
     }
 }
 
@@ -160,7 +169,7 @@ export function processChatMessages(context: GameTickContext){
         }
     }
 
-    pruneChatState(game)
+    pruneChatState(context)
 }
 
 // Host-only: disband the whole lobby and send everyone home. Tell every
