@@ -1,62 +1,63 @@
 @import "../styles/variables"
 
-// Transient, fun powerup announcement pinned TOP-CENTER, clear of the minimap
-// (top-left) and the kill feed (top-right). Newest pickup on top. Click-through.
-// Styled a touch louder than the kill feed — it's a celebratory shout, not a
-// log line: bigger, centered, with a soft pop-in.
+// The powerup feed is the SAME feed system as the kill feed: same top-right
+// corner, same right-aligned column, same row chrome. It sits directly BELOW the
+// kill feed (which anchors at margin + 4em under the control cluster), so the two
+// read as one continuous stack down the right edge. They are distinguished only
+// by their glyph + per-type color, not by placement or shape. Click-through.
+//
+// The top offset clears the menu button + a few kill-feed rows; both feeds are
+// transient (entries fade within ~5s), so in practice they rarely fill enough to
+// meet, and each row is short. max-height caps the feed so it can never run off
+// the bottom of a phone.
 .powerupFeed
     position: absolute
-    top: $screen-margin-dynamic
-    left: 50%
-    transform: translateX(-50%)
+    top: calc(#{$screen-margin-dynamic} + 12em)
+    right: $screen-margin-dynamic
     z-index: 10
     display: flex
     flex-direction: column
-    align-items: center
+    align-items: flex-end
     gap: 0.25em
     pointer-events: none
-    text-align: center
+    text-align: right
+    max-height: 40vh
+    overflow: hidden
 
+    // Row chrome mirrors KillFeed.entry exactly so a pickup line and a kill line
+    // are visually the same component, just a different glyph + color.
     .entry
         display: flex
         align-items: baseline
         gap: 0.35em
-        padding: 0.25em 0.7em
-        font-size: clamp(15px, 4.2vw, 22px)
+        padding: 0.2em 0.5em
+        font-size: clamp(13px, 3.6vw, 18px)
         line-height: 1
         white-space: nowrap
-        background-color: transparentize($color-dark-2, 0.15)
+        background-color: transparentize($color-dark-2, 0.2)
         border: $border-size solid $color-border
         border-radius: $border-radius
         // Opacity is driven inline by entry age; this only smooths it.
         transition: opacity 200ms linear
-        animation: powerupPop 220ms ease-out
 
-        // Mirrors GameChatMessage's player-name styling.
+        // Mirrors GameChatMessage's / the kill feed's player-name styling.
         .player
             color: $color-main
 
-        .verb
-            color: $color-text
-            opacity: 0.75
+        // The "+" pickup glyph stands in for the kill feed's skull; per-type
+        // color is set inline, so it reads the powerup at a glance.
+        .icon
+            font-weight: bold
 
-        // The powerup word is the star: bold + per-type color (set inline) +
-        // a soft glow in its own color via text-shadow on currentColor.
+        // The powerup word: bold + per-type color (set inline) + a soft glow in
+        // its own color via text-shadow on currentColor.
         .powerup
             font-weight: bold
             text-transform: uppercase
             letter-spacing: 0.04em
             text-shadow: 0 0 0.5em currentColor
 
-@keyframes powerupPop
-    0%
-        transform: scale(0.85)
-    60%
-        transform: scale(1.06)
-    100%
-        transform: scale(1)
-
-// Phone layout: keep it from overflowing the viewport width.
+// Phone layout: tuck under the corner controls without overflowing the width.
 @media (max-width: 480px)
     .powerupFeed
         max-width: calc(100% - #{$screen-margin-dynamic} * 2)

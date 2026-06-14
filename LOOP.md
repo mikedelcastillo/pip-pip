@@ -378,4 +378,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 86 | `8cf6dc9`   | In-match chat hidden until "/" or "T" (editable bind) + mobile chat button | `git revert 8cf6dc9`|
 | 87 | `67f7be1`   | CS2/Krunker-style public match browser (server-browser rows, players bar) | `git revert 67f7be1`|
 | 88 | `8fe317a`   | Replace native alert() with an on-brand AlertModal (global alert store) | `git revert 8fe317a`|
-| 89 | (latest)    | FIX public match list 401 "Connection lost" (ensure connection before GET /lobbies) | `git revert <sha>` |
+| 89 | `60ffd4b`   | FIX public match list 401 "Connection lost" (ensure connection before GET /lobbies) | `git revert 60ffd4b`|
+| 90 | (latest)    | Match HUD: Deathmatch king/progress meter + prominent Kill Frenzy timer + powerup feed like kill feed | `git revert <sha>` |

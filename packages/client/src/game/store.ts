@@ -44,6 +44,30 @@ export type GameStorePlayer = {
     spawnTimeout: number,
 }
 
+// The current DEATHMATCH "king": the player with the most kills. Ties go to the
+// first such player in the array (stable: the players list order is itself
+// stable across syncs). Returns null when nobody has scored yet, which the HUD
+// renders as a neutral "First to N" target instead of crowning a 0-kill leader.
+// Kept pure (no store/DOM access) so it is trivially unit-testable.
+export interface MatchLeader {
+    name: string
+    kills: number
+}
+
+export function matchLeader(players: GameStorePlayer[]): MatchLeader | null {
+    let best: GameStorePlayer | null = null
+    for (const player of players) {
+        // Spectators are not in the running; they hold no kills anyway, but skip
+        // them so a stray spectator can never be crowned.
+        if (player.spectator) continue
+        if (best === null || player.score.kills > best.score.kills) {
+            best = player
+        }
+    }
+    if (best === null || best.score.kills <= 0) return null
+    return { name: best.name, kills: best.score.kills }
+}
+
 export function playerToGameStore(player: PipPlayer): GameStorePlayer {
     return {
         id: player.id,

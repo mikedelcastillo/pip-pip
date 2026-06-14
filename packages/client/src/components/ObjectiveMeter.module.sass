@@ -1,0 +1,112 @@
+@import "../styles/variables"
+
+// Apex-style HUD treatment, shared with the rest of GameOverlayMatch: dark
+// translucent panel, a slight parallelogram skew on the progress bar.
+$hud-panel: transparentize($color-dark-1, 0.25)
+$hud-skew: -14deg
+
+// Top-center objective meter (the king/progress bar, or the frenzy clock). Sits
+// clear of the minimap (top-left) and the menu button (top-right). Newest state
+// always reflects the store. CRITICAL: pointer-events:none so the whole meter is
+// display-only and touches fall through to the floating sticks on mobile.
+.meter
+    position: absolute
+    top: $screen-margin-dynamic
+    left: 50%
+    transform: translateX(-50%)
+    z-index: 20
+    pointer-events: none
+    display: flex
+    flex-direction: column
+    align-items: center
+    gap: 0.2em
+    padding: 0.25em 0.7em
+    font-family: $font-family-game
+    line-height: 1.1
+    color: $color-text
+    background-color: $hud-panel
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    // Cap the width so a long player name can never push the meter off a phone;
+    // the name itself ellipsizes (see .kingName).
+    max-width: min(70vw, 22em)
+
+// ---- KILL_FRENZY face: a small label over a big prominent clock ----
+.frenzy
+    gap: 0.05em
+
+    .frenzyLabel
+        font-size: clamp(11px, 3vw, 15px)
+        text-transform: uppercase
+        letter-spacing: 0.12em
+        color: $color-accent
+
+    .clock
+        font-size: clamp(28px, 8vw, 44px)
+        line-height: 1
+        color: $color-main
+        letter-spacing: 0.04em
+
+        // Final-seconds urgency: switch to the danger color and pulse.
+        &.urgent
+            color: $color-bad
+            animation: objectivePulse 600ms alternate infinite ease-in-out
+
+@keyframes objectivePulse
+    from
+        opacity: 0.6
+    to
+        opacity: 1
+
+// ---- DEATHMATCH face: the king line over a progress bar ----
+.deathmatch
+    min-width: clamp(9em, 40vw, 13em)
+
+.kingRow
+    display: flex
+    align-items: baseline
+    gap: 0.35em
+    max-width: 100%
+    font-size: clamp(15px, 4.2vw, 22px)
+    white-space: nowrap
+
+    .crown
+        color: $color-main
+        // The crown sits a touch lower than the baseline-aligned text reads best.
+        align-self: center
+
+    // Ellipsize a long name so the meter keeps its shape on a narrow screen.
+    .kingName
+        color: $color-main
+        overflow: hidden
+        text-overflow: ellipsis
+
+    .kingScore
+        color: $color-text
+
+        .scoreTarget
+            color: transparentize($color-text, 0.4)
+
+    // Neutral pre-kill state: the bare "First to N" target.
+    .target
+        color: transparentize($color-text, 0.15)
+        text-transform: uppercase
+        letter-spacing: 0.04em
+
+.bar
+    position: relative
+    width: 100%
+    height: 0.55em
+    transform: skewX($hud-skew)
+    background-color: transparentize($color-dark-1, 0.15)
+    border: $border-size solid $color-border
+    overflow: hidden
+
+    .barFill
+        position: absolute
+        top: 0
+        bottom: 0
+        left: 0
+        background-color: $color-main
+        box-shadow: 0 0 0.6em transparentize($color-main, 0.4)
+        transition: width 200ms linear

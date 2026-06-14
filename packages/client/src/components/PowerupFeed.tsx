@@ -23,12 +23,20 @@ export default function PowerupFeed() {
                 return (
                     <div key={powerup.id} className={styles.entry} style={{ opacity }}>
                         <span className={styles.player}>{powerup.playerName}</span>
-                        <span className={styles.verb}>grabbed</span>
+                        {/* The "+" icon mirrors the kill feed's skull glyph: one
+                            symbol that reads the row at a glance, tinted per type
+                            so the powerup feed reads as the same feed system. */}
+                        <span
+                            className={styles.icon}
+                            style={{ color: powerupColor(powerup.type) }}
+                        >
+                            +
+                        </span>
                         <span
                             className={styles.powerup}
                             style={{ color: powerupColor(powerup.type) }}
                         >
-                            {powerupLabel(powerup.type)}!
+                            {powerupLabel(powerup.type)}
                         </span>
                     </div>
                 )
