@@ -340,4 +340,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 48 | `1882b8d`   | Fix client prediction/reconciliation (mid-join + respawn offset) | `git revert 1882b8d` |
 | 49 | `9d9d626`   | Playwright e2e harness (mobile-touch + desktop-click)   | `git revert 9d9d626` |
 | 50 | `dfd8635`   | Translucent player-list background (see game behind)    | `git revert dfd8635` |
-| 51 | (latest)    | HOTFIX reconcile runaway (ship flew corner-to-corner)   | `git revert <sha>` |
+| 51 | `b65e461`   | HOTFIX reconcile runaway (ship flew corner-to-corner)   | `git revert b65e461` |
+| 52 | (latest)    | Tunable movement/physics config (friction/accel/agility) | `git revert <sha>` |

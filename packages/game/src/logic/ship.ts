@@ -3,6 +3,7 @@ import { radianDifference } from "@pip-pip/core/src/math"
 import { PointPhysicsObject } from "@pip-pip/core/src/physics"
 import { PipPipGame } from "."
 import { SHIP_DAIMETER } from "./constants"
+import { MOVEMENT_CONFIG, MOVEMENT_ACCEL_RANGE, MOVEMENT_SPEED_RANGE } from "./physics-config"
 import { PipPlayer } from "./player"
 import { tickDown } from "./utils"
 
@@ -91,17 +92,11 @@ export const DEFAULT_SHIP_STATS: ShipStats = {
         accuracy: 0.75,
     },
     movement: {
-        acceleration: {
-            low: 3,
-            normal: 4,
-            high: 6,
-        },
-        speed: {
-            low: 25,
-            normal: 30,
-            high: 35,
-        },
-        agility: 0.6,
+        // Derived from the central MOVEMENT_CONFIG (physics-config.ts) so the
+        // feel is tuned in one place. Override per ship below if a bird differs.
+        acceleration: { ...MOVEMENT_ACCEL_RANGE },
+        speed: { ...MOVEMENT_SPEED_RANGE },
+        agility: MOVEMENT_CONFIG.agility,
     },
     weapon: {
         capacity: 20,
@@ -267,9 +262,9 @@ export class PipShip{
     }
 
     setupPhysics(){
-        this.physics.mass = 500
+        this.physics.mass = MOVEMENT_CONFIG.mass
         this.physics.radius = SHIP_DAIMETER / 2
-        this.physics.airResistance = 0.05
+        this.physics.airResistance = MOVEMENT_CONFIG.friction
         // Ships collide with each other AND with walls. The client simulates
         // every ship, so it predicts the push too; the brief residual on
         // contact is absorbed by reconciliation.
