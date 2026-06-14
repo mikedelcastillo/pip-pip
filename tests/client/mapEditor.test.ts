@@ -29,6 +29,7 @@ import {
     boundedFloodFill,
     brushAtCell,
     materialAtCell,
+    editorMapIssue,
     materialKeyForBrush,
     HALF_BRUSHES,
     EDITOR_MATERIALS,
@@ -1506,5 +1507,32 @@ describe("half-tile shapes (editor model)", () => {
         expect(map.setCell(3, 3, "half_left")).toBe(true)
         expect(map.hasSpawn(3, 3)).toBe(false)
         expect(map.tileAt(3, 3)).not.toBe(0)
+    })
+})
+
+describe("editorMapIssue (playability gate)", () => {
+    it("flags a map with no spawns", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full")
+        expect(editorMapIssue(map)).toMatch(/spawn/i)
+    })
+
+    it("flags an empty map (no spawns)", () => {
+        expect(editorMapIssue(new EditorMap())).toMatch(/spawn/i)
+    })
+
+    it("returns null for a playable map (has a spawn, within the cell cap)", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full")
+        map.setCell(1, 0, "spawn")
+        expect(editorMapIssue(map)).toBeNull()
+    })
+
+    it("flags a map whose bounding box exceeds the cell cap", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "spawn")
+        // bounding box 301 x 301 = 90601 cells, over the 250 x 250 cap
+        map.setCell(300, 300, "full")
+        expect(editorMapIssue(map)).toMatch(/too large/i)
     })
 })

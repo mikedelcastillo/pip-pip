@@ -30,6 +30,7 @@ import {
     EDITOR_MATERIALS,
     DEFAULT_MATERIAL_KEY,
     Cell,
+    editorMapIssue,
 } from "../game/mapEditor"
 import { blockFaceCss } from "../game/mapGraphics"
 import { trackEvent, trackPageView } from "../analytics"
@@ -908,7 +909,10 @@ export default function MapEditor(){
         document.body.removeChild(link)
         URL.revokeObjectURL(url)
         trackEvent("export_map")
-        setMessage(`Downloaded ${link.download}`)
+        // Download always works (it is just a file, and autosave keeps the draft),
+        // but flag a playability issue so a downloaded map is not silently broken.
+        const issue = editorMapIssue(mapRef.current)
+        setMessage(issue !== null ? `Downloaded ${link.download} - ${issue}` : `Downloaded ${link.download}`)
     }, [])
 
     // Play this map: stash the current exported GridMapData to localStorage under
@@ -917,6 +921,13 @@ export default function MapEditor(){
     // EXPLICIT handoff - it never auto-hosts and starts no match - so there is no
     // timing race: the host clicks again in the lobby to apply it.
     const onPlay = useCallback(() => {
+        // Block the handoff when the map cannot be played (no spawn, or over the
+        // server cell cap) so the host never carries a map the match would reject.
+        const issue = editorMapIssue(mapRef.current)
+        if(issue !== null){
+            setMessage(issue)
+            return
+        }
         const data = mapRef.current.toGridMapData()
         const storage = editorStorage()
         if(storage !== null) stashPlayMap(data, storage)
@@ -1118,6 +1129,13 @@ export default function MapEditor(){
         // The model is a ref, so `version` (bumped on every mutation) is the only
         // meaningful dependency.
     }, [version])
+
+    // The one blocking reason this map cannot be played yet (no spawn, or over the
+    // server cell cap), or null when it is playable. Recomputed off `version` so it
+    // tracks the live map. Drives the status-bar warning and gates Play/Download so
+    // a host never ships a map the server would reject or that has no spawn. The
+    // model is a ref, so `version` (bumped on every mutation) is the dependency.
+    const mapIssue = useMemo(() => editorMapIssue(mapRef.current), [version])
 
     return (
         <div className={styles.root}>
@@ -1386,6 +1404,7 @@ export default function MapEditor(){
                 <span className={styles.statusDim}>
                     {exportSize.cols} x {exportSize.rows}
                 </span>
+                {mapIssue !== null && <span className={styles.statusWarn}>{mapIssue}</span>}
                 {message.length > 0 && <span className={styles.statusMsg}>{message}</span>}
             </div>
 
@@ -1425,6 +1444,10 @@ export default function MapEditor(){
                             />
                             <span>Show collision</span>
                         </label>
+
+                        {mapIssue !== null && (
+                            <div className={styles.issue}>{mapIssue}</div>
+                        )}
 
                         <div className={styles.actions}>
                             <GameButton onClick={onPlay}>Play this map</GameButton>

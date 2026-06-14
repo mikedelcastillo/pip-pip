@@ -11,6 +11,7 @@ import {
     GridMapData,
     TileShape,
     TilePaletteEntry,
+    MAX_CUSTOM_CELLS,
 } from "@pip-pip/game/src/logic/grid-map"
 import { TILE_SIZE } from "@pip-pip/game/src/logic/constants"
 
@@ -584,6 +585,24 @@ export class EditorMap{
 
         return map
     }
+}
+
+// The single blocking reason a map cannot be PLAYED yet, or null when it is
+// playable. Pure + DOM-free so the editor view can show it live and it unit-tests
+// cleanly. A map needs at least one spawn (players have nowhere to enter without
+// one) and must fit the server's hard cell cap (the loader rejects anything over
+// MAX_CUSTOM_CELLS, so warn here before the host ever tries to load it). The
+// spawn check comes first since it is the common case.
+export function editorMapIssue(map: EditorMap): string | null{
+    if(map.spawns.length === 0){
+        return "Add at least one spawn point to play."
+    }
+    const box = map.bounds()
+    const cells = box.empty ? 0 : (box.maxCol - box.minCol + 1) * (box.maxRow - box.minRow + 1)
+    if(cells > MAX_CUSTOM_CELLS){
+        return `Map is too large to play (${cells} of ${MAX_CUSTOM_CELLS} cells).`
+    }
+    return null
 }
 
 // The brush that corresponds to a cell's CURRENT content, for the eyedropper /
