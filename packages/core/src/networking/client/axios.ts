@@ -66,6 +66,12 @@ export function initializeAxios<T extends PacketManagerSerializerMap>(client: Cl
     }
 
     client.listPublicLobbies = async () => {
+        // Listing public lobbies is auth-gated (routerAuthMiddleware rejects with
+        // 401 when the request carries no known connection). On a fresh page load
+        // with no prior host/join there is no connection token yet, so the GET
+        // failed and the browser showed "Connection lost" - the intermittent prod
+        // bug. Establish (or reuse) a connection first; this is idempotent.
+        await client.requestConnectionIfNeeded()
         const { data } = await client.api.get<PublicLobbyJSON[]>("/lobbies")
         return data
     }

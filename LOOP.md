@@ -377,4 +377,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 85 | `38c30da`   | In-lobby game mode switching (host changes mode/target without re-hosting) | `git revert 38c30da`|
 | 86 | `8cf6dc9`   | In-match chat hidden until "/" or "T" (editable bind) + mobile chat button | `git revert 8cf6dc9`|
 | 87 | `67f7be1`   | CS2/Krunker-style public match browser (server-browser rows, players bar) | `git revert 67f7be1`|
-| 88 | (latest)    | Replace native alert() with an on-brand AlertModal (global alert store) | `git revert <sha>` |
+| 88 | `8fe317a`   | Replace native alert() with an on-brand AlertModal (global alert store) | `git revert 8fe317a`|
+| 89 | (latest)    | FIX public match list 401 "Connection lost" (ensure connection before GET /lobbies) | `git revert <sha>` |
