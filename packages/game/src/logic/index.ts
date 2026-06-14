@@ -700,12 +700,18 @@ export class PipPipGame{
             // maxKills === 0 means "no kill cap", so the match never ends on its
             // own (same as DEATHMATCH).
             if(target <= 0) return
-            // The first of the N teams whose combined kills reach the cap wins; its
-            // members become the winners (reusing the RESULTS / winnerIds
-            // machinery). Generalizes the original 2-team check to numTeams.
-            const winningTeam = teamIndices(this.settings.numTeams)
-                .find(team => this.teamScore(team) >= target)
-            if(typeof winningTeam === "undefined") return
+            // A single tick can credit kills to players on more than one team (the
+            // bullet + grenade loops resolve several lethal hits per tick), so two
+            // teams can cross the cap before this once-per-tick check runs. Pick the
+            // team with the HIGHEST combined kills among those at/over the cap, not
+            // simply the lowest index - otherwise a trailing team could be declared
+            // the winner. Mirrors the DEATHMATCH path (topScorers). A genuine tie at
+            // the top keeps the lower index (the reduce uses a strict >).
+            const reached = teamIndices(this.settings.numTeams)
+                .filter(team => this.teamScore(team) >= target)
+            if(reached.length === 0) return
+            const winningTeam = reached.reduce((best, team) =>
+                this.teamScore(team) > this.teamScore(best) ? team : best, reached[0])
             this.endMatch(this.teamPlayers(winningTeam))
         }
     }
