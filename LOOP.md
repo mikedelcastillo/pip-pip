@@ -89,7 +89,7 @@ Engine / gameplay:
 Maps:
 - [x] **Map selection screen** — host-only "Map" tab in the lobby SETUP overlay, over `setMap` (live highlight via synced `mapIndex`). (#25)
 - [x] **Per-map background themes** — each of the 5 maps gets a distinct on-theme canvas colour, applied on `setMap` (data on `PipMapType.background`). (#41)
-- [ ] New map geometry + tile-art themes (more variety; needs the Rust map tool or hand-authored *.map.json + tile art).
+- [ ] New map geometry + tile-art themes (more variety; authored via the in-app map editor or hand-authored *.map.json + tile art).
 
 Networking / lobbies / multiplayer:
 - [x] **Public-lobby foundation** — lobby metadata + `GET /lobbies` listing + create-with-options + `client.listPublicLobbies()`. (#9)
@@ -417,4 +417,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 125| `62f41b4`   | Spectator controls: Space/Right/Left (+pad) cycle watched players, WASD free-roams the camera, bottom Deploy panel to return (fixes top objective overlap) | `git revert 62f41b4`|
 | 126| `8c82a46`   | Map engine Phase 1: new GridMapData format (palette of block types + 45 degree diagonal tile shapes), greedy-meshed rect collision (Clash 89->9 walls), diagonal->segWall, all 8 maps migrated losslessly | `git revert 8c82a46`|
 | 127| `a68a028`   | FIX Railway client build (TS 4.8.4): narrow BotGoal via direct goal.kind check, not an aliased bool (older client TS would not narrow the union, breaking the prod build) | `git revert a68a028`|
-| 128| (latest)    | FIX spawn-outside-map: migration now carries the legacy origin (originCol/Row) so converted maps sit at the EXACT old world coords (was shifted to +quadrant, so a stale client + new server disagreed on positions) | `git revert <sha>` |
+| 128| `d663252`   | FIX spawn-outside-map: migration now carries the legacy origin (originCol/Row) so converted maps sit at the EXACT old world coords (was shifted to +quadrant, so a stale client + new server disagreed on positions) | `git revert d663252`|
+| 129| (latest)    | Retire the Rust map generator (maps now load via the TS grid engine + in-app editor); drop dead generate-maps/clear-maps scripts; remove stray editor screenshots + gitignore them | `git revert <sha>` |

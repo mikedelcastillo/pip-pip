@@ -115,3 +115,8 @@ test-results/
 playwright-report/
 .playwright/
 .playwright-mcp/
+
+# Stray screenshot / Playwright artifacts (agents sometimes drop these in the repo root)
+/editor-*.png
+/*.screenshot.png
+/screenshot*.png

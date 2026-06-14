@@ -12,7 +12,7 @@ Yarn workspaces monorepo; all packages share root `node_modules`. Under `package
 - `@pip-pip/client`: React + Vite + Pixi.js. `src/game/index.ts` holds `GameContext`, wiring the `Client`, `PipPipGame`, `PipPipRenderer`, input listeners, and tickers. Most of `src/game/*` is framework-agnostic TS; React/Zustand only do UI/store (thin HUD: chat, player list, overlays) and routing; Pixi owns the canvas.
 - `@pip-pip/map-maker`: separate Vite/Vue map-authoring app.
 
-`tools/game_maps`: Rust CLI (`cargo run`) converting source images into `*.map.json` files for `@pip-pip/game/src/maps`.
+Maps are authored in the in-app map editor and loaded through the TS grid map engine (`packages/game/src/logic/grid-map.ts` + `grid-map-migrate.ts`), which routes every map via `packages/game/src/maps/index.ts`. The legacy `*.map.json` files in `packages/game/src/maps` are still consumed at runtime through the migration adapter (`grid-map-migrate`).
 
 ## Common commands
 
@@ -29,8 +29,6 @@ yarn deploy          # reinstall, build, restart pm2 (server + client preview)
 yarn lint            # eslint across client, core, game, server
 yarn test            # vitest run (suite at repo root under tests/)
 yarn test:watch      # vitest watch mode
-yarn generate-maps   # Rust map generator (tools/game_maps)
-yarn clear-maps      # remove packages/game/src/maps/*.map.json
 yarn clear           # remove all dist/ and tsbuildinfo
 yarn uninstall       # remove all node_modules
 ```

@@ -12,19 +12,19 @@ A top-down multiplayer shooter where players pilot ships across hand-crafted map
 - **Typed packet manager**: client and server import the same `packetManager`, so packet shapes are enforced at compile time. No schema drift.
 - **Authoritative server, predictive client**: one `PipPipGame` class runs on both sides, gated by `PipPipGameOptions` flags. The server owns damage, spawns, and scoring; the client predicts locally and reconciles from server state.
 - **20 Hz tick loop**: the WebSocket server processes packets, steps physics, and broadcasts state 20x/sec, with ping compensation in hit detection.
-- **Rust map compiler**: source images compile into optimized `.map.json` geometry via a Rust CLI (`tools/game_maps`); maps live in the game package as typed data.
+- **In-app map editor + TS grid map engine**: maps are authored in the in-app editor and loaded through the TypeScript grid map engine (`packages/game/src/logic/grid-map.ts`); maps live in the game package as typed data.
 - **Framework-agnostic client core**: most of the client (`src/game/*`: renderer, networking, ticker, state) is plain TypeScript on the shared `core`/`game` packages. React only renders a thin HUD and routing, keeping rendering and netcode decoupled from the UI framework.
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
-| Language | TypeScript (strict), Rust |
+| Language | TypeScript (strict) |
 | Monorepo | Yarn workspaces |
 | Server | Node.js, `ws` |
 | Rendering | Pixi.js |
 | Client framework | React, Vite |
-| Map tooling | Rust (image -> geometry) |
+| Map tooling | In-app editor + TS grid map engine |
 
 ## Project structure
 
@@ -35,8 +35,6 @@ packages/
   server/      Node entry: lobby management, tick loop, WebSocket I/O
   client/      Pixi.js renderer + React UI
   map-maker/   in-browser map authoring tool
-tools/
-  game_maps/   Rust CLI: converts images to map geometry
 ```
 
 ## Running locally
