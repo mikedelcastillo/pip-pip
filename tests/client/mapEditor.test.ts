@@ -1630,6 +1630,24 @@ describe("mirrorMap (build a symmetric arena)", () => {
         expect(map.tileAt(3, 0)).toBe(before)
         expect(map.hasSpawn(3, 2)).toBe(true)
     })
+
+    it("does not destroy originals when a tile and a spawn mirror onto each other", () => {
+        const map = new EditorMap()
+        // bbox cols 0..2 (horizontal span = 2): the tile at (0,0) mirrors to (2,0)
+        // where the spawn sits, and the spawn at (2,0) mirrors to (0,0) where the
+        // tile sits. Tiles and spawns are mutually exclusive, so neither may evict
+        // the other (the bug destroyed BOTH originals and left the arena asymmetric).
+        map.setCell(0, 0, "full")
+        map.setCell(2, 0, "spawn")
+
+        mirrorMap(map, "horizontal")
+
+        // Both originals survive; a cell that would need both keeps what was there.
+        expect(brushAtCell(map, 0, 0)).toBe("full")
+        expect(brushAtCell(map, 2, 0)).toBe("spawn")
+        expect(map.hasSpawn(2, 0)).toBe(true)
+        expect(map.tileAt(0, 0)).toBeGreaterThan(0)
+    })
 })
 
 // Look a clip tile up by its relative (col, row), or undefined when that cell of

@@ -636,10 +636,14 @@ export function mirrorShape(shape: TileShape, axis: MirrorAxis): TileShape{
 // Reflect every painted tile + spawn across the CENTRE of the current painted
 // bounding box, flipping each shape's direction, so a half-painted layout becomes
 // a SYMMETRIC arena in one action (great for balanced competitive maps). The
-// reflection is a UNION: originals stay and their mirror images are added, so the
-// result is symmetric by construction. A cell that lands on the centre line maps
-// to itself and is skipped. Writes through setCell/toggleSpawn so the append-only
-// palette + spawn/tile exclusion are respected. Returns true if anything changed.
+// reflection is a UNION: originals stay and their mirror images are added. A cell
+// that lands on the centre line maps to itself and is skipped. Writes through
+// setCell/toggleSpawn so the append-only palette + spawn/tile exclusion are
+// respected. A mirror image is SKIPPED when its destination already holds the
+// OPPOSITE content type (a tile vs a spawn): tiles and spawns are mutually
+// exclusive per cell, so writing one would evict the other - and when a tile and a
+// spawn mirror onto each other that would destroy BOTH originals. Such a cell just
+// cannot be made symmetric; the original is kept. Returns true if anything changed.
 export function mirrorMap(map: EditorMap, axis: MirrorAxis): boolean{
     const box = map.bounds()
     if(box.empty) return false
@@ -661,13 +665,19 @@ export function mirrorMap(map: EditorMap, axis: MirrorAxis): boolean{
     for(const t of tiles){
         const [mc, mr] = mirror(t.col, t.row)
         if(mc === t.col && mr === t.row) continue
+        // Do not overwrite an existing spawn with a mirrored tile: setCell would
+        // evict it, destroying an original where a tile and a spawn mirror together.
+        if(map.hasSpawn(mc, mr)) continue
         // mirrorShape never returns "auto"; TileShape is a subset of EditorBrush.
         if(map.setCell(mc, mr, mirrorShape(t.shape, axis), t.key)) changed = true
     }
     for(const [c, r] of spawns){
         const [mc, mr] = mirror(c, r)
         if(mc === c && mr === r) continue
+        // Skip if the destination already holds a spawn OR a tile: writing a spawn
+        // over a tile would evict that tile (the mirror image of the case above).
         if(map.hasSpawn(mc, mr)) continue
+        if(map.tileAt(mc, mr) > 0) continue
         map.setCell(mc, mr, "spawn")
         changed = true
     }
