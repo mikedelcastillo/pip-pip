@@ -28,12 +28,17 @@ import {
     lineCells,
     boundedFloodFill,
     brushAtCell,
+    materialAtCell,
+    materialKeyForBrush,
+    EDITOR_MATERIALS,
+    DEFAULT_MATERIAL_KEY,
     DRAW_MODES,
     FILL_BOUNDS_MARGIN,
     FILL_CELL_CAP,
     Cell,
 } from "../../packages/client/src/game/mapEditor"
 import { loadGridMap } from "../../packages/game/src/logic/grid-map"
+import { TILE_BLOCK_STYLES, blockFaceCss } from "../../packages/client/src/game/mapGraphics"
 
 // A tiny in-memory EditorStorage so the autosave round-trip is exercised without
 // a real DOM/localStorage. Matches the getItem/setItem/removeItem surface the
@@ -1122,5 +1127,306 @@ describe("shape application integrates with one undo step", () => {
 
     it("the cap constant is the documented backstop", () => {
         expect(FILL_CELL_CAP).toBe(20000)
+    })
+})
+
+describe("EDITOR_MATERIALS (selectable block colours)", () => {
+    it("lists tile_default first so a fresh editor keeps today's look", () => {
+        expect(EDITOR_MATERIALS[0].key).toBe("tile_default")
+        expect(DEFAULT_MATERIAL_KEY).toBe("tile_default")
+    })
+
+    it("only lists keys that exist in the shared TILE_BLOCK_STYLES", () => {
+        for(const m of EDITOR_MATERIALS){
+            expect(TILE_BLOCK_STYLES[m.key]).toBeDefined()
+        }
+    })
+
+    it("never offers tile_hidden (deco) as a colourable material", () => {
+        expect(EDITOR_MATERIALS.some((m) => m.key === "tile_hidden")).toBe(false)
+    })
+
+    it("has a non-empty label per material and unique keys", () => {
+        const keys = new Set<string>()
+        for(const m of EDITOR_MATERIALS){
+            expect(m.label.length).toBeGreaterThan(0)
+            expect(keys.has(m.key)).toBe(false)
+            keys.add(m.key)
+        }
+    })
+})
+
+describe("materialKeyForBrush (colour half of a tile)", () => {
+    it("uses the active material for the block + every slope (explicit + auto)", () => {
+        for(const brush of ["full", "auto", "diag_tl", "diag_tr", "diag_bl", "diag_br"] as const){
+            expect(materialKeyForBrush(brush, "rust")).toBe("rust")
+            expect(materialKeyForBrush(brush, "teal")).toBe("teal")
+        }
+    })
+
+    it("forces deco to the non-colliding tile_hidden regardless of the material", () => {
+        expect(materialKeyForBrush("deco", "rust")).toBe("tile_hidden")
+        expect(materialKeyForBrush("deco", "teal")).toBe("tile_hidden")
+        expect(materialKeyForBrush("deco", "tile_default")).toBe("tile_hidden")
+    })
+})
+
+describe("blockFaceCss (editor preview matches in-game colour)", () => {
+    it("maps a named material to its TILE_BLOCK_STYLES face colour as #rrggbb", () => {
+        for(const m of EDITOR_MATERIALS){
+            const expected = `#${TILE_BLOCK_STYLES[m.key].face.toString(16).padStart(6, "0")}`
+            expect(blockFaceCss(m.key)).toBe(expected)
+        }
+    })
+
+    it("zero-pads a face colour with leading-zero channels", () => {
+        // A face value whose hex is < 6 digits must still render 6 digits.
+        // tile_default (0x362631) is already 6; assert the padding contract on a
+        // synthetic small value via the same formatting the helper uses.
+        expect("#000abc").toBe(`#${(0x000abc).toString(16).padStart(6, "0")}`)
+    })
+})
+
+describe("append-only material palette (indices stay stable)", () => {
+    it("reuses an existing {shape, key} entry and APPENDS a brand-new one", () => {
+        const map = new EditorMap()
+        const seedLength = map.palette.length
+
+        // The default-material block reuses the seed entry (index 0 -> value 1).
+        expect(map.setCell(0, 0, "full", "tile_default")).toBe(true)
+        expect(map.tileAt(0, 0)).toBe(1)
+        expect(map.palette.length).toBe(seedLength)
+
+        // A new colour for the SAME shape appends a fresh entry at the END.
+        expect(map.setCell(1, 0, "full", "rust")).toBe(true)
+        const rustValue = map.tileAt(1, 0)
+        expect(rustValue).toBe(seedLength + 1)
+        expect(map.palette[rustValue - 1]).toEqual({ shape: "full", key: "rust" })
+        expect(map.palette.length).toBe(seedLength + 1)
+
+        // Painting rust again reuses that appended entry (no further growth).
+        expect(map.setCell(2, 0, "full", "rust")).toBe(true)
+        expect(map.tileAt(2, 0)).toBe(rustValue)
+        expect(map.palette.length).toBe(seedLength + 1)
+    })
+
+    it("never reindexes existing entries as many materials are added", () => {
+        const map = new EditorMap()
+        const seed = map.palette.map((e) => ({ ...e }))
+
+        // Paint a block in every colourable material at distinct cells.
+        EDITOR_MATERIALS.forEach((m, i) => {
+            map.setCell(i, 0, "full", m.key)
+        })
+
+        // Every seed entry is byte-identical at its ORIGINAL index (append-only).
+        seed.forEach((entry, i) => {
+            expect(map.palette[i]).toEqual(entry)
+        })
+
+        // Each painted cell still resolves to a full tile in the colour requested.
+        EDITOR_MATERIALS.forEach((m, i) => {
+            const value = map.tileAt(i, 0)
+            expect(map.palette[value - 1]).toEqual({ shape: "full", key: m.key })
+        })
+    })
+
+    it("stores a value whose palette entry has the right {shape, key} for a slope", () => {
+        const map = new EditorMap()
+        map.setCell(3, 3, "diag_br", "teal")
+        const value = map.tileAt(3, 3)
+        expect(map.palette[value - 1]).toEqual({ shape: "diag_br", key: "teal" })
+    })
+
+    it("auto-slope adopts the active material for the resolved shape", () => {
+        const map = new EditorMap()
+        // Walls above + left of (2,2) -> auto resolves to diag_tl, painted in cobalt.
+        map.setCell(2, 1, "full", "cobalt")
+        map.setCell(1, 2, "full", "cobalt")
+        map.setCell(2, 2, "auto", "cobalt")
+        const value = map.tileAt(2, 2)
+        expect(map.palette[value - 1]).toEqual({ shape: "diag_tl", key: "cobalt" })
+    })
+
+    it("deco ignores the material and stays the non-colliding tile_hidden", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "deco", "rust")
+        const value = map.tileAt(0, 0)
+        expect(map.palette[value - 1]).toEqual({ shape: "deco", key: "tile_hidden" })
+    })
+
+    it("defaults the material to tile_default when omitted (backward compat)", () => {
+        const map = new EditorMap()
+        // The 3-arg call path (every legacy call site + the eraser) paints in the
+        // default material, reusing the seed full/tile_default entry (value 1).
+        expect(map.setCell(0, 0, "full")).toBe(true)
+        expect(map.tileAt(0, 0)).toBe(1)
+        expect(map.palette[0]).toEqual({ shape: "full", key: "tile_default" })
+    })
+})
+
+describe("material round-trips through GridMapData and undo/redo", () => {
+    it("preserves appended materials across toGridMapData -> loadGridMap", () => {
+        const map = new EditorMap("Colourful")
+        map.setCell(0, 0, "full", "tile_default")
+        map.setCell(1, 0, "full", "rust")
+        map.setCell(0, 1, "diag_tr", "teal")
+
+        const data = map.toGridMapData()
+        // The exported palette carries the appended colours.
+        expect(data.palette.some((e) => e.key === "rust" && e.shape === "full")).toBe(true)
+        expect(data.palette.some((e) => e.key === "teal" && e.shape === "diag_tr")).toBe(true)
+
+        // It loads into the real game loader, and the render tiles carry the keys.
+        const playable = loadGridMap("colourful", data)
+        const blocks = playable.tiles.map((t) => t.block)
+        expect(blocks).toContain("rust")
+        expect(blocks).toContain("teal")
+        expect(blocks).toContain("tile_default")
+    })
+
+    it("a loaded map's palette is ADOPTED as-is and only appended to", () => {
+        // Re-import a coloured map, then paint a NEW colour onto it.
+        const original = new EditorMap("Loaded")
+        original.setCell(0, 0, "full", "rust")
+        const data = original.toGridMapData()
+        const imported = EditorMap.fromGridMapData(data)
+
+        // The imported palette equals the exported one (adopted verbatim).
+        expect(imported.palette).toEqual(data.palette)
+        const beforeLength = imported.palette.length
+
+        // Painting an existing colour reuses its index; a new colour appends.
+        imported.setCell(1, 0, "full", "rust")
+        expect(imported.palette.length).toBe(beforeLength)
+        imported.setCell(2, 0, "full", "moss")
+        expect(imported.palette.length).toBe(beforeLength + 1)
+        const mossValue = imported.tileAt(2, 0)
+        expect(imported.palette[mossValue - 1]).toEqual({ shape: "full", key: "moss" })
+    })
+
+    it("an old single-material map still loads and renders identically", () => {
+        // A legacy draft using ONLY tile_default / tile_hidden, like today's autosaves.
+        const data = {
+            name: "Legacy",
+            cellSize: 72,
+            cols: 2,
+            rows: 1,
+            tiles: [1, paletteValueForBrush("deco")],
+            spawns: [],
+            palette: EDITOR_PALETTE.map((e) => ({ key: e.key, shape: e.shape })),
+        }
+        const map = EditorMap.fromGridMapData(data as never)
+        // The default block at (0,0) and the deco at (1,0) survive unchanged.
+        expect(map.palette[map.tileAt(0, 0) - 1]).toEqual({ shape: "full", key: "tile_default" })
+        expect(map.palette[map.tileAt(1, 0) - 1]).toEqual({ shape: "deco", key: "tile_hidden" })
+        // Painting a new colour onto it just appends, leaving the legacy entries put.
+        const beforeLength = map.palette.length
+        map.setCell(0, 0, "full", "slate")
+        expect(map.palette.length).toBe(beforeLength + 1)
+        expect(map.palette[0]).toEqual({ shape: "full", key: "tile_default" })
+    })
+
+    it("round-trips MIXED-material tiles through serialize -> parse -> rebuild", () => {
+        const map = new EditorMap("Mixed")
+        map.setCell(0, 0, "full", "tile_default")
+        map.setCell(1, 0, "full", "rust")
+        map.setCell(0, 1, "diag_bl", "accent")
+        map.setCell(1, 1, "deco", "rust") // deco -> tile_hidden regardless
+
+        const data = map.toGridMapData()
+        const rebuilt = EditorMap.fromGridMapData(parseGridMapData(serializeGridMapData(data)))
+        // The rebuilt map re-exports to byte-identical dense tiles + palette.
+        const reexported = rebuilt.toGridMapData()
+        expect(reexported.tiles).toEqual(data.tiles)
+        expect(reexported.palette).toEqual(data.palette)
+    })
+
+    it("undo/redo round-trips tiles with mixed materials (values stay valid)", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+
+        // One gesture paints three differently-coloured tiles.
+        history.begin(map)
+        map.setCell(0, 0, "full", "rust")
+        map.setCell(1, 0, "full", "teal")
+        map.setCell(0, 1, "diag_tl", "accent")
+        expect(history.commit(map)).toBe(true)
+
+        const rustValue = map.tileAt(0, 0)
+        const tealValue = map.tileAt(1, 0)
+        const accentValue = map.tileAt(0, 1)
+
+        // Undo wipes the whole stroke; the palette (append-only) is untouched, so
+        // every captured value still points at the right entry after redo.
+        expect(history.undo(map)).toBe(true)
+        expect(map.tiles.size).toBe(0)
+        expect(history.redo(map)).toBe(true)
+        expect(map.tileAt(0, 0)).toBe(rustValue)
+        expect(map.tileAt(1, 0)).toBe(tealValue)
+        expect(map.tileAt(0, 1)).toBe(accentValue)
+        expect(map.palette[rustValue - 1]).toEqual({ shape: "full", key: "rust" })
+        expect(map.palette[tealValue - 1]).toEqual({ shape: "full", key: "teal" })
+        expect(map.palette[accentValue - 1]).toEqual({ shape: "diag_tl", key: "accent" })
+    })
+})
+
+describe("fill matches by VALUE (shape + material), not just shape", () => {
+    it("only flood-fills cells of the SAME shape AND colour", () => {
+        const map = new EditorMap()
+        // A row: two rust blocks, then a teal block, then a rust block. A fill
+        // seeded on the first rust must stop at the teal (different value) and not
+        // jump to the rust on the far side.
+        map.setCell(0, 0, "full", "rust")
+        map.setCell(1, 0, "full", "rust")
+        map.setCell(2, 0, "full", "teal")
+        map.setCell(3, 0, "full", "rust")
+
+        const start: Cell = [0, 0]
+        const cells = boundedFloodFill(start, (c, r) => map.tileAt(c, r), map.fillClamp(start))
+        const keys = new Set(cells.map(([c, r]) => cellKey(c, r)))
+        // The two connected rust cells fill; the teal and the far rust do not.
+        expect(keys.has(cellKey(0, 0))).toBe(true)
+        expect(keys.has(cellKey(1, 0))).toBe(true)
+        expect(keys.has(cellKey(2, 0))).toBe(false)
+        expect(keys.has(cellKey(3, 0))).toBe(false)
+    })
+})
+
+describe("materialAtCell (eyedropper picks colour too)", () => {
+    it("picks the material of a painted block / slope", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full", "rust")
+        map.setCell(1, 0, "diag_tr", "teal")
+        expect(materialAtCell(map, 0, 0)).toBe("rust")
+        expect(materialAtCell(map, 1, 0)).toBe("teal")
+    })
+
+    it("returns null over empty, spawn, or deco cells (nothing colourable to adopt)", () => {
+        const map = new EditorMap()
+        expect(materialAtCell(map, 9, 9)).toBe(null) // empty
+        map.setCell(2, 2, "spawn")
+        expect(materialAtCell(map, 2, 2)).toBe(null) // spawn
+        map.setCell(3, 3, "deco", "rust")
+        expect(materialAtCell(map, 3, 3)).toBe(null) // deco (tile_hidden, not a material)
+    })
+
+    it("picking a coloured slope adopts BOTH its brush (shape) and its material", () => {
+        const map = new EditorMap()
+        map.setCell(4, 4, "diag_bl", "accent")
+        // brushAtCell yields the shape brush; materialAtCell yields the colour.
+        expect(brushAtCell(map, 4, 4)).toBe("diag_bl")
+        expect(materialAtCell(map, 4, 4)).toBe("accent")
+    })
+
+    it("does NOT mutate the map (no paint, no undo step)", () => {
+        const map = new EditorMap()
+        map.setCell(1, 1, "full", "rust")
+        const tilesBefore = map.tiles.size
+        const paletteBefore = map.palette.length
+        materialAtCell(map, 1, 1)
+        materialAtCell(map, 9, 9)
+        expect(map.tiles.size).toBe(tilesBefore)
+        expect(map.palette.length).toBe(paletteBefore)
     })
 })

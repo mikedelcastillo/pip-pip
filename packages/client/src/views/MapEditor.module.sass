@@ -77,6 +77,67 @@
     max-height: calc(100% - 8em)
     overflow-y: auto
 
+// MATERIAL (colour) PICKER: a vertical strip of block-colour swatches docked to
+// the RIGHT edge, mirroring the tool rail on the left so it never overlaps the
+// left rails, the top bar, or the bottom-centred status bar (checked at 393px).
+// Each swatch is a >= 44px tap target; the strip scrolls internally on a short
+// phone if the colour set ever outgrows the height.
+.materialRail
+    +panel
+    position: absolute
+    top: 50%
+    right: calc(0.6em + var(--inset-right))
+    transform: translateY(-50%)
+    z-index: 20
+    display: flex
+    flex-direction: column
+    gap: 0.3em
+    padding: 0.4em
+    max-height: calc(100% - 2em)
+    overflow-y: auto
+
+// A single colour swatch button. 46px tap target; the inner chip shows the
+// material's face colour. Reuses the tool hover/active feel so the picker reads
+// as part of the same toolset.
+.swatch
+    appearance: none
+    -webkit-appearance: none
+    background: $color-dark-2
+    border: $border-size solid transparent
+    border-radius: $border-radius
+    cursor: pointer
+    display: flex
+    align-items: center
+    justify-content: center
+    width: 46px
+    height: 46px
+    padding: 0
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
+    transition: border-color 80ms, background-color 80ms
+
+    @media (hover: hover)
+        &:hover
+            border-color: $color-accent
+
+    &:active
+        transform: translateY(1px)
+
+.swatchActive
+    border-color: $color-main
+    background: $color-dark-3
+    box-shadow: 0 0 0 1px rgba(230, 174, 16, 0.35)
+
+// The colour chip inside a swatch. A rounded square filled (inline style) with
+// the material's face colour, ringed so a near-black material still reads as a
+// chip against the dark panel.
+.swatchChip
+    display: block
+    width: 28px
+    height: 28px
+    border-radius: 4px
+    border: 1px solid rgba(255, 255, 255, 0.18)
+
 .tool
     appearance: none
     -webkit-appearance: none
@@ -429,6 +490,12 @@
 // To the right of the trigger, vertically centred on it.
 .tooltipRight
     transform: translateY(-50%)
+
+// To the LEFT of the trigger, vertically centred (the right-docked material
+// picker, whose right-hung bubble would run off-screen). Shifts fully left of the
+// anchor point so its right edge sits at the trigger's left edge.
+.tooltipLeft
+    transform: translate(-100%, -50%)
 
 // Below the trigger, right edges aligned (top-bar buttons near the screen edge,
 // where a right-hung bubble would run off-screen).

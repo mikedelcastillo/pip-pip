@@ -25,8 +25,12 @@ import {
     lineCells,
     boundedFloodFill,
     brushAtCell,
+    materialAtCell,
+    EDITOR_MATERIALS,
+    DEFAULT_MATERIAL_KEY,
     Cell,
 } from "../game/mapEditor"
+import { blockFaceCss } from "../game/mapGraphics"
 import { trackEvent, trackPageView } from "../analytics"
 import styles from "./MapEditor.module.sass"
 
@@ -163,17 +167,46 @@ const MODE_DEFS: ModeDef[] = [
     { mode: "pick", label: "Pick (eyedropper)" },
 ]
 
-// Translucent fill for the live rect/line preview overlay drawn while dragging,
-// so the author sees the shape's cells before committing on pointer-up.
-const COLOR_PREVIEW = "rgba(230, 174, 16, 0.35)"
+// Translucent fill for the live rect/line ERASE preview overlay drawn while
+// dragging, so the author sees the cells a stroke would clear before committing.
+// Adding strokes preview in the active material colour instead (see
+// previewFillStyle), so the preview shows both the shape and the colour.
 const COLOR_PREVIEW_ERASE = "rgba(255, 80, 80, 0.30)"
 
-// Fill colour for a painted shape, used by both the canvas tiles and the
-// rail icons.
-function shapeColor(shape: string): string{
-    if(shape === "full") return COLOR_BLOCK
-    if(shape === "deco") return COLOR_DECO
-    return COLOR_SLOPE
+// The opacity (0..1) the rect/line ADD preview overlay tints the active material
+// at, so the shape reads as "about to paint here in this colour" without fully
+// hiding the grid underneath.
+const PREVIEW_ALPHA = 0.42
+
+// Parse a "#rrggbb" CSS colour into an "rgba(r, g, b, a)" string at the given
+// alpha. Used to tint the shape preview in the active material's face colour
+// (which arrives as a hex string from blockFaceCss) at PREVIEW_ALPHA. Falls back
+// to the raw colour when the input is not a 6-digit hex.
+function hexToRgba(hex: string, alpha: number): string{
+    const m = /^#([0-9a-fA-F]{6})$/.exec(hex)
+    if(m === null) return hex
+    const n = parseInt(m[1], 16)
+    const r = (n >> 16) & 0xff
+    const g = (n >> 8) & 0xff
+    const b = n & 0xff
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+// The fill style for the rect/line preview overlay, given the active brush +
+// material: an erase brush previews red (removing), deco previews its fixed faded
+// hue (deco ignores the material), and every colourable brush previews in its
+// material's face colour so the author sees the colour they will paint.
+function previewFillStyle(brush: EditorBrush, materialKey: string): string{
+    if(brush === "empty") return COLOR_PREVIEW_ERASE
+    if(brush === "deco") return hexToRgba(rgbHexFromCss(COLOR_DECO), PREVIEW_ALPHA)
+    return hexToRgba(blockFaceCss(materialKey), PREVIEW_ALPHA)
+}
+
+// Normalise a CSS colour that is already a 6-digit hex (our COLOR_* constants
+// are) so hexToRgba can tint it. A passthrough today, kept as a single seam so a
+// later non-hex constant degrades gracefully rather than silently mis-tinting.
+function rgbHexFromCss(css: string): string{
+    return /^#([0-9a-fA-F]{6})$/.test(css) ? css : "#5A4A54"
 }
 
 // The injectable storage the autosave uses. window.localStorage in the browser;
@@ -240,6 +273,13 @@ export default function MapEditor(){
 
     const initial = mapRef.current
     const [brush, setBrush] = useState<EditorBrush>("full")
+    // The active MATERIAL (block colour). Applies to the block brush AND every
+    // slope (explicit + auto) so a slope matches its block colour; deco ignores it
+    // (it stays the non-colliding tile_hidden). Held in React state so the picker
+    // and previews re-render, and mirrored to a ref below so the imperative pointer
+    // handlers paint with the live selection. Defaults to the original plum so a
+    // fresh editor looks exactly like today until a colour is picked.
+    const [material, setMaterial] = useState<string>(DEFAULT_MATERIAL_KEY)
     // The active mode (orthogonal to the brush). Freehand by default = the
     // original one-cell-per-position painting; rect/line preview then commit a
     // shape; fill flood-fills under a click; pick is the eyedropper (a single tap
@@ -261,6 +301,11 @@ export default function MapEditor(){
     // currently selected brush, not the one selected when the canvas mounted.
     const brushRef = useRef(brush)
     brushRef.current = brush
+    // The active material is likewise read inside the imperative pointer handlers,
+    // so mirror it into a ref so a drag always paints the currently selected
+    // colour, not the one selected when the canvas mounted.
+    const materialRef = useRef(material)
+    materialRef.current = material
     // The active mode is likewise read inside the imperative pointer handlers, so
     // mirror it into a ref so a gesture always uses the currently selected mode.
     const modeRef = useRef(mode)
@@ -418,7 +463,10 @@ export default function MapEditor(){
             if(col < startCol || col >= endCol || row < startRow || row >= endRow) continue
             const entry = map.palette[value - 1]
             if(typeof entry === "undefined") continue
-            drawTile(ctx, entry.shape, ox + col * cell, oy + row * cell, cell)
+            // Colour each tile by its palette entry's material KEY through the same
+            // TILE_BLOCK_STYLES the in-game renderer uses, so the editor preview is
+            // the in-game look (deco ignores it inside drawTile).
+            drawTile(ctx, entry.shape, blockFaceCss(entry.key), ox + col * cell, oy + row * cell, cell)
         }
 
         // Grid lines on top of fills so cell edges stay legible while painting.
@@ -462,7 +510,10 @@ export default function MapEditor(){
             const previewCells = activeMode === "rect"
                 ? rectCells(shape.start, shape.current)
                 : lineCells(shape.start, shape.current)
-            ctx.fillStyle = brushRef.current === "empty" ? COLOR_PREVIEW_ERASE : COLOR_PREVIEW
+            // Preview adds in the ACTIVE material colour (semi-transparent) so the
+            // author sees the shape AND the colour it will paint; erase previews in
+            // red. Deco previews as the fixed deco hue (it ignores the material).
+            ctx.fillStyle = previewFillStyle(brushRef.current, materialRef.current)
             for(const [col, row] of previewCells){
                 if(col < startCol || col >= endCol || row < startRow || row >= endRow) continue
                 ctx.fillRect(ox + col * cell, oy + row * cell, cell, cell)
@@ -531,7 +582,7 @@ export default function MapEditor(){
         // skipping the same cell just avoids redundant work.
         if(last !== null && last.col === cellPos.col && last.row === cellPos.row) return
         lastCellRef.current = cellPos
-        const changed = mapRef.current.setCell(cellPos.col, cellPos.row, brushRef.current)
+        const changed = mapRef.current.setCell(cellPos.col, cellPos.row, brushRef.current, materialRef.current)
         if(changed){
             markDirty()
             bump()
@@ -551,6 +602,11 @@ export default function MapEditor(){
         if(cellPos === null) return
         const picked = brushAtCell(mapRef.current, cellPos.col, cellPos.row)
         setBrush(picked)
+        // Adopt the cell's MATERIAL (colour) too, so picking a blue slope keeps
+        // painting blue slopes. materialAtCell is null over empty/spawn/deco cells
+        // (nothing colourable to adopt), in which case the active material stays.
+        const pickedMaterial = materialAtCell(mapRef.current, cellPos.col, cellPos.row)
+        if(pickedMaterial !== null) setMaterial(pickedMaterial)
         if(returnToFreehand) setMode("freehand")
     }, [cellFromEvent])
 
@@ -564,9 +620,10 @@ export default function MapEditor(){
     const applyCells = useCallback((cells: Cell[]) => {
         const map = mapRef.current
         const brushNow = brushRef.current
+        const materialNow = materialRef.current
         let changed = false
         for(const [col, row] of cells){
-            if(map.setCell(col, row, brushNow)) changed = true
+            if(map.setCell(col, row, brushNow, materialNow)) changed = true
         }
         if(changed){
             markDirty()
@@ -1009,6 +1066,21 @@ export default function MapEditor(){
         return () => window.removeEventListener("keydown", onKeyDown)
     }, [confirmLeave, onExport, fitNow, undo, redo])
 
+    // The active material's face colour as a CSS hex, derived from the shared
+    // TILE_BLOCK_STYLES so the rail's block/slope icons (and the material picker
+    // swatches) read as the EXACT in-game colour the author is about to paint.
+    const materialFace = blockFaceCss(material)
+
+    // The rail-icon colour for a tool: block + slope tools (auto and the four
+    // explicit directions) show the ACTIVE material colour so the rail mirrors what
+    // a stroke will paint; deco/spawn/erase keep their fixed affordance colours.
+    const toolIconColor = useCallback((brushFor: EditorBrush, fallback: string): string => {
+        if(brushFor === "full" || brushFor === "auto" || SLOPE_BRUSHES.indexOf(brushFor) !== -1){
+            return materialFace
+        }
+        return fallback
+    }, [materialFace])
+
     const spawnCount = mapRef.current.spawns.length
     // The size the map would EXPORT at: the bounding box of everything painted.
     // Recomputed off `version` (which bumps on every model mutation) so the
@@ -1073,7 +1145,7 @@ export default function MapEditor(){
                                         title={`${tool.label} (${tool.shortcut})`}
                                     >
                                         <span className={styles.toolIcon}>
-                                            <ToolIcon brush={iconBrush} color={tool.color} />
+                                            <ToolIcon brush={iconBrush} color={toolIconColor(iconBrush, tool.color)} />
                                         </span>
                                         <span className={styles.toolKey}>{tool.shortcut}</span>
                                     </button>
@@ -1101,7 +1173,7 @@ export default function MapEditor(){
                                                     title={`${s.label} (${s.shortcut})`}
                                                 >
                                                     <span className={styles.toolIcon}>
-                                                        <ToolIcon brush={s.brush} color={s.color} />
+                                                        <ToolIcon brush={s.brush} color={toolIconColor(s.brush, s.color)} />
                                                     </span>
                                                     <span className={styles.slopeItemLabel}>{s.label}</span>
                                                     <span className={styles.toolKey}>{s.shortcut}</span>
@@ -1124,13 +1196,38 @@ export default function MapEditor(){
                                 title={`${tool.label} (${tool.shortcut})`}
                             >
                                 <span className={styles.toolIcon}>
-                                    <ToolIcon brush={tool.brush} color={tool.color} />
+                                    <ToolIcon brush={tool.brush} color={toolIconColor(tool.brush, tool.color)} />
                                 </span>
                                 <span className={styles.toolKey}>{tool.shortcut}</span>
                             </button>
                         </Tooltip>
                     )
                 })}
+            </div>
+
+            {/* Material (colour) picker: a strip of >= 44px swatches showing each
+                colourable material's FACE colour (the same hue the in-game block
+                renders), docked to the RIGHT edge so it never overlaps the left
+                rails, the top bar, or the bottom status bar (verified at 393px
+                width). The active swatch is highlighted; each carries a portal
+                Tooltip naming the colour. Picking a swatch sets the active material,
+                which the block brush + every slope (explicit + auto) paint with;
+                deco stays non-colliding decoration and ignores it. */}
+            <div className={styles.materialRail} role="toolbar" aria-label="Block colours">
+                {EDITOR_MATERIALS.map((m) => (
+                    <Tooltip key={m.key} label={m.label} placement="left">
+                        <button
+                            type="button"
+                            className={`${styles.swatch} ${material === m.key ? styles.swatchActive : ""}`}
+                            onClick={() => setMaterial(m.key)}
+                            aria-pressed={material === m.key}
+                            aria-label={`${m.label} block colour`}
+                            title={`${m.label} block colour`}
+                        >
+                            <span className={styles.swatchChip} style={{ backgroundColor: blockFaceCss(m.key) }} />
+                        </button>
+                    </Tooltip>
+                ))}
             </div>
 
             {/* Top bar: title, Undo/Redo, Options, and Back. Floats over the
@@ -1297,9 +1394,11 @@ function restoreInitialMap(): EditorMap{
 }
 
 // Where a tooltip bubble sits relative to its trigger. "right" hangs it to the
-// right of the element (rail tools); "bottom-left" drops it below and aligns its
-// right edge to the trigger's right edge (top-bar buttons near the screen edge).
-type TooltipPlacement = "right" | "bottom-left"
+// right of the element (rail tools); "left" hangs it to the left (the right-docked
+// material picker, whose right-hung bubble would run off-screen); "bottom-left"
+// drops it below and aligns its right edge to the trigger's right edge (top-bar
+// buttons near the screen edge).
+type TooltipPlacement = "right" | "left" | "bottom-left"
 
 // A UNIVERSAL tooltip. It wraps a single trigger element and renders its bubble
 // through a PORTAL to document.body, so the bubble is NEVER clipped by an
@@ -1324,6 +1423,15 @@ function isKeyboardFocus(target: EventTarget | null): boolean{
     }
 }
 
+// The bubble's transform class for a placement: right-hung centres vertically;
+// left-hung centres vertically AND shifts fully left of its anchor; bottom-left
+// shifts fully left so it tucks under a top-bar button near the screen edge.
+function tooltipPlacementClass(placement: TooltipPlacement): string{
+    if(placement === "bottom-left") return styles.tooltipBottomLeft
+    if(placement === "left") return styles.tooltipLeft
+    return styles.tooltipRight
+}
+
 function Tooltip({ label, shortcut, placement = "right", children }: {
     label: string,
     shortcut?: string,
@@ -1342,6 +1450,10 @@ function Tooltip({ label, shortcut, placement = "right", children }: {
         const rect = wrap.getBoundingClientRect()
         if(placement === "bottom-left"){
             setPos({ left: rect.right, top: rect.bottom + 6 })
+        } else if(placement === "left"){
+            // Hang the bubble to the LEFT of the trigger (toward the canvas), so a
+            // right-docked swatch's tooltip never runs off the right screen edge.
+            setPos({ left: rect.left - 8, top: rect.top + rect.height / 2 })
         } else{
             setPos({ left: rect.right + 8, top: rect.top + rect.height / 2 })
         }
@@ -1362,7 +1474,7 @@ function Tooltip({ label, shortcut, placement = "right", children }: {
             {children}
             {open && createPortal(
                 <div
-                    className={`${styles.tooltip} ${placement === "bottom-left" ? styles.tooltipBottomLeft : styles.tooltipRight}`}
+                    className={`${styles.tooltip} ${tooltipPlacementClass(placement)}`}
                     style={{ left: pos.left, top: pos.top }}
                     role="tooltip"
                 >
@@ -1400,20 +1512,24 @@ function drawCheckerboard(ctx: CanvasRenderingContext2D, ox: number, oy: number,
 // Draw a single painted tile into a cell-sized box at (x, y). Full fills the
 // box; the four diagonals fill the right-angle-cornered triangle (matching how
 // grid-map.ts places the right angle in the named corner); deco fills a faded
-// box so it reads as non-colliding decoration.
-function drawTile(ctx: CanvasRenderingContext2D, shape: string, x: number, y: number, size: number){
+// box so it reads as non-colliding decoration. `faceColor` is the tile's MATERIAL
+// face colour (a CSS "#rrggbb" derived from the same TILE_BLOCK_STYLES the in-game
+// Pixi renderer uses), so the editor preview matches what the author will see in
+// a match. Deco is non-colliding decoration and ignores the material, painting a
+// fixed faded box so it always reads as deco.
+function drawTile(ctx: CanvasRenderingContext2D, shape: string, faceColor: string, x: number, y: number, size: number){
     if(shape === "deco"){
         ctx.fillStyle = COLOR_DECO
         ctx.fillRect(x, y, size, size)
         return
     }
     if(shape === "full"){
-        ctx.fillStyle = COLOR_BLOCK
+        ctx.fillStyle = faceColor
         ctx.fillRect(x, y, size, size)
         return
     }
     // Diagonals: fill the triangle whose right angle sits in the named corner.
-    ctx.fillStyle = shapeColor(shape)
+    ctx.fillStyle = faceColor
     ctx.beginPath()
     const left = x
     const right = x + size

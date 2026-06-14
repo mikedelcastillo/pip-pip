@@ -83,7 +83,10 @@ export function autoSlopeShape(top: boolean, right: boolean, bottom: boolean, le
 // The fixed editor palette. The editor authors with a SINGLE shared texture key
 // per shape (the renderer's defaults), so the exported palette is small and
 // every painted cell of a given shape shares one palette entry. Order here is
-// also the order the palette buttons render in.
+// also the order the palette buttons render in. This is the SEED palette an
+// EditorMap starts from (tile_default block + slopes + a tile_hidden deco); the
+// material picker then APPENDS extra {shape, key} entries on demand (see
+// EditorMap.setCell) so painting a new colour never reindexes these.
 export const EDITOR_PALETTE: { brush: EditorBrush, shape: TileShape, key: string, label: string }[] = [
     { brush: "full", shape: "full", key: "tile_default", label: "Block" },
     { brush: "diag_tl", shape: "diag_tl", key: "tile_default", label: "Slope TL" },
@@ -92,6 +95,52 @@ export const EDITOR_PALETTE: { brush: EditorBrush, shape: TileShape, key: string
     { brush: "diag_br", shape: "diag_br", key: "tile_default", label: "Slope BR" },
     { brush: "deco", shape: "deco", key: "tile_hidden", label: "Deco" },
 ]
+
+// A MATERIAL is the COLOUR half of a tile (the other half is its shape). Each is
+// one of the named block styles in mapGraphics.TILE_BLOCK_STYLES, so the editor
+// swatch and the in-game block render the SAME face colour. The active material
+// applies to the block brush AND every slope (explicit + auto), so a slope always
+// matches the block colour the author chose. Deco is NOT a material: it is
+// non-colliding decoration and always keeps the "tile_hidden" key (see
+// materialKeyForBrush), so it is excluded from this list and the picker.
+export type EditorMaterial = {
+    // The block style key. Stored verbatim in a tile's palette entry, so it flows
+    // straight through GridMapData -> the validator (which accepts any key) -> the
+    // renderer with no game/server/wire change.
+    key: string,
+    // The human label shown in the material picker tooltip.
+    label: string,
+}
+
+// The ORDERED, colourable materials, in the order the picker renders them. Keys
+// are a subset of TILE_BLOCK_STYLES (the colourable ones; tile_hidden/deco is
+// excluded). "tile_default" is first so it stays the default look and a map that
+// only ever uses it is byte-identical to today. Adding a key here is purely a
+// client concern: any string key is valid map data.
+export const EDITOR_MATERIALS: EditorMaterial[] = [
+    { key: "tile_default", label: "Plum" },
+    { key: "slate", label: "Slate" },
+    { key: "rust", label: "Rust" },
+    { key: "accent", label: "Purple" },
+    { key: "teal", label: "Teal" },
+    { key: "cobalt", label: "Cobalt" },
+    { key: "moss", label: "Moss" },
+    { key: "mauve", label: "Mauve" },
+]
+
+// The default active material: the original plum block, so a fresh editor paints
+// exactly today's look until the author picks another colour.
+export const DEFAULT_MATERIAL_KEY = EDITOR_MATERIALS[0].key
+
+// The block key a brush paints with, given the active MATERIAL. Deco is always
+// non-colliding decoration and keeps "tile_hidden" regardless of the picker;
+// every colourable brush (block / slope / auto) uses the active material key. The
+// shape is decided separately (by the brush / auto-resolution); this is only the
+// colour half. Pure + unit-tested.
+export function materialKeyForBrush(brush: EditorBrush, materialKey: string): string{
+    if(brush === "deco") return "tile_hidden"
+    return materialKey
+}
 
 // The editor's default map name. Size is no longer fixed: the canvas is
 // UNBOUNDED and the author paints cells anywhere; the exported cols/rows are
@@ -303,13 +352,36 @@ export class EditorMap{
         )
     }
 
-    // Paint one brush into one cell at ANY coordinate. "empty" erases the tile,
-    // every shape brush writes that shape's palette value, and "spawn" toggles a
-    // spawn marker. A cell can NEVER hold both a tile and a spawn: painting a
-    // tile onto a cell that has a spawn removes the spawn, and toggling a spawn
+    // Find the "palette index + 1" value for a {shape, key} pair, APPENDING a new
+    // palette entry when no existing one matches. This is the heart of the
+    // append-only palette: an existing entry is REUSED (its index never moves) and
+    // a brand-new combination is pushed onto the END, so every tile VALUE already
+    // stored in `tiles`, in an EditorHistory snapshot, or in a loaded map stays
+    // valid forever. That stability is exactly why undo/redo and import can never
+    // corrupt: a value n always still points at the same palette[n - 1]. Pure
+    // w.r.t. existing entries; the only mutation is the append.
+    paletteValueFor(shape: TileShape, key: string): number{
+        for(let i = 0; i < this.palette.length; i++){
+            const entry = this.palette[i]
+            if(entry.shape === shape && entry.key === key) return i + 1
+        }
+        this.palette.push({ key, shape })
+        return this.palette.length
+    }
+
+    // Paint one brush into one cell at ANY coordinate, in the active MATERIAL
+    // (colour). "empty" erases the tile, every shape brush writes a tile of that
+    // shape in the given material (deco ignores the material and stays the
+    // non-colliding "tile_hidden" key), and "spawn" toggles a spawn marker. The
+    // {shape, materialKey} pair resolves to a palette value via the APPEND-ONLY
+    // paletteValueFor, so a never-seen colour grows the palette without touching
+    // any existing index. A cell can NEVER hold both a tile and a spawn: painting
+    // a tile onto a cell that has a spawn removes the spawn, and toggling a spawn
     // onto a cell that has a tile removes the tile. Returns true when something
     // actually changed, so the view can skip redundant redraws while dragging.
-    setCell(col: number, row: number, brush: EditorBrush): boolean{
+    // The material defaults to DEFAULT_MATERIAL_KEY so call sites that do not care
+    // about colour (tests, the eraser, spawns) keep working unchanged.
+    setCell(col: number, row: number, brush: EditorBrush, materialKey: string = DEFAULT_MATERIAL_KEY): boolean{
         if(brush === "spawn"){
             return this.toggleSpawn(col, row)
         }
@@ -321,13 +393,11 @@ export class EditorMap{
             return true
         }
 
-        let next: number
-        if(brush === "auto"){
-            // Auto slope resolves to a concrete shape from the cell's neighbours.
-            next = paletteValueForShape(this.autoShapeAt(col, row))
-        } else{
-            next = paletteValueForBrush(brush)
-        }
+        // Auto slope resolves to a concrete shape from the cell's neighbours; every
+        // other shape brush IS its shape. The colour comes from the active material
+        // (deco forces tile_hidden via materialKeyForBrush).
+        const shape: TileShape = brush === "auto" ? this.autoShapeAt(col, row) : brush
+        const next = this.paletteValueFor(shape, materialKeyForBrush(brush, materialKey))
         const hadSpawn = this.removeSpawn(col, row)
         if(this.tiles.get(key) === next && hadSpawn === false) return false
         this.tiles.set(key, next)
@@ -520,6 +590,25 @@ export function brushAtCell(map: EditorMap, col: number, row: number): EditorBru
     // Every concrete tile shape shares its name with the brush that paints it
     // (full/diag_*/deco), so the palette entry's shape IS the picked brush.
     return entry.shape
+}
+
+// The MATERIAL (colour key) of a cell's CURRENT tile, for the eyedropper so a
+// pick adopts BOTH shape (via brushAtCell) AND colour: pick a blue slope, keep
+// painting blue slopes. Returns null when the cell has no colourable tile (empty,
+// a spawn, an out-of-palette value, or a deco tile whose tile_hidden key is not a
+// pickable material), so the caller leaves the active material untouched in those
+// cases. Pure + DOM-free + does NOT mutate the map, so a pick creates no undo
+// step.
+export function materialAtCell(map: EditorMap, col: number, row: number): string | null{
+    if(map.hasSpawn(col, row)) return null
+    const value = map.tileAt(col, row)
+    if(value <= 0) return null
+    const entry = map.palette[value - 1]
+    if(typeof entry === "undefined") return null
+    // Deco's tile_hidden key is decoration, not a colourable material, so picking
+    // a deco tile keeps the current material rather than adopting tile_hidden.
+    if(entry.shape === "deco") return null
+    return entry.key
 }
 
 // An undoable snapshot of the editor's CANVAS CONTENT: the full sparse tile map

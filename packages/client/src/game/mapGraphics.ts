@@ -38,6 +38,12 @@ export const TILE_BLOCK_STYLES: Record<string, TileBlockStyle> = {
     accent: { face: 0x2E2438, edge: 0x42324F },
     // A deep teal block.
     teal: { face: 0x1F3030, edge: 0x2C4444 },
+    // A cold steel blue, slightly brighter than slate so the two read apart.
+    cobalt: { face: 0x1E2A45, edge: 0x2C3C5E },
+    // A mossy dark green, the only "warm-cool" green besides teal.
+    moss: { face: 0x26321F, edge: 0x37472D },
+    // A dusty mauve/rose, a softer companion to the accent purple.
+    mauve: { face: 0x3A2533, edge: 0x4F3447 },
 }
 
 // Ordered fallback styles, used when a block key is not a named style. A stable
@@ -61,15 +67,33 @@ export function hashBlockKey(key: string): number{
     return Math.abs(hash)
 }
 
-// Resolve a tile's block key (falling back to its texture) to a concrete
-// { face, edge } style. A named style wins outright; anything else is spread
-// deterministically across the fallback palette so varied keys look varied.
-export function blockStyleFor(tile: PipGameTile): TileBlockStyle{
-    const key = tile.block ?? tile.texture
+// The { face, edge } style for a raw block KEY (not a whole tile). A named style
+// wins outright; anything else is spread deterministically across the fallback
+// palette so the editor preview and the in-game renderer agree on any key. Kept
+// separate from blockStyleFor (which takes a tile) so the editor can colour a
+// material swatch straight from its key without fabricating a tile.
+export function blockStyleForKey(key: string): TileBlockStyle{
     const named = TILE_BLOCK_STYLES[key]
     if(typeof named !== "undefined") return named
     const index = hashBlockKey(key) % FALLBACK_STYLES.length
     return FALLBACK_STYLES[index]
+}
+
+// A material key's FACE colour as a CSS "#rrggbb" string, so the 2D editor canvas
+// (which paints with CSS colours, not Pixi's 0xRRGGBB numbers) can render a tile
+// in the EXACT face colour the in-game Pixi renderer uses. Routed through
+// blockStyleForKey so a named material, a legacy key, or an unknown key all map
+// the same way in the editor as they will in the match.
+export function blockFaceCss(key: string): string{
+    const face = blockStyleForKey(key).face
+    return `#${face.toString(16).padStart(6, "0")}`
+}
+
+// Resolve a tile's block key (falling back to its texture) to a concrete
+// { face, edge } style. A named style wins outright; anything else is spread
+// deterministically across the fallback palette so varied keys look varied.
+export function blockStyleFor(tile: PipGameTile): TileBlockStyle{
+    return blockStyleForKey(tile.block ?? tile.texture)
 }
 
 // The polygon (in world space) that fills a tile of the given shape, centred on
