@@ -114,3 +114,4 @@ assets/*preview*
 test-results/
 playwright-report/
 .playwright/
+.playwright-mcp/

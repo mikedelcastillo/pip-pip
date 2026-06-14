@@ -1,83 +1,225 @@
 @import "../styles/variables"
 
-// "Leave" button pinned to the top-left of the lobby overlay (the top-right is
-// the audio toggle). Mirrors AudioVolumeToggle's .corner so the two sit
-// symmetrically and stay reachable by thumb on mobile.
-.leaveCorner
-    position: absolute
-    top: $screen-margin-dynamic
-    left: $screen-margin-dynamic
-    z-index: 10
+// Dark translucent panel fill so the live map renders faintly behind the lobby
+// (atmosphere) while the content stays readable.
+$panel-bg: transparentize($color-dark-1, 0.18)
+$head-bg: transparentize($color-dark-2, 0.15)
 
-.overlayContainer
+@keyframes lobbyPanelIn
+    from
+        opacity: 0
+        transform: translateY(12px)
+    to
+        opacity: 1
+        transform: translateY(0)
+
+.lobby
     position: absolute
-    inset: $screen-margin-dynamic
+    inset: 0
     display: flex
     flex-direction: column
-    gap: 2em
-    .gameChat
-        flex-grow: 0
-        flex-shrink: 0
+    gap: 0.8em
+    font-family: $font-family-game
+    color: $color-text
+    // Respect notch / home-indicator insets, falling back to the dynamic margin.
+    padding-top: max(#{$screen-margin-dynamic}, env(safe-area-inset-top))
+    padding-right: max(#{$screen-margin-dynamic}, env(safe-area-inset-right))
+    padding-bottom: max(#{$screen-margin-dynamic}, env(safe-area-inset-bottom))
+    padding-left: max(#{$screen-margin-dynamic}, env(safe-area-inset-left))
 
-    .setupContainer
-        flex-grow: 1
-        flex-shrink: 1
-        overflow: auto
-        display: flex
+// ---- Header: brand + mode on the left, Settings/Leave on the right ----
+.topBar
+    flex: 0 0 auto
+    display: flex
+    align-items: center
+    justify-content: space-between
+    gap: 0.8em
+
+.brand
+    display: flex
+    flex-direction: column
+    gap: 0.25em
+    min-width: 0
+
+    .kicker
+        font-size: 1em
+        line-height: 1
+        letter-spacing: 0.3em
+        text-transform: uppercase
+        color: transparentize($color-text, 0.45)
+
+    .modeBadge
+        align-self: flex-start
+        max-width: 100%
+        display: inline-flex
         flex-direction: column
+        align-items: flex-start
+        gap: 0.05em
+        padding: 0.2em 0.7em
+        background-color: $panel-bg
+        border: $border-size solid $color-main
+        border-left-width: 5px
+        border-radius: $border-radius
 
-        .setupTabsNav
-            overflow: auto
-            flex-grow: 0
-            flex-shrink: 0
-            display: flex
-            gap: 1.5em
-            padding-bottom: 0.8em
-            .setupTabNav
-                cursor: pointer
-                transition: all 0.1s
-                .text
-                    font-size: 3em
-                    display: inline-block
-                .notif
-                    display: inline-block
-                    vertical-align: top
-                    top: 0.5em
-                    margin-left: 0.2em
-                    background-color: $color-bad
-                    color: white
-                    font-size: 1.5em
-                    padding: 0.1em 0.2em
-                    border-radius: $border-radius
-                &.active
-                    color: $color-main
+    .modeName
+        font-size: 1.6em
+        line-height: 1
+        color: $color-main
+        white-space: nowrap
 
-                &:not(.active):hover
-                    color: $color-accent
-                    transform: translateY(-3px)
-        .setupTab
-            flex-grow: 1
-            flex-shrink: 1
-            display: grid
-            justify-items: center
-            align-items: center
+    .modeDetail
+        max-width: 100%
+        font-size: 0.9em
+        line-height: 1
+        color: transparentize($color-text, 0.25)
+        white-space: nowrap
+        overflow: hidden
+        text-overflow: ellipsis
 
-            &.players
-                align-content: start
-                > *
-                    width: 100%
+.topActions
+    flex: 0 0 auto
+    display: flex
+    align-items: center
+    gap: 0.5em
 
-                .spectateRow
-                    display: flex
-                    justify-content: flex-end
-                    margin-bottom: 0.8em
+.iconButton, .leaveButton
+    flex: 0 0 auto
+    height: 2.4em
+    display: inline-flex
+    align-items: center
+    justify-content: center
+    font-family: $font-family-game
+    line-height: 1
+    color: $color-text
+    background-color: $panel-bg
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    cursor: pointer
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
 
-            &.ship
-                align-items: start
-                > *
-                    width: 100%
+    &:active
+        background-color: $color-accent-darker
+        color: $color-dark-3
 
-            &.map
-                align-items: start
-                > *
-                    width: 100%
+.iconButton
+    width: 2.4em
+    font-size: 1.5em
+
+.leaveButton
+    padding: 0 0.9em
+    font-size: 1.3em
+
+// ---- Body: three panels (Ship / Map / Players) ----
+.body
+    flex: 1 1 auto
+    min-height: 0
+    display: grid
+    gap: 0.8em
+    grid-template-columns: 1fr
+    // Phone: the whole body scrolls and panels are natural height.
+    overflow-y: auto
+    overflow-x: hidden
+
+.panel
+    min-height: 0
+    display: flex
+    flex-direction: column
+    background-color: $panel-bg
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    overflow: hidden
+    animation: lobbyPanelIn 260ms ease-out both
+
+.shipPanel
+    animation-delay: 40ms
+.mapPanel
+    animation-delay: 110ms
+.playersPanel
+    animation-delay: 180ms
+
+.panelHead
+    flex: 0 0 auto
+    display: flex
+    align-items: center
+    gap: 0.5em
+    padding: 0.45em 0.7em
+    background-color: $head-bg
+    border-bottom: $border-size solid $color-border
+    // Amber accent stripe down the left of each panel header (Apex HUD cue).
+    border-left: 5px solid $color-main
+
+.panelTitle
+    margin: 0
+    font-size: 1.5em
+    font-weight: normal
+    line-height: 1
+    color: $color-main
+
+.panelNote
+    margin-left: auto
+    font-size: 0.9em
+    color: transparentize($color-text, 0.35)
+
+.count
+    margin-left: auto
+    min-width: 1.5em
+    padding: 0.05em 0.45em
+    text-align: center
+    font-size: 1.1em
+    line-height: 1.2
+    color: $color-dark-3
+    background-color: $color-main
+    border-radius: $border-radius
+
+.panelBody
+    padding: 0.7em
+    display: flex
+    flex-direction: column
+    gap: 0.8em
+
+// Chat sits at the bottom of the Players panel, pushed down on tall (desktop)
+// layouts so the roster reads top-down and chat anchors the column.
+.chatDock
+    margin-top: auto
+    padding-top: 0.6em
+    border-top: $border-size solid $color-border
+
+// ---- Action bar: Spectate + Start Game (always reachable) ----
+.actionBar
+    flex: 0 0 auto
+    display: flex
+    align-items: stretch
+    gap: 0.8em
+
+.spectateBtn
+    flex: 0 0 auto
+
+.startBtn
+    flex: 1 1 auto
+
+.waiting
+    flex: 1 1 auto
+    display: flex
+    align-items: center
+    justify-content: center
+    padding: 0.4em 0.8em
+    font-family: $font-family-game
+    font-size: 1.3em
+    color: transparentize($color-text, 0.3)
+    background-color: $panel-bg
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+
+// ---- Desktop / wide: three columns, each panel scrolls on its own ----
+@media (min-width: 880px)
+    .body
+        grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.1fr)
+        // Columns own their scroll now, so the body itself does not scroll.
+        overflow: hidden
+
+    .panelBody
+        flex: 1 1 auto
+        min-height: 0
+        overflow-y: auto
+        overflow-x: hidden
