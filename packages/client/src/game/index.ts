@@ -29,6 +29,13 @@ import { CACHE_NAME_KEY, sanitize } from "@pip-pip/game/src/logic/utils"
 import { AudioManager } from "./audio"
 import { nextSpectateTargetId, resolveSpectateTarget } from "./spectate"
 
+// localStorage key for the player's last-used ship index, so a returning player
+// keeps their ship instead of defaulting back to Mono (index 0) every lobby.
+// Client-only: the value is restored once in the lobby and re-broadcast via the
+// normal setShip path. PipPlayer.setShip already clamps the index, so a stale
+// out-of-range value is harmless.
+const CACHE_SHIP_KEY = "pip-pip:last-ship"
+
 export class GameContext {
     game!: PipPipGame
     renderer!: PipPipRenderer
@@ -180,6 +187,7 @@ export class GameContext {
         })
 
         let setNameFirstTime = false
+        let setShipFirstTime = false
 
         this.updateTick.on("tick", () => {
             // set name the first time
@@ -195,6 +203,24 @@ export class GameContext {
                     }
                 } else {
                     setNameFirstTime = true
+                }
+            }
+
+            // Restore the last-used ship ONCE, in the lobby (SETUP), where ship
+            // selection applies and networks. Mirrors the name restore above: wait
+            // until the local player exists and the game is in SETUP, then apply the
+            // cached index (setShip clamps it). If there is nothing cached, mark done.
+            if (setShipFirstTime === false) {
+                const raw = localStorage.getItem(CACHE_SHIP_KEY)
+                if (raw === null) {
+                    setShipFirstTime = true
+                } else {
+                    const player = this.getClientPlayer()
+                    if (typeof player !== "undefined" && this.game.phase === PipPipGamePhase.SETUP) {
+                        const index = parseInt(raw, 10)
+                        if (Number.isInteger(index) && index >= 0) player.setShip(index)
+                        setShipFirstTime = true
+                    }
                 }
             }
 
@@ -414,6 +440,8 @@ export class GameContext {
     // automatically. Centralised here so the UI and chat share one path.
     setShip(index: number) {
         this.getClientPlayer()?.setShip(index)
+        // Remember the choice so a returning player keeps this ship next session.
+        localStorage.setItem(CACHE_SHIP_KEY, String(index))
     }
 
     // Toggle the local player's spectator state and tell the server. The local
