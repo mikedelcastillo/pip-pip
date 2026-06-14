@@ -355,4 +355,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 63 | `012cb85`   | On-screen powerup pickup announcements (feed)          | `git revert 012cb85` |
 | 64 | `d732eb5`   | Disconnect warning modal (reconnect / home)           | `git revert d732eb5` |
 | 65 | `a83cf4f`   | PWA: web manifest + icons (installable, fullscreen)   | `git revert a83cf4f` |
-| 66 | (latest)    | Custom keyboard + controller (gamepad) mapping UI     | `git revert <sha>` |
+| 66 | `6e309f0`   | Custom keyboard + controller (gamepad) mapping UI     | `git revert 6e309f0` |
+| 67 | (latest)    | First-launch ALPHA notice modal + homepage banner     | `git revert <sha>` |

@@ -1,0 +1,37 @@
+@import "../styles/variables"
+
+.banner
+    // A plain, full-width pill that reads as a gentle heads-up rather than a
+    // CTA. Resets the native button chrome so it sits flat in the menu stack.
+    display: flex
+    align-items: center
+    justify-content: center
+    gap: 0.4em
+    width: 100%
+    max-width: 100%
+    box-sizing: border-box
+    margin: 0 auto
+    padding: $text-padding-y $text-padding-x
+    border: $border-size solid $color-accent
+    border-radius: $border-radius
+    background-color: transparent
+    color: $color-text
+    font-family: $font-family-game
+    font-size: 0.8em
+    line-height: 1.2
+    cursor: pointer
+    // Wrap on a narrow phone (375px) so the text never forces horizontal scroll.
+    flex-wrap: wrap
+    text-align: center
+
+    &:hover
+        border-color: $color-accent-darker
+
+    .warn
+        color: $color-main
+        flex-shrink: 0
+
+    .text
+        // Allow the label to shrink/wrap instead of pushing the pill wider than
+        // its column.
+        min-width: 0
