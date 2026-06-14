@@ -68,8 +68,11 @@ export type PipPipGameOptions = {
 }
 
 export enum PipPipGameMode {
+    // First to settings.maxKills kills wins (free-for-all).
     DEATHMATCH,
-    RACING,
+    // Timed match: the highest kill count when the clock runs out wins. Ties
+    // (two or more players sharing the top kill count) are allowed.
+    KILL_FRENZY,
 }
 
 export enum PipPipGamePhase {
@@ -84,6 +87,8 @@ export type PipPipGameSettings = {
     useTeams: boolean,
     maxDeaths: 0 | number, // 0 for infinite respawn
     maxKills: 0 | number, // 0 for infinite kills
+    // KILL_FRENZY match length in whole minutes. Ignored by DEATHMATCH.
+    matchMinutes: number,
     friendlyFire: boolean,
 }
 
@@ -133,6 +138,24 @@ export class PipPipGame{
     phase: PipPipGamePhase = PipPipGamePhase.SETUP
     countdown = 0
 
+    // KILL_FRENZY match clock, in ticks. Counts down only during MATCH and only
+    // for the timed mode (0 / unused for DEATHMATCH). Networked via the
+    // matchTimer packet so the client HUD can show the remaining time, and the
+    // authoritative server ends the match when it reaches 0.
+    matchTimer = 0
+
+    // RESULTS hold timer, in ticks. When the win condition fires the game enters
+    // RESULTS and this counts down; on reaching 0 the authoritative server
+    // returns the lobby to SETUP so a fresh match can be started.
+    readonly RESULTS_HOLD_TICKS = this.tps * 8 // ~8 seconds
+    resultsTimer = 0
+
+    // The winners recorded when the match ended, by player id. DEATHMATCH always
+    // has exactly one; KILL_FRENZY has one OR several on a tie. Empty in every
+    // other phase (and when a timed match ends with literally no kills scored).
+    // The client mirrors this via the gameResults packet to draw the podium.
+    winnerIds: string[] = []
+
     mapIndex!:number
     mapType!: PipMapType
     map!: PipGameMap
@@ -142,6 +165,7 @@ export class PipPipGame{
         useTeams: false,
         maxDeaths: 0,
         maxKills: 25,
+        matchMinutes: 3,
         friendlyFire: false,
     }
 
@@ -273,6 +297,15 @@ export class PipPipGame{
     startMatch(){
         this.countdown = this.tps * 6 // 6 second count down
         this.powerupSpawnTimer = this.POWERUP_SPAWN_INTERVAL_TICKS
+        // Arm the KILL_FRENZY clock (whole minutes -> ticks). DEATHMATCH never
+        // reads matchTimer, so leaving it set is harmless there; clamped to at
+        // least one minute so a misconfigured 0 can never end the match instantly.
+        const minutes = Math.max(1, Math.floor(this.settings.matchMinutes))
+        this.matchTimer = minutes * 60 * this.tps
+        // Clear any winners left over from a previous match so the fresh round
+        // starts with an empty podium.
+        this.winnerIds = []
+        this.resultsTimer = 0
         this.setPhase(PipPipGamePhase.COUNTDOWN)
         if(this.options.triggerSpawns === true){
             const players = Object.values(this.players)
@@ -366,10 +399,86 @@ export class PipPipGame{
             }
         }
 
+        if(this.phase === PipPipGamePhase.MATCH){
+            // KILL_FRENZY clock. Tick it down only on the authoritative side
+            // (setScores owns scoring/timing) so a non-authoritative client never
+            // ends the match itself; it mirrors matchTimer purely from packets.
+            if(this.options.setScores === true && this.settings.mode === PipPipGameMode.KILL_FRENZY){
+                this.matchTimer = tickDown(this.matchTimer, 1)
+            }
+            // Decide a winner (DEATHMATCH kill cap, or the frenzy clock hitting 0)
+            // and move to RESULTS. Gated so only the authoritative server drives
+            // the transition; the client follows via the phase + results packets.
+            if(this.options.setScores === true && this.options.triggerPhases === true){
+                this.checkWinCondition()
+            }
+        }
+
+        if(this.phase === PipPipGamePhase.RESULTS){
+            // Hold the results for a few seconds, then drop the lobby back to
+            // SETUP so the host can configure and start the next match. Only the
+            // authoritative server advances this; the client waits for the phase
+            // packet that this triggers.
+            if(this.options.triggerPhases === true){
+                this.resultsTimer = tickDown(this.resultsTimer, 1)
+                if(this.resultsTimer <= 0){
+                    this.setPhase(PipPipGamePhase.SETUP)
+                }
+            }
+        }
+
         if(this.phase !== PipPipGamePhase.SETUP){
             this.updateSystems()
             this.updatePhysics()
         }
+    }
+
+    // Evaluate the active mode's win condition and, if met, record the winner(s)
+    // and transition to RESULTS. Authoritative only: callers gate this on
+    // setScores + triggerPhases. DEATHMATCH ends the instant any player reaches
+    // settings.maxKills (the highest-kill player is the winner). KILL_FRENZY ends
+    // when matchTimer hits 0, with the top scorer(s) winning and ties allowed.
+    checkWinCondition(){
+        if(this.settings.mode === PipPipGameMode.DEATHMATCH){
+            const target = this.settings.maxKills
+            // maxKills === 0 means "no kill cap", so DEATHMATCH never ends on its
+            // own (there is no win condition to check).
+            if(target <= 0) return
+            const reached = Object.values(this.players).find(player => player.score.kills >= target)
+            if(typeof reached === "undefined") return
+            this.endMatch(this.topScorers())
+            return
+        }
+        if(this.settings.mode === PipPipGameMode.KILL_FRENZY){
+            if(this.matchTimer > 0) return
+            // Time! The top kill count takes it; topScorers returns every player
+            // tied at that count (so a tie naturally yields multiple winners, and
+            // a match with zero kills yields no winner at all).
+            this.endMatch(this.topScorers())
+        }
+    }
+
+    // The player(s) with the strictly highest kill count, or an empty array when
+    // nobody has scored a single kill (so a 0-kill timed match has no winner).
+    // Returns several entries when the top count is shared (a tie). Pure read of
+    // current scores; used by checkWinCondition to pick winners.
+    topScorers(): PipPlayer[] {
+        const players = Object.values(this.players)
+        let best = 0
+        for(const player of players){
+            if(player.score.kills > best) best = player.score.kills
+        }
+        if(best <= 0) return []
+        return players.filter(player => player.score.kills === best)
+    }
+
+    // Record the given winners and move to RESULTS, arming the hold timer that
+    // returns the lobby to SETUP. Authoritative only (callers are gated); the
+    // client receives winnerIds via the gameResults packet, not from here.
+    endMatch(winners: PipPlayer[]){
+        this.winnerIds = winners.map(player => player.id)
+        this.resultsTimer = this.RESULTS_HOLD_TICKS
+        this.setPhase(PipPipGamePhase.RESULTS)
     }
 
     despawnPlayers() {

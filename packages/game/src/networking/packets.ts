@@ -175,6 +175,8 @@ export const packetManager = new PacketManager({
         useTeams: $bool,
         maxDeaths: $uint8,
         maxKills: $uint8,
+        // KILL_FRENZY match length in whole minutes (see settings.matchMinutes).
+        matchMinutes: $uint8,
         friendlyFire: $bool,
     }),
     gamePhase: new Packet({
@@ -182,6 +184,21 @@ export const packetManager = new PacketManager({
     }),
     gameCountdown: new Packet({
         countdown: $uint8,
+    }),
+    // KILL_FRENZY match clock, sent during MATCH as REMAINING SECONDS (whole
+    // seconds, ceil'd) so the HUD can count down without knowing the tick rate.
+    // uint16, so it comfortably covers any sane match length.
+    matchTimer: new Packet({
+        seconds: $uint16,
+    }),
+    // End-of-match results. winnerId is one winner's player id, or the empty
+    // (padded) string when there is no single winner to name (a tie, or a timed
+    // match that ended with zero kills). winnerCount lets the client tell a tie
+    // (>1) apart from a clean win (1) or a no-winner "Time!" (0) without putting
+    // every id on the wire, since the final scoreboard already shows standings.
+    gameResults: new Packet({
+        winnerId: $string(CONNECTION_ID_LENGTH),
+        winnerCount: $uint8,
     }),
     gameMap: new Packet({
         mapIndex: $uint8,
@@ -222,6 +239,7 @@ export const encode = {
         useTeams: game.settings.useTeams,
         maxDeaths: game.settings.maxDeaths,
         maxKills: game.settings.maxKills,
+        matchMinutes: game.settings.matchMinutes,
         friendlyFire: game.settings.friendlyFire,
     }),
     gamePhase: (gameOrPhase: PipPipGame | PipPipGamePhase) => packetManager.serializers.gamePhase.encode({
@@ -229,6 +247,18 @@ export const encode = {
     }),
     gameCountdown: (game: PipPipGame) => packetManager.serializers.gameCountdown.encode({
         countdown: game.countdown,
+    }),
+    // Remaining match seconds, ceil'd so a partial final second still reads as
+    // "1" (never 0 while time is left). Tick rate lives only on the server side
+    // of this conversion, so the wire carries plain seconds.
+    matchTimer: (game: PipPipGame) => packetManager.serializers.matchTimer.encode({
+        seconds: Math.ceil(game.matchTimer / game.tps),
+    }),
+    // Name one winner (or empty when there is none) plus the winner count, so the
+    // client can render "winner", "tie" or "Time!" without the full id list.
+    gameResults: (game: PipPipGame) => packetManager.serializers.gameResults.encode({
+        winnerId: game.winnerIds[0] ?? "",
+        winnerCount: game.winnerIds.length,
     }),
     gameMap: (mapIndex: number) => packetManager.serializers.gameMap.encode({
         mapIndex,

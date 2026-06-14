@@ -52,6 +52,39 @@ $health-low: $color-bad
     &:active
         background-color: $color-main-darker
 
+// ---- Top-center objective (match clock / kill target) ----
+.objective
+    position: absolute
+    top: $screen-margin-dynamic
+    left: 50%
+    transform: translateX(-50%)
+    z-index: 20
+    pointer-events: none
+    padding: 0.15em 0.7em
+    font-family: $font-family-game
+    font-size: clamp(18px, 5vw, 26px)
+    line-height: 1.2
+    color: $color-text
+    background-color: $hud-panel
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    white-space: nowrap
+
+    // The KILL_FRENZY clock reads as a monospaced timer in the accent amber.
+    &.clock
+        color: $color-main
+
+    // Final-seconds urgency: switch to the danger color and pulse.
+    &.urgent
+        color: $color-bad
+        animation: objectivePulse 600ms alternate infinite ease-in-out
+
+@keyframes objectivePulse
+    from
+        opacity: 0.6
+    to
+        opacity: 1
+
 // ---- Tab scoreboard, overlaid + centered ----
 .scoreboard
     position: absolute

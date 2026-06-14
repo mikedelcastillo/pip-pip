@@ -1,4 +1,4 @@
-import { PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer, PlayerScores } from "@pip-pip/game/src/logic/player"
 import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, PowerupType } from "@pip-pip/game/src/logic/powerup"
@@ -178,6 +178,19 @@ export interface GameStoreState {
     phase: PipPipGamePhase
     countdownMs: number
 
+    // Active mode + its target, mirrored from game.settings so the HUD can show
+    // "First to N" (DEATHMATCH) or the match clock (KILL_FRENZY).
+    mode: PipPipGameMode
+    maxKills: number
+    // KILL_FRENZY remaining time, in whole seconds (0 outside that mode/MATCH).
+    matchTimerSeconds: number
+
+    // End-of-match result, shown on the RESULTS screen. winnerName is the lone
+    // winner's name (empty for a tie or a no-kill "Time!"); winnerCount is the
+    // number of winners (0 = none, 1 = clean win, >1 = tie).
+    winnerName: string
+    winnerCount: number
+
     isHost: boolean
     ping: number
 
@@ -215,6 +228,13 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
     phase: PipPipGamePhase.SETUP,
     countdownMs: 0,
+
+    mode: PipPipGameMode.DEATHMATCH,
+    maxKills: 0,
+    matchTimerSeconds: 0,
+
+    winnerName: "",
+    winnerCount: 0,
 
     isHost: false,
     ping: 0,
@@ -288,9 +308,20 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         const { game } = GAME_CONTEXT
         const gameClientPlayer = getClientPlayer(game)
 
+        // Resolve the lone winner's name from game.winnerIds (the client mirrors
+        // only the first id; winnerCount distinguishes win / tie / none).
+        const winnerName = game.winnerIds.length > 0
+            ? (game.players[game.winnerIds[0]]?.name ?? "")
+            : ""
+
         const next: Partial<GameStoreState> = {
             phase: game.phase,
             countdownMs: game.countdown / game.tps * 1000,
+            mode: game.settings.mode,
+            maxKills: game.settings.maxKills,
+            matchTimerSeconds: Math.ceil(game.matchTimer / game.tps),
+            winnerName,
+            winnerCount: game.winnerIds.length,
             mapIndex: game.mapIndex,
             showPlayerList: GAME_CONTEXT.keyboard.state.Tab === true,
             players: Object.values(game.players).map(playerToGameStore),

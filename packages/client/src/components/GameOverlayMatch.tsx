@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { PipPipGameMode } from "@pip-pip/game/src/logic"
 import { useGameStore, fraction } from "../game/store"
 import GameChat from "./GameChat"
 import GamePlayerList from "./GamePlayerList"
@@ -18,6 +19,33 @@ function defaultChatOpen(): boolean {
     return !window.matchMedia("(max-width: 768px)").matches
 }
 
+// Format a remaining-seconds count as M:SS for the KILL_FRENZY clock. Clamped at
+// 0 so a spent timer never shows negative. Pure, so it is trivially testable.
+export function formatMatchClock(totalSeconds: number): string {
+    const safe = Math.max(0, Math.floor(totalSeconds))
+    const minutes = Math.floor(safe / 60)
+    const seconds = safe % 60
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`
+}
+
+// The unobtrusive top-center objective label: the live match clock for
+// KILL_FRENZY, or the "First to N" kill target for DEATHMATCH. Empty string when
+// there is nothing meaningful to show (e.g. DEATHMATCH with no kill cap), which
+// the HUD treats as "render nothing". Pure, so it is trivially testable.
+export function matchObjectiveLabel(
+    mode: PipPipGameMode,
+    matchTimerSeconds: number,
+    maxKills: number,
+): string {
+    if (mode === PipPipGameMode.KILL_FRENZY) {
+        return formatMatchClock(matchTimerSeconds)
+    }
+    if (maxKills > 0) {
+        return `First to ${maxKills}`
+    }
+    return ""
+}
+
 // Apex-Legends-style in-match HUD. Layout, by corner:
 //   top-left ...... minimap, then the collapsible chat under it
 //   top-right ..... the menu button, with the kill feed beneath it
@@ -33,6 +61,14 @@ export default function GameOverlayMatch() {
     const ping = useGameStore((s) => s.ping)
     const spectating = useGameStore((s) => s.clientSpectating)
     const spectateTargetName = useGameStore((s) => s.spectateTargetName)
+    const mode = useGameStore((s) => s.mode)
+    const matchTimerSeconds = useGameStore((s) => s.matchTimerSeconds)
+    const maxKills = useGameStore((s) => s.maxKills)
+
+    const objective = matchObjectiveLabel(mode, matchTimerSeconds, maxKills)
+    const isFrenzy = mode === PipPipGameMode.KILL_FRENZY
+    // The KILL_FRENZY clock turns urgent in the final 10 seconds.
+    const urgent = isFrenzy && matchTimerSeconds <= 10
 
     const [menuOpen, setMenuOpen] = useState(false)
     const [chatOpen, setChatOpen] = useState(defaultChatOpen)
@@ -54,6 +90,15 @@ export default function GameOverlayMatch() {
     return (
         <div className={`game-overlay ${styles.matchOverlay}`}>
             <Minimap />
+
+            {/* Top-center objective: the KILL_FRENZY match clock, or the
+                DEATHMATCH "First to N" kill target. Hidden when there is nothing
+                to show. pointer-events:none so it never blocks the touch sticks. */}
+            {objective.length > 0 && (
+                <div className={`${styles.objective} ${isFrenzy ? styles.clock : ""} ${urgent ? styles.urgent : ""}`}>
+                    {objective}
+                </div>
+            )}
 
             {/* Single pause/options button, top-right corner. */}
             <button

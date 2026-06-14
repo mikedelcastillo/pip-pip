@@ -121,6 +121,23 @@ export const processPackets = (gameContext: GameContext) => {
             game.countdown = countdown
         }
 
+        //  Set KILL_FRENZY match clock. The wire carries whole REMAINING SECONDS;
+        //  convert back to ticks so the client stores it the same way the server
+        //  does (the HUD reads game.matchTimer and re-derives seconds).
+        for (const { seconds } of packets.matchTimer || []) {
+            game.matchTimer = seconds * game.tps
+        }
+
+        //  Set end-of-match results. winnerCount of 0 means no single winner
+        //  (a tie, or "Time!" with no kills); 1 a clean winner; >1 a tie. The
+        //  authoritative scoreboard already carries the full standings, so the
+        //  client only needs the named winner plus the count to render the podium.
+        for (const { winnerId, winnerCount } of packets.gameResults || []) {
+            game.winnerIds = winnerCount > 0 && winnerId.trim().length > 0
+                ? [winnerId]
+                : []
+        }
+
         //  Set game map
         for (const { mapIndex } of packets.gameMap || []) {
             game.setMap(mapIndex)
@@ -283,7 +300,7 @@ export const processPackets = (gameContext: GameContext) => {
             "playerPositionSync",
             "playerPosition", "playerInputs",
             "ownPlayerState",
-            "gameCountdown",
+            "gameCountdown", "matchTimer",
             "playerSpectate",
             "powerupSpawn", "powerupPickup",
             "ping", "playerPing"]

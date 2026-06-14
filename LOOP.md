@@ -368,4 +368,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 76 | `f0339e8`   | Remove redundant SFX toggle from home menu (in Settings) | `git revert f0339e8` |
 | 77 | `dbaae59`   | FIX touch sticks never worked (HUD overlay ate the touches) | `git revert dbaae59`|
 | 78 | `296a0c1`   | Branded asset-load retry screen (replaces native alert/prompt) | `git revert 296a0c1`|
-| 79 | (latest)    | Three new maps: Drift (open BR), Clash (TDM arena), Nexus (symmetric) + generator | `git revert <sha>` |
+| 79 | `10c0944`   | Three new maps: Drift (open BR), Clash (TDM arena), Nexus (symmetric) + generator | `git revert 10c0944`|
+| 80 | (latest)    | Game modes: Deathmatch + Kill Frenzy, win conditions, RESULTS screen, objective HUD, host mode picker | `git revert <sha>` |

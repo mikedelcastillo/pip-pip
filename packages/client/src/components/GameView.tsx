@@ -6,6 +6,7 @@ import { useGameStore } from "../game/store"
 import GameOverlaySetup from "./GameOverlaySetup"
 import GameOverlayCountdown from "./GameOverlayCountdown"
 import GameOverlayMatch from "./GameOverlayMatch"
+import GameOverlayResults from "./GameOverlayResults"
 import TouchControls from "./TouchControls"
 import DebugOverlay from "./DebugOverlay"
 import DisconnectModal from "./DisconnectModal"
@@ -56,6 +57,7 @@ export default function GameView() {
         {phase === PipPipGamePhase.SETUP && <GameOverlaySetup />}
         {phase === PipPipGamePhase.COUNTDOWN && <GameOverlayCountdown />}
         {phase === PipPipGamePhase.MATCH && <GameOverlayMatch />}
+        {phase === PipPipGamePhase.RESULTS && <GameOverlayResults />}
         {/* Twin-stick touch overlay during live play. Self-hides on desktop
             (mouse/keyboard) so it never covers mouse-aim. */}
         {phase === PipPipGamePhase.MATCH && <TouchControls />}

@@ -1,4 +1,4 @@
-import { PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PING_REFRESH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { encode } from "@pip-pip/game/src/networking/packets"
@@ -87,6 +87,18 @@ export function getFullGameState(context: ConnectionContext): number[][] {
     messages.push(encode.gameCountdown(game))
     messages.push(encode.gameState(game))
     messages.push(encode.gameMap(game.mapIndex))
+
+    // KILL_FRENZY: seed the joining client's match clock so its HUD is correct
+    // immediately, not only after the next per-tick matchTimer broadcast.
+    if(game.settings.mode === PipPipGameMode.KILL_FRENZY && game.phase === PipPipGamePhase.MATCH){
+        messages.push(encode.matchTimer(game))
+    }
+
+    // RESULTS: a client joining mid-results gets the winner straight away so it
+    // can draw the podium instead of a blank end screen.
+    if(game.phase === PipPipGamePhase.RESULTS){
+        messages.push(encode.gameResults(game))
+    }
 
     return messages
 }
@@ -192,6 +204,11 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
     // Send phase change
     if(gameEvents.filter("phaseChange").length > 0){
         messages.push(encode.gamePhase(game))
+        // Entering RESULTS: ship the winner(s) alongside the phase so the client
+        // can draw the podium the same tick the end screen appears.
+        if(game.phase === PipPipGamePhase.RESULTS){
+            messages.push(encode.gameResults(game))
+        }
     }
     
     // Send game settings
@@ -310,6 +327,17 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
             if(typeof connectionPlayer !== "undefined"){
                 messages.push(encode.playerPositionSync(connectionPlayer))
             }
+        }
+
+        // KILL_FRENZY: broadcast the remaining match clock 4 times a second
+        // during MATCH (same cadence as the countdown). The wire value is whole
+        // seconds, so a higher rate would add nothing.
+        if(
+            game.phase === PipPipGamePhase.MATCH &&
+            game.settings.mode === PipPipGameMode.KILL_FRENZY &&
+            game.tickNumber % 4 === 0
+        ){
+            messages.push(encode.matchTimer(game))
         }
         
         // Send OTHER players' locations + inputs. The owner's own position is

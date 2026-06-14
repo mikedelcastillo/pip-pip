@@ -8,7 +8,7 @@ import { ConnectionOf, LobbyOf, Server } from "@pip-pip/core/src/networking/serv
 import { Ticker } from "@pip-pip/core/src/common/ticker"
 
 import { CONNECTION_ID_LENGTH, LOBBY_ID_LENGTH, packetManager } from "@pip-pip/game/src/networking/packets"
-import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { PipPipGame, PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { sendPacketToConnection } from "./connection-out"
 import { processLobbyPackets } from "./connection-in"
 
@@ -39,6 +39,12 @@ type GameLobbyLocals = {
     hostName: string,
     maxPlayers: number,
     createdAt: number,
+    // Match configuration seeded by the host at createLobby time and applied to
+    // game.settings in the initializer below. mode picks DEATHMATCH/KILL_FRENZY,
+    // maxKills is the DEATHMATCH kill cap, matchMinutes the KILL_FRENZY length.
+    mode: PipPipGameMode,
+    maxKills: number,
+    matchMinutes: number,
 }
 
 export type LobbyCreationOptions = {
@@ -46,6 +52,9 @@ export type LobbyCreationOptions = {
     isPublic?: boolean,
     mapLabel?: string,
     maxPlayers?: number,
+    mode?: PipPipGameMode,
+    maxKills?: number,
+    matchMinutes?: number,
 }
 
 export type PipPipServer = Server<GamePacketManagerSerializerMap, GameConnectionLocals, GameLobbyLocals>
@@ -222,6 +231,28 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
     lobby.locals.mapLabel ??= game.mapType?.name ?? "Unknown"
     lobby.locals.hostName ??= "Unknown"
     lobby.locals.maxPlayers = Math.min(requestedMaxPlayers ?? typeMax, typeMax)
+
+    // Apply the host-chosen match configuration to the authoritative game
+    // settings. setSettings only takes effect in SETUP (which a fresh lobby is)
+    // and ignores unknown/undefined keys, so partial/absent options keep the
+    // game defaults. mode is sanitised to a known enum value; the numeric targets
+    // are clamped to the same bounds the host UI enforces (and to uint8 range, so
+    // the gameState packet never overflows).
+    const requestedMode = lobby.locals.mode
+    const mode = requestedMode === PipPipGameMode.KILL_FRENZY
+        ? PipPipGameMode.KILL_FRENZY
+        : PipPipGameMode.DEATHMATCH
+    const maxKills = typeof lobby.locals.maxKills === "number"
+        ? Math.max(1, Math.min(255, Math.floor(lobby.locals.maxKills)))
+        : game.settings.maxKills
+    const matchMinutes = typeof lobby.locals.matchMinutes === "number"
+        ? Math.max(1, Math.min(60, Math.floor(lobby.locals.matchMinutes)))
+        : game.settings.matchMinutes
+    game.setSettings({ mode, maxKills, matchMinutes })
+    // Reflect the resolved values back onto locals so any later read is accurate.
+    lobby.locals.mode = mode
+    lobby.locals.maxKills = maxKills
+    lobby.locals.matchMinutes = matchMinutes
 
     // Keep the players list and host name in sync with the connections.
     lobby.events.on("addConnection", ({ connection }) => {
