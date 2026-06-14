@@ -1,4 +1,7 @@
-import { PipGameMap, JSONPipGameMap } from "../logic/map"
+import { PipGameMap } from "@pip-pip/game/src/logic/map"
+import { JSONMapSource } from "@pip-pip/game/src/logic/map"
+import { loadGridMap } from "@pip-pip/game/src/logic/grid-map"
+import { convertJSONMapToGrid } from "@pip-pip/game/src/logic/grid-map-migrate"
 
 
 export type PipMapType = {
@@ -14,6 +17,16 @@ export type PipMapType = {
 
 export const PIP_MAPS: PipMapType[] = []
 
+// Every registered map now loads through the NEW grid engine. The legacy
+// wall_tiles / wall_segments JSON is converted on the fly by convertJSONMapToGrid
+// (a pure adapter) and built by loadGridMap, so the maps keep their exact
+// playable geometry while moving off the old loader. Hand-editing the JSON is
+// avoided entirely - the adapter does the work. New maps authored directly in
+// GridMapData can be registered the same way without the converter.
+function createLegacyMap(id: string, source: JSONMapSource){
+    return () => loadGridMap(id, convertJSONMapToGrid(id, source))
+}
+
 
 import TEST_MAP from "./test.map.json"
 PIP_MAPS.push({
@@ -21,7 +34,7 @@ PIP_MAPS.push({
     name: "Test",
     texture: "default",
     background: 0x150E12,
-    createMap: () => new JSONPipGameMap("test", TEST_MAP),
+    createMap: createLegacyMap("test", TEST_MAP),
 })
 
 import PORTAL_MAP from "./portal.map.json"
@@ -30,7 +43,7 @@ PIP_MAPS.push({
     name: "Portal",
     texture: "default",
     background: 0x0A1226,
-    createMap: () => new JSONPipGameMap("portal", PORTAL_MAP),
+    createMap: createLegacyMap("portal", PORTAL_MAP),
 })
 
 import VALIDATE_MAP from "./validate.map.json"
@@ -39,7 +52,7 @@ PIP_MAPS.push({
     name: "Validate",
     texture: "default",
     background: 0x0A1A14,
-    createMap: () => new JSONPipGameMap("validate", VALIDATE_MAP),
+    createMap: createLegacyMap("validate", VALIDATE_MAP),
 })
 
 import MAZE_MAP from "./maze.map.json"
@@ -48,7 +61,7 @@ PIP_MAPS.push({
     name: "Maze",
     texture: "default",
     background: 0x1C0E22,
-    createMap: () => new JSONPipGameMap("maze", MAZE_MAP),
+    createMap: createLegacyMap("maze", MAZE_MAP),
 })
 
 
@@ -58,7 +71,7 @@ PIP_MAPS.push({
     name: "Galaxy",
     texture: "default",
     background: 0x201510,
-    createMap: () => new JSONPipGameMap("galaxy", GALAXY_MAP),
+    createMap: createLegacyMap("galaxy", GALAXY_MAP),
 })
 
 
@@ -68,7 +81,7 @@ PIP_MAPS.push({
     name: "Drift",
     texture: "default",
     background: 0x0E1518,
-    createMap: () => new JSONPipGameMap("drift", DRIFT_MAP),
+    createMap: createLegacyMap("drift", DRIFT_MAP),
 })
 
 import CLASH_MAP from "./clash.map.json"
@@ -77,7 +90,7 @@ PIP_MAPS.push({
     name: "Clash",
     texture: "default",
     background: 0x1A0F0F,
-    createMap: () => new JSONPipGameMap("clash", CLASH_MAP),
+    createMap: createLegacyMap("clash", CLASH_MAP),
 })
 
 import NEXUS_MAP from "./nexus.map.json"
@@ -86,5 +99,5 @@ PIP_MAPS.push({
     name: "Nexus",
     texture: "default",
     background: 0x12081C,
-    createMap: () => new JSONPipGameMap("nexus", NEXUS_MAP),
+    createMap: createLegacyMap("nexus", NEXUS_MAP),
 })

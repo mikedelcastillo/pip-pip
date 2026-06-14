@@ -414,4 +414,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 122| `92cadad`   | Bots seek + grab powerups (health when hurt, close buffs/ammo opportunistically) while still aiming at enemies | `git revert 92cadad`|
 | 123| `d6b1326`   | TDM team health-bar colors (teammate green / enemy red) + debug bot-path overlay (` toggles; client-side A* display of each bot's route + target) | `git revert d6b1326`|
 | 124| `82da816`   | Harden bot nav: stuck detection + unstick escape (BFS to nearest open cell) + wall-avoidance nudge + escape when path unreachable, so bots stop wedging in pockets | `git revert 82da816`|
-| 125| (latest)    | Spectator controls: Space/Right/Left (+pad) cycle watched players, WASD free-roams the camera, bottom Deploy panel to return (fixes top objective overlap) | `git revert <sha>` |
+| 125| `62f41b4`   | Spectator controls: Space/Right/Left (+pad) cycle watched players, WASD free-roams the camera, bottom Deploy panel to return (fixes top objective overlap) | `git revert 62f41b4`|
+| 126| (latest)    | Map engine Phase 1: new GridMapData format (palette of block types + 45 degree diagonal tile shapes), greedy-meshed rect collision (Clash 89->9 walls), diagonal->segWall, all 8 maps migrated losslessly | `git revert <sha>` |
