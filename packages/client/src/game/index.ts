@@ -15,7 +15,7 @@ import { Ticker } from "@pip-pip/core/src/common/ticker"
 import { processPackets, sendPackets } from "./client"
 import { processInputs } from "./ui"
 import { processChat } from "./chat"
-import { CACHE_NAME_KEY } from "@pip-pip/game/src/logic/utils"
+import { CACHE_NAME_KEY, sanitize } from "@pip-pip/game/src/logic/utils"
 import { AudioManager } from "./audio"
 
 export class GameContext {
@@ -330,6 +330,17 @@ export class GameContext {
     setGameMode(mode: PipPipGameMode, maxKills: number, matchMinutes: number) {
         const code = encode.gameMode(mode, maxKills, matchMinutes)
         this.sendCode(code)
+    }
+
+    // Set the local player's display name and remember it. Sanitized the same
+    // way as the `/name` chat command (alphanumerics + underscore, <=16 chars).
+    // setName emits playerDetailsChange, which sendPackets broadcasts, so other
+    // players see it; persisting to localStorage means we never prompt again.
+    setPlayerName(name: string) {
+        const safeName = sanitize(name)
+        if (safeName.length === 0) return
+        this.getClientPlayer()?.setName(safeName)
+        localStorage.setItem(CACHE_NAME_KEY, safeName)
     }
 
     // Apply a ship selection for the local player. Mirrors the `/ship` chat

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { CACHE_NAME_KEY } from "@pip-pip/game/src/logic/utils"
 import { GAME_CONTEXT } from "../game"
 import { useGameStore } from "../game/store"
 import { useUiStore } from "../store/ui"
@@ -12,6 +13,13 @@ import LoadoutOverlay from "./LoadoutOverlay"
 import TouchControls from "./TouchControls"
 import DebugOverlay from "./DebugOverlay"
 import DisconnectModal from "./DisconnectModal"
+import NameModal from "./NameModal"
+
+// True when the player has no usable saved name yet, so we should prompt for one.
+function needsNamePrompt(): boolean {
+    const name = localStorage.getItem(CACHE_NAME_KEY)
+    return typeof name !== "string" || name.trim().length === 0
+}
 
 export default function GameView() {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -23,6 +31,9 @@ export default function GameView() {
 
     const [disconnected, setDisconnected] = useState(false)
     const [reconnecting, setReconnecting] = useState(false)
+    // Prompt for a name on entering a lobby/match if none is saved yet. Checked
+    // once on mount; saving (or dismissing) hides it for this session.
+    const [askName, setAskName] = useState(needsNamePrompt)
 
     // Track the previous phase across renders so we can tell a true mid-game
     // joiner apart from a lobby player. The client always starts in SETUP; a
@@ -116,5 +127,7 @@ export default function GameView() {
                 reconnecting={reconnecting}
             />
         )}
+        {/* First time in a lobby/match with no saved name: ask for one. */}
+        {askName && <NameModal onClose={() => setAskName(false)} />}
     </>
 }

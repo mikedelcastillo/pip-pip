@@ -386,4 +386,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 94 | `04b117d`   | Ricochet powerup: timed buff, bullets bounce off walls (max 3 bounces) | `git revert 04b117d`|
 | 95 | `454fbf2`   | FIX loadout ship pick not reaching server in-match (playerSetShip was SETUP-gated) | `git revert 454fbf2`|
 | 96 | `7f807f3`   | Powerup overhaul: longer durations + Minecraft-style buff HUD + tactical countdown feed + networked ricochet timer | `git revert 7f807f3`|
-| 97 | (latest)    | Loadout buttons: Spectate small on the left, Deploy prominent on the right | `git revert <sha>` |
+| 97 | `7c44072`   | Loadout buttons: Spectate small on the left, Deploy prominent on the right | `git revert 7c44072`|
+| 98 | (latest)    | Prompt for a name (modal) on entering a lobby/match when none is saved | `git revert <sha>` |
