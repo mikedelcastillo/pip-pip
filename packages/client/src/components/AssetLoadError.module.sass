@@ -1,0 +1,33 @@
+@import "../styles/variables"
+
+.root
+    position: fixed
+    z-index: 110
+    inset: 0
+    background-color: transparentize($color-dark-1, 0.1)
+    padding: $screen-margin-dynamic
+    // Sit above GameLoading (z-index:100) so the error replaces the spinner.
+
+.card
+    display: flex
+    flex-direction: column
+    align-items: center
+    gap: 1em
+    max-width: 26em
+    padding: 1.4em 1.6em
+    text-align: center
+    background-color: $color-dark-2
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    font-family: $font-family-game
+    color: $color-text
+
+    .title
+        font-size: 2em
+        line-height: 1
+        color: $color-main
+
+    .body
+        font-size: $font-size-input
+        line-height: 1.2
+        color: transparentize($color-text, 0.2)
