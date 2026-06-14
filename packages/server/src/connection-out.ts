@@ -6,6 +6,48 @@ import { CUSTOM_MAP_INDEX } from "@pip-pip/game/src/maps"
 import type { ConnectionContext } from "."
 import { getApprovedChatEntries } from "./connection-in"
 
+// Per-player bytes that are byte-IDENTICAL for every recipient this tick, so we
+// encode them ONCE per tick (in buildSharedTickCache below) and reuse the same
+// arrays for every connection instead of re-encoding the same player once per
+// recipient. playerPosition/playerInputs depend only on the player's physics +
+// input state, which are FIXED for the whole tick (physics already ran before
+// the send loop), and playerPing is a plain per-player field; none of them vary
+// by recipient. The self-exclusion (connection.id !== player.id) still happens
+// at the composition site by simply skipping that player's cached entry, so a
+// connection never receives its own playerPosition/playerInputs in the shared
+// loop. The cached arrays are READ-ONLY: each connection still flattens its own
+// final message array into its own buffer and never mutates these.
+export type SharedPlayerPackets = {
+    position: number[],
+    inputs: number[],
+    ping: number[],
+}
+
+export type SharedTickCache = {
+    players: Map<string, SharedPlayerPackets>,
+    // The one global tick header prepended to every recipient's message this
+    // tick. Same tick number for all connections, so encode it once and reuse.
+    serverTickHeader: number[],
+}
+
+// Encode the shared per-player broadcast packets ONCE for this tick. Built once
+// per lobby (in the tick loop) before the per-connection send loop and passed
+// into getPartialGameState for every recipient. Keyed by player id so the
+// composition site can look up a player's cached bytes (and skip the recipient's
+// own id for the self-excluded loops). Byte-for-byte equal to encoding the same
+// packets per connection, just done M times instead of N*M times.
+export function buildSharedTickCache(game: PipPipGame): SharedTickCache{
+    const players = new Map<string, SharedPlayerPackets>()
+    for(const player of Object.values(game.players)){
+        players.set(player.id, {
+            position: encode.playerPosition(player),
+            inputs: encode.playerInputs(player),
+            ping: encode.playerPing(player),
+        })
+    }
+    return { players, serverTickHeader: encode.serverTickHeader(game) }
+}
+
 // Encode the active map for a recipient. A CUSTOM map (mapIndex === -1 with
 // customMapData set) must carry its FULL GridMapData so a client - including a
 // late joiner - can render + simulate geometry that has no index in PIP_MAPS;
@@ -19,12 +61,12 @@ function encodeActiveMap(game: PipPipGame): number[]{
     return encode.gameMap(game.mapIndex)
 }
 
-export function sendPacketToConnection(context: ConnectionContext){
+export function sendPacketToConnection(context: ConnectionContext, sharedCache?: SharedTickCache){
     const { connection, gameEvents, game } = context
 
     // check if the player is new or just reconnecting
     let sendFullGameState = false
-    
+
     for(const event of gameEvents.filter("addPlayer")){
         const { player } = event.addPlayer
         if(connection.id === player.id){
@@ -32,7 +74,7 @@ export function sendPacketToConnection(context: ConnectionContext){
             sendFullGameState = true
         }
     }
-    
+
     for(const event of gameEvents.filter("playerIdleChange")){
         const { player } = event.playerIdleChange
         if(connection.id === player.id && player.idle === false){
@@ -40,15 +82,19 @@ export function sendPacketToConnection(context: ConnectionContext){
             sendFullGameState = true
         }
     }
-    
-    const messages = sendFullGameState ? getFullGameState(context) : getPartialGameState(context)
+
+    const messages = sendFullGameState ? getFullGameState(context) : getPartialGameState(context, sharedCache)
 
     if(messages.length){
         // One global tick header per message (decode is ID-keyed, so its
         // position in the batch is irrelevant). Lets the client run a shared
-        // server clock instead of guessing time from round-trip ping.
+        // server clock instead of guessing time from round-trip ping. Same tick
+        // number for every recipient, so reuse the per-tick shared cache when
+        // present (unshift only mutates this connection's own messages array;
+        // the cached header array itself is never mutated and is copied out by
+        // the messages.flat() below).
         if(game.phase !== PipPipGamePhase.SETUP){
-            messages.unshift(encode.serverTickHeader(game))
+            messages.unshift(sharedCache ? sharedCache.serverTickHeader : encode.serverTickHeader(game))
         }
         const buffer = new Uint8Array(messages.flat()).buffer
         connection.send(buffer)
@@ -145,7 +191,7 @@ class PlayerUpdateTracker{
     }
 }
 
-export function getPartialGameState(context: ConnectionContext): number[][] {
+export function getPartialGameState(context: ConnectionContext, sharedCache?: SharedTickCache): number[][] {
     const { game, gameEvents, connection } = context
 
     const playerUpdates = new PlayerUpdateTracker()
@@ -382,11 +428,16 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
         // Send OTHER players' locations + inputs. The owner's own position is
         // deliberately NOT echoed here (it used to be, which is what the
         // brittle client snap reacted to); the owner gets the precise
-        // owner-only ownPlayerState below instead.
+        // owner-only ownPlayerState below instead. These two packets are
+        // byte-identical across recipients this tick, so reuse the per-tick
+        // shared cache when present (encoded once per player up front) and only
+        // fall back to encoding here when no cache was supplied; the
+        // self-exclusion (connection.id !== player.id) is unchanged.
         for(const player of Object.values(game.players)){
             if(connection.id !== player.id){
-                messages.push(encode.playerPosition(player))
-                messages.push(encode.playerInputs(player))
+                const shared = sharedCache?.players.get(player.id)
+                messages.push(shared ? shared.position : encode.playerPosition(player))
+                messages.push(shared ? shared.inputs : encode.playerInputs(player))
             }
         }
 
@@ -396,10 +447,14 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
         }
     }
 
-    // send player ping
+    // send player ping. playerPing is a plain per-player field that does not
+    // vary by recipient, so it too rides the per-tick shared cache when present
+    // (no self-exclusion here: ping IS broadcast for every player, including the
+    // recipient, exactly as before).
     if(game.tickNumber % (game.tps - PING_REFRESH) === 0){
         for(const player of Object.values(game.players)){
-            messages.push(encode.playerPing(player))
+            const shared = sharedCache?.players.get(player.id)
+            messages.push(shared ? shared.ping : encode.playerPing(player))
         }
     }
 

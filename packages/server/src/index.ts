@@ -9,7 +9,7 @@ import { Ticker } from "@pip-pip/core/src/common/ticker"
 
 import { CONNECTION_ID_LENGTH, LOBBY_ID_LENGTH, packetManager } from "@pip-pip/game/src/networking/packets"
 import { PipPipGame, PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
-import { sendPacketToConnection } from "./connection-out"
+import { buildSharedTickCache, sendPacketToConnection } from "./connection-out"
 import { processLobbyPackets } from "./connection-in"
 
 import { PING_REFRESH } from "@pip-pip/game/src/logic/constants"
@@ -293,10 +293,17 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
         // update game
         game.update()
 
-        // send messages to connections
+        // send messages to connections. The per-player broadcast packets that
+        // are byte-identical for every recipient this tick (playerPosition,
+        // playerInputs, playerPing and the global serverTickHeader) are encoded
+        // ONCE here, before the per-connection loop, and reused for every
+        // recipient instead of being re-encoded once per connection. The
+        // recipient-specific packets (ownPlayerState, targeted playerDamage,
+        // owner-only playerPositionSync, etc.) are still composed per connection.
         const readyConnections = Object.values(lobby.connections).filter(connection => connection.isReady)
+        const sharedCache = buildSharedTickCache(game)
         for(const connection of readyConnections){
-            sendPacketToConnection(getConnectionContext(connection))
+            sendPacketToConnection(getConnectionContext(connection), sharedCache)
         }
 
         // Telegram analytics: announce when a match kicks off. A phaseChange into
