@@ -45,6 +45,34 @@ const SMOOTHING = {
     BULLET_POSITION: 0.5,
 }
 
+// The complete set of inputs that decide what the STATIC part of a player's
+// overlay (the health bar) looks like. The bar geometry is fixed except for its
+// fill length, which is health/maxHealth, and its color, which comes from
+// healthBarColor(localTeam, playerTeam, isClient, teamMode). Caching these per
+// PlayerGraphic lets render() skip the clear()+redraw when none of them changed
+// since the last draw, which is the common case at 60fps (health changes are
+// rare). Anything the bar's pixels depend on MUST live here or the bar can go
+// stale; the animated buff rings are NOT here because they live on their own
+// per-frame graphic (see PlayerGraphic.buffGraphic).
+export type HealthOverlayState = {
+    health: number
+    maxHealth: number
+    color: number
+}
+
+// True when the health bar must be redrawn: either it has never been drawn
+// (prev undefined) or any cached input changed. Pure and side-effect free so it
+// can be unit-tested. Keeping this exact means a damage tick, a respawn/health
+// restore, a maxHealth change, or a team / self-vs-other color change (a TDM team
+// switch) all redraw the SAME frame they happen, exactly like the old
+// unconditional redraw.
+export function healthOverlayChanged(prev: HealthOverlayState | undefined, next: HealthOverlayState): boolean{
+    if(typeof prev === "undefined") return true
+    return prev.health !== next.health
+        || prev.maxHealth !== next.maxHealth
+        || prev.color !== next.color
+}
+
 export const STAR_BG = {
     COUNT: 200,
     MIN_Z: 5,
@@ -421,8 +449,29 @@ export class PlayerGraphic {
     player: PipPlayer
 
     container: PIXI.Container = new PIXI.Container()
-    
+
     overlayGraphic: PIXI.Graphics = new PIXI.Graphics()
+
+    // The animated buff rings (shield / haste / cloak). Split off the static
+    // health-bar overlayGraphic onto their own Graphics because they pulse via
+    // buffPulse every frame and so genuinely need a per-frame geometry rebuild
+    // while a buff is active, whereas the health bar does NOT. Keeping them apart
+    // lets the health bar be cache-gated (skipped when unchanged) without ever
+    // freezing the pulse. Drawn after overlayGraphic so it sits on top, matching
+    // the old single-graphic draw order.
+    buffGraphic: PIXI.Graphics = new PIXI.Graphics()
+
+    // Cache of the inputs that drove the LAST health-bar draw. Undefined until
+    // the first draw. render() compares the current inputs against this via
+    // healthOverlayChanged and only clears+redraws overlayGraphic when they
+    // differ. See HealthOverlayState.
+    lastHealthOverlay?: HealthOverlayState
+
+    // Tracks whether buffGraphic currently holds geometry, so a frame with no
+    // active buff only clears it ONCE (on the transition to "no buffs") instead
+    // of calling clear() every idle frame.
+    buffGraphicDrawn = false
+
     shipContainer: PIXI.Container = new PIXI.Container()
     shipSprite?: PIXI.Sprite
 
@@ -448,6 +497,7 @@ export class PlayerGraphic {
 
         this.container.addChild(this.shipContainer)
         this.container.addChild(this.overlayGraphic)
+        this.container.addChild(this.buffGraphic)
         this.container.addChild(this.nameText)
     }
 
@@ -909,6 +959,11 @@ export class PipPipRenderer{
         const teamMode = isTeamMode(useGameStore.getState().mode)
         const localTeam = typeof clientPlayer !== "undefined" ? clientPlayer.team : -1
 
+        // The buff rings pulse off a single wall-clock sine wave. Compute it ONCE
+        // per frame and reuse it for every player, instead of calling Date.now()
+        // and Math.sin once per player inside the loop below.
+        const buffPulse = (Math.sin(Date.now() / 150) + 1) / 2
+
         for(const graphic of players){
             const isClient = graphic.player === gameContext.getClientPlayer()
             const movementSmoothing = isClient ? clientPlayerMovementSmoothing : playerMovementSmoothing
@@ -942,21 +997,38 @@ export class PipPipRenderer{
                 ? (isClient ? 0.35 : 0.05)
                 : 1
 
-            graphic.overlayGraphic.clear()
-            graphic.overlayGraphic.lineStyle({
-                width: DIMS.HEALTH_BAR_HEIGHT + DIMS.HEALTH_BAR_BORDER * 2,
-                color: COLORS.DARK_1,
-            })
-            graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2 + DIMS.HEALTH_BAR_BORDER), DIMS.HEALTH_BAR_OFFSET)
-            graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH / 2 + DIMS.HEALTH_BAR_BORDER, DIMS.HEALTH_BAR_OFFSET)
-
-            graphic.overlayGraphic.lineStyle({
-                width: DIMS.HEALTH_BAR_HEIGHT,
+            // Health bar (static): its geometry only changes when the health
+            // ratio or the bar color changes, both rare at 60fps. Cache those
+            // inputs and only clear()+redraw when they differ from the last draw,
+            // so an unchanged bar keeps its existing geometry instead of being
+            // rebuilt every frame. healthOverlayChanged returns true on the first
+            // draw (lastHealthOverlay undefined), on damage / heal / respawn
+            // (health or maxHealth change), and on a color change (team switch in
+            // TDM, or self-vs-other), so the bar is never stale.
+            const healthOverlay: HealthOverlayState = {
+                health: graphic.player.ship.capacities.health,
+                maxHealth: graphic.player.ship.maxHealth,
                 color: healthBarColor(localTeam, graphic.player.team, isClient, teamMode),
-            })
-            graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
-            const h = graphic.player.ship.capacities.health / graphic.player.ship.maxHealth
-            graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH * h - (DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
+            }
+            if(healthOverlayChanged(graphic.lastHealthOverlay, healthOverlay)){
+                graphic.overlayGraphic.clear()
+                graphic.overlayGraphic.lineStyle({
+                    width: DIMS.HEALTH_BAR_HEIGHT + DIMS.HEALTH_BAR_BORDER * 2,
+                    color: COLORS.DARK_1,
+                })
+                graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2 + DIMS.HEALTH_BAR_BORDER), DIMS.HEALTH_BAR_OFFSET)
+                graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH / 2 + DIMS.HEALTH_BAR_BORDER, DIMS.HEALTH_BAR_OFFSET)
+
+                graphic.overlayGraphic.lineStyle({
+                    width: DIMS.HEALTH_BAR_HEIGHT,
+                    color: healthOverlay.color,
+                })
+                graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
+                const h = healthOverlay.health / healthOverlay.maxHealth
+                graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH * h - (DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
+
+                graphic.lastHealthOverlay = healthOverlay
+            }
 
             // Name above the health bar. Only re-set the text when it changes (a
             // PIXI.Text rebuilds its texture on assignment), and fade it together
@@ -966,37 +1038,51 @@ export class PipPipRenderer{
             }
             graphic.nameText.alpha = graphic.shipContainer.alpha
 
-            // Buff cues, drawn on the same overlay (centred on the ship). A
+            // Buff cues, drawn on their OWN buffGraphic (centred on the ship). A
             // pulsing purple ring around a shielded ship; a subtle cyan halo for
-            // a hasted one. Both are cheap (one stroke / one fill) and read at a
-            // glance without art assets.
-            const buffPulse = (Math.sin(Date.now() / 150) + 1) / 2
-            if(graphic.player.ship.timings.shield > 0){
-                const ringRadius = SHIP_DAIMETER * 0.7 + buffPulse * 4
-                graphic.overlayGraphic.lineStyle({
-                    width: 3,
-                    color: PowerupGraphic.COLORS.shield,
-                    alpha: 0.5 + buffPulse * 0.35,
-                })
-                graphic.overlayGraphic.drawCircle(0, 0, ringRadius)
-            }
-            if(graphic.player.ship.timings.haste > 0){
-                graphic.overlayGraphic.lineStyle(0)
-                graphic.overlayGraphic.beginFill(PowerupGraphic.COLORS.haste, 0.12 + buffPulse * 0.08)
-                graphic.overlayGraphic.drawCircle(0, 0, SHIP_DAIMETER * 0.55)
-                graphic.overlayGraphic.endFill()
-            }
-            // CLOAK cue: a faint ghost-white shimmer ring. Only drawn for the
-            // LOCAL player (and spectate target) — the overlay is on a sibling of
-            // the faded ship sprite, so drawing it for enemies would betray a
-            // cloaked ship that is meant to be unseen.
-            if(graphic.player.ship.isInvisible && (isClient || graphic.player === followPlayer)){
-                graphic.overlayGraphic.lineStyle({
-                    width: 2,
-                    color: PowerupGraphic.COLORS.invis,
-                    alpha: 0.25 + buffPulse * 0.25,
-                })
-                graphic.overlayGraphic.drawCircle(0, 0, SHIP_DAIMETER * 0.6 + buffPulse * 3)
+            // a hasted one; a ghost-white shimmer for a cloaked one. Each pulses
+            // off the shared per-frame buffPulse (radius and/or alpha), so unlike
+            // the health bar these genuinely must rebuild their geometry every
+            // frame while active. They live apart from overlayGraphic precisely so
+            // that per-frame rebuild does not drag the static health bar along.
+            const showShield = graphic.player.ship.timings.shield > 0
+            const showHaste = graphic.player.ship.timings.haste > 0
+            const showCloak = graphic.player.ship.isInvisible && (isClient || graphic.player === followPlayer)
+            if(showShield || showHaste || showCloak){
+                graphic.buffGraphic.clear()
+                if(showShield){
+                    const ringRadius = SHIP_DAIMETER * 0.7 + buffPulse * 4
+                    graphic.buffGraphic.lineStyle({
+                        width: 3,
+                        color: PowerupGraphic.COLORS.shield,
+                        alpha: 0.5 + buffPulse * 0.35,
+                    })
+                    graphic.buffGraphic.drawCircle(0, 0, ringRadius)
+                }
+                if(showHaste){
+                    graphic.buffGraphic.lineStyle(0)
+                    graphic.buffGraphic.beginFill(PowerupGraphic.COLORS.haste, 0.12 + buffPulse * 0.08)
+                    graphic.buffGraphic.drawCircle(0, 0, SHIP_DAIMETER * 0.55)
+                    graphic.buffGraphic.endFill()
+                }
+                // CLOAK cue: a faint ghost-white shimmer ring. Only drawn for the
+                // LOCAL player (and spectate target). The overlay is on a sibling
+                // of the faded ship sprite, so drawing it for enemies would betray
+                // a cloaked ship that is meant to be unseen.
+                if(showCloak){
+                    graphic.buffGraphic.lineStyle({
+                        width: 2,
+                        color: PowerupGraphic.COLORS.invis,
+                        alpha: 0.25 + buffPulse * 0.25,
+                    })
+                    graphic.buffGraphic.drawCircle(0, 0, SHIP_DAIMETER * 0.6 + buffPulse * 3)
+                }
+                graphic.buffGraphicDrawn = true
+            } else if(graphic.buffGraphicDrawn){
+                // No active buff this frame: clear the rings ONCE on the
+                // transition to idle, then leave the empty graphic untouched.
+                graphic.buffGraphic.clear()
+                graphic.buffGraphicDrawn = false
             }
 
             // Track whichever player the camera should follow this frame (the
