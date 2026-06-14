@@ -585,6 +585,112 @@
     > *
         width: 100%
 
+// MAPS LIBRARY section inside the options panel: a Save button plus a scrollable
+// list of saved maps, each with Load + Delete actions. Bordered off the actions
+// above so it reads as its own group; the list scrolls internally so a long
+// library never blows out the panel height on a 393px phone.
+.library
+    display: flex
+    flex-direction: column
+    gap: 0.5em
+    border-top: $border-size solid $color-border
+    padding-top: 0.6em
+
+.libraryHeader
+    display: flex
+    align-items: baseline
+    justify-content: space-between
+    gap: 0.5em
+
+.libraryCount
+    font-size: 0.85em
+    opacity: 0.6
+
+// The scrollable saved-map list. Capped in height so it scrolls within the panel
+// (which itself scrolls) rather than pushing the rest of the options off-screen.
+.libraryList
+    list-style: none
+    margin: 0
+    padding: 0
+    display: flex
+    flex-direction: column
+    gap: 0.4em
+    max-height: 40vh
+    overflow-y: auto
+
+// One saved-map row: name + tiny summary on the left, Load/Delete on the right.
+// Wraps on a very narrow phone so the actions drop below the name rather than
+// overflowing.
+.libraryItem
+    display: flex
+    align-items: center
+    justify-content: space-between
+    flex-wrap: wrap
+    gap: 0.4em
+    background: $color-dark-2
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    padding: 0.4em 0.5em
+
+.libraryItemInfo
+    display: flex
+    flex-direction: column
+    gap: 0.1em
+    min-width: 0
+    flex: 1
+
+.libraryItemName
+    font-size: 0.95em
+    color: $color-text
+    overflow: hidden
+    text-overflow: ellipsis
+    white-space: nowrap
+
+.libraryItemMeta
+    font-size: 0.8em
+    opacity: 0.6
+
+.libraryItemActions
+    display: flex
+    gap: 0.4em
+    flex: none
+
+// A compact Load / Delete button. >= 44px tap target for touch, frosted like the
+// rest of the editor chrome. Delete carries a danger tint so it never reads as the
+// safe default.
+.libraryAction
+    appearance: none
+    -webkit-appearance: none
+    background: $color-dark-3
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    color: $color-text
+    cursor: pointer
+    font-family: $font-family-game
+    font-size: 0.85em
+    min-height: 44px
+    min-width: 44px
+    padding: 0 0.7em
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
+    transition: border-color 80ms, color 80ms
+
+    @media (hover: hover)
+        &:hover
+            border-color: $color-accent
+            color: $color-main
+
+    &:active
+        transform: translateY(1px)
+
+.libraryActionDanger
+    color: $color-main
+
+    @media (hover: hover)
+        &:hover
+            border-color: $color-main
+            color: $color-main
+
 .fileInput
     display: none
 

@@ -42,6 +42,13 @@ import {
     rotateClipCW,
     flipClip,
 } from "../game/mapEditor"
+import {
+    LibrarySummary,
+    saveMapToLibrary,
+    listLibraryMaps,
+    loadMapFromLibrary,
+    deleteMapFromLibrary,
+} from "../game/mapLibrary"
 import { blockFaceCss } from "../game/mapGraphics"
 import { trackEvent, trackPageView } from "../analytics"
 import styles from "./MapEditor.module.sass"
@@ -341,6 +348,14 @@ export default function MapEditor(){
     const [slopeOpen, setSlopeOpen] = useState(false)
     const [halfOpen, setHalfOpen] = useState(false)
     const [confirmLeave, setConfirmLeave] = useState(false)
+    // MAPS LIBRARY (game/mapLibrary.ts): the author's personal collection of named
+    // maps in its OWN localStorage slot (never the autosave/play keys). `library`
+    // is the live summary list shown in the options panel; refreshLibrary re-reads
+    // it after every save/delete/load so the list always reflects storage.
+    // `confirmDeleteName` holds the name a delete is awaiting confirmation for (a
+    // tap must not nuke a map), null when no delete is pending.
+    const [library, setLibrary] = useState<LibrarySummary[]>([])
+    const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null)
     // Becomes true on the first paint/import/clear so the leave guard (Back
     // button + browser beforeunload) only fires when there is real work to lose.
     // A freshly restored draft counts as dirty too (see restore below).
@@ -1556,6 +1571,92 @@ export default function MapEditor(){
         reader.readAsText(file)
     }, [bump, draw, markDirty, refreshHistoryFlags])
 
+    // Replace the WHOLE editor canvas with a fresh map, EXACTLY like Import does:
+    // swap mapRef, sync the name field, RESET the undo history (the new content is
+    // the baseline, not undoable back into the previous map), refit the viewport,
+    // mark dirty (so the leave guard + autosave pick it up), and redraw. Shared by
+    // Import and the Library "Load" so both replacements behave identically.
+    const replaceMap = useCallback((map: EditorMap) => {
+        mapRef.current = map
+        setName(map.name)
+        historyRef.current.reset()
+        refreshHistoryFlags()
+        viewRef.current.ready = false
+        markDirty()
+        bump()
+        draw()
+    }, [bump, draw, markDirty, refreshHistoryFlags])
+
+    // Re-read the maps LIBRARY summary list from storage into state. Called when
+    // the options panel opens and after every save/delete so the list always
+    // reflects what is on disk (never throws: an unavailable storage lists empty).
+    const refreshLibrary = useCallback(() => {
+        const storage = editorStorage()
+        setLibrary(storage !== null ? listLibraryMaps(storage) : [])
+    }, [])
+
+    // SAVE the current map into the library under the current name. Overwrites an
+    // existing entry of the same (trimmed) name. Surfaces a brief status message via
+    // the shared setMessage, and refreshes the live list. A timestamp is passed so
+    // the list sorts newest-first and the cap evicts the oldest (the pure model
+    // never reads the clock itself).
+    const onSaveToLibrary = useCallback(() => {
+        const storage = editorStorage()
+        if(storage === null){
+            setMessage("Storage is unavailable, cannot save to the library.")
+            return
+        }
+        const data = mapRef.current.toGridMapData()
+        const result = saveMapToLibrary(storage, name, data, Date.now())
+        if(result.ok === false){
+            setMessage(result.message)
+            return
+        }
+        refreshLibrary()
+        trackEvent("save_map_to_library")
+        setMessage(
+            typeof result.evicted === "string"
+                ? `Saved "${result.name}" (removed oldest "${result.evicted}")`
+                : `Saved "${result.name}" to library`,
+        )
+    }, [name, refreshLibrary])
+
+    // LOAD a named map out of the library, replacing the editor canvas through the
+    // SAME path Import uses (validated GridMapData -> EditorMap.fromGridMapData ->
+    // replaceMap, which resets history + refits + marks dirty). The stored entry is
+    // validated inside loadMapFromLibrary, so a corrupt entry yields null and never
+    // crashes the editor.
+    const onLoadFromLibrary = useCallback((entryName: string) => {
+        const storage = editorStorage()
+        if(storage === null) return
+        const data = loadMapFromLibrary(storage, entryName)
+        if(data === null){
+            setMessage(`Could not load "${entryName}" (saved map is unreadable).`)
+            return
+        }
+        replaceMap(EditorMap.fromGridMapData(data))
+        trackEvent("load_map_from_library")
+        setMessage(`Loaded "${entryName}" from library`)
+    }, [replaceMap])
+
+    // DELETE a named map from the library after the inline confirm. Removes the
+    // entry, clears the pending-confirm state, and refreshes the list.
+    const onConfirmDelete = useCallback(() => {
+        const target = confirmDeleteName
+        setConfirmDeleteName(null)
+        if(target === null) return
+        const storage = editorStorage()
+        if(storage !== null) deleteMapFromLibrary(storage, target)
+        refreshLibrary()
+        setMessage(`Deleted "${target}" from library`)
+    }, [confirmDeleteName, refreshLibrary])
+
+    // Refresh the library list whenever the options panel is opened, so it always
+    // shows the current saved maps (e.g. after a save on a previous open).
+    useEffect(() => {
+        if(optionsOpen) refreshLibrary()
+    }, [optionsOpen, refreshLibrary])
+
     // Clear every tile/spawn AND forget the autosaved draft, so this is a true
     // "start fresh" (a reload after Clear comes up blank, not the cleared map).
     // The clear is recorded as one undo step, so an accidental Clear can be undone
@@ -1655,7 +1756,7 @@ export default function MapEditor(){
     // while a modal is open so Escape/typing there is unaffected.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
-            if(confirmLeave) return
+            if(confirmLeave || confirmDeleteName !== null) return
             const target = e.target as HTMLElement | null
             const tag = target?.tagName
             if(tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable === true) return
@@ -1731,7 +1832,7 @@ export default function MapEditor(){
         }
         window.addEventListener("keydown", onKeyDown)
         return () => window.removeEventListener("keydown", onKeyDown)
-    }, [confirmLeave, onExport, fitNow, undo, redo, onCopy, onCut, onPaste, onDeselect, onDeleteSelection])
+    }, [confirmLeave, confirmDeleteName, onExport, fitNow, undo, redo, onCopy, onCut, onPaste, onDeselect, onDeleteSelection])
 
     // The active material's face colour as a CSS hex, derived from the shared
     // TILE_BLOCK_STYLES so the rail's block/slope icons (and the material picker
@@ -2156,6 +2257,62 @@ export default function MapEditor(){
                             <GameButton accent onClick={fitNow}>Fit view</GameButton>
                             <GameButton accent onClick={onClear}>Clear</GameButton>
                         </div>
+
+                        {/* MAPS LIBRARY: save the current map under its name, and
+                            load or delete any previously saved map. Stored in its
+                            OWN localStorage slot (game/mapLibrary.ts), separate from
+                            the autosave draft + play-map stash. Load replaces the
+                            canvas through the SAME path Import uses (history reset +
+                            refit + dirty). The list scrolls within the panel so it
+                            stays usable at 393px even with many saved maps. */}
+                        <div className={styles.library}>
+                            <div className={styles.libraryHeader}>
+                                <span className={styles.label}>Library</span>
+                                <span className={styles.libraryCount}>
+                                    {library.length} saved
+                                </span>
+                            </div>
+                            <GameButton onClick={onSaveToLibrary}>Save to library</GameButton>
+                            {library.length === 0 ? (
+                                <div className={styles.hint}>
+                                    No saved maps yet. Save this one under its name to keep it here.
+                                </div>
+                            ) : (
+                                <ul className={styles.libraryList}>
+                                    {library.map((entry) => (
+                                        <li key={entry.name} className={styles.libraryItem}>
+                                            <div className={styles.libraryItemInfo}>
+                                                <span className={styles.libraryItemName}>{entry.name}</span>
+                                                <span className={styles.libraryItemMeta}>
+                                                    {entry.cols}x{entry.rows}, {entry.spawns} spawn{entry.spawns === 1 ? "" : "s"}
+                                                </span>
+                                            </div>
+                                            <div className={styles.libraryItemActions}>
+                                                <button
+                                                    type="button"
+                                                    className={styles.libraryAction}
+                                                    onClick={() => onLoadFromLibrary(entry.name)}
+                                                    aria-label={`Load ${entry.name}`}
+                                                    title={`Load ${entry.name}`}
+                                                >
+                                                    Load
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className={`${styles.libraryAction} ${styles.libraryActionDanger}`}
+                                                    onClick={() => setConfirmDeleteName(entry.name)}
+                                                    aria-label={`Delete ${entry.name}`}
+                                                    title={`Delete ${entry.name}`}
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+
                         <div className={styles.hint}>
                             Pick a draw mode (freehand, rectangle, line, fill, select) on the left, then a brush.
                             The Select tool marquees a region you can move, copy, rotate, flip or delete.
@@ -2214,6 +2371,20 @@ export default function MapEditor(){
                     cancelLabel="Stay"
                     onConfirm={leaveNow}
                     onClose={() => setConfirmLeave(false)}
+                />
+            )}
+
+            {/* Delete-from-library confirm: a tap must never silently nuke a saved
+                map, so removing a library entry routes through the shared
+                ConfirmModal (Stay is the safe default). */}
+            {confirmDeleteName !== null && (
+                <ConfirmModal
+                    title="Delete saved map?"
+                    message={`Delete "${confirmDeleteName}" from your library? This cannot be undone.`}
+                    confirmLabel="Delete"
+                    cancelLabel="Keep"
+                    onConfirm={onConfirmDelete}
+                    onClose={() => setConfirmDeleteName(null)}
                 />
             )}
         </div>
