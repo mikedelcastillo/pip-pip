@@ -194,6 +194,53 @@ $head-bg: transparentize($color-dark-2, 0.15)
     padding-top: 0.6em
     border-top: $border-size solid $color-border
 
+// ---- Match panel: mode toggle + target stepper (host), read-only otherwise ----
+.matchPanel
+    .modeButtons
+        display: flex
+        flex-direction: column
+        gap: 0.5em
+
+    .targetRow
+        display: flex
+        flex-direction: column
+        gap: 0.3em
+
+    .targetLabel
+        font-size: 1.1em
+        color: transparentize($color-text, 0.25)
+
+    .stepper
+        display: flex
+        align-items: center
+        gap: 0.6em
+
+    .stepperValue
+        min-width: 1.8em
+        text-align: center
+        font-size: 1.9em
+        line-height: 1
+        color: $color-main
+
+    .modeReadonly
+        display: flex
+        flex-direction: column
+        gap: 0.15em
+
+    .modeReadonlyName
+        font-size: 1.7em
+        line-height: 1
+        color: $color-main
+
+    .modeReadonlyDetail
+        font-size: 1.1em
+        color: transparentize($color-text, 0.25)
+
+    .modeHint
+        font-size: 1em
+        line-height: 1.2
+        color: transparentize($color-text, 0.4)
+
 // ---- Action bar: Spectate + Start Game (always reachable) ----
 .actionBar
     flex: 0 0 auto
@@ -224,7 +271,9 @@ $head-bg: transparentize($color-dark-2, 0.15)
 @media (min-width: 880px)
     .body
         display: grid
-        grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.1fr)
+        // Match | Ship | Map | Players. Match is the narrowest (just a toggle +
+        // a stepper); Ship gets the most room for its stat cards.
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1.05fr)
         // Columns own their scroll now, so the body itself does not scroll.
         overflow: hidden
 

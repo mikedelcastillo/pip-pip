@@ -1,9 +1,20 @@
-import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { PipPipGame, PipPipGamePhase, PipPipGameMode } from "@pip-pip/game/src/logic"
 import { sanitize } from "@pip-pip/game/src/logic/utils"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
 import type { GameTickContext } from "."
 import { sanitizePlayerInputs } from "./input-sanitize"
+
+// In-lobby mode-target bounds, mirrored from the host UI (HostSettingsModal /
+// the lobby Match panel). The client clamps too, but the server never trusts
+// the wire, so it re-clamps every incoming gameMode here.
+const MODE_MIN_KILLS = 5
+const MODE_MAX_KILLS = 50
+const MODE_MIN_MINUTES = 1
+const MODE_MAX_MINUTES = 10
+
+const clamp = (value: number, min: number, max: number) =>
+    Math.max(min, Math.min(max, value))
 
 // Max bots a single command may add, to bound server work. The default lobby
 // caps at 16 connections; this keeps a bot flood from blowing past that idea.
@@ -205,6 +216,23 @@ export function processLobbyPackets(context: GameTickContext){
             if(game.host?.id === connection.id){
                 if(mapIndex in PIP_MAPS){
                     game.setMap(mapIndex)
+                }
+            }
+        }
+
+        // Host-only: change the match mode + its target from the lobby. Validate
+        // the mode and clamp the targets to the same bounds the host UI enforces,
+        // then setSettings applies it (a no-op outside SETUP, so this can only
+        // change things in the lobby). The new settings reach every client on the
+        // next gameState broadcast.
+        for(const { mode, maxKills, matchMinutes } of packets.gameMode || []){
+            if(game.host?.id === connection.id){
+                if(mode === PipPipGameMode.DEATHMATCH || mode === PipPipGameMode.KILL_FRENZY){
+                    game.setSettings({
+                        mode,
+                        maxKills: clamp(maxKills, MODE_MIN_KILLS, MODE_MAX_KILLS),
+                        matchMinutes: clamp(matchMinutes, MODE_MIN_MINUTES, MODE_MAX_MINUTES),
+                    })
                 }
             }
         }

@@ -182,6 +182,9 @@ export interface GameStoreState {
     // "First to N" (DEATHMATCH) or the match clock (KILL_FRENZY).
     mode: PipPipGameMode
     maxKills: number
+    // KILL_FRENZY match length in whole minutes (the host-set target, mirrored so
+    // the lobby Match panel can show + step it).
+    matchMinutes: number
     // KILL_FRENZY remaining time, in whole seconds (0 outside that mode/MATCH).
     matchTimerSeconds: number
 
@@ -231,6 +234,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
     mode: PipPipGameMode.DEATHMATCH,
     maxKills: 0,
+    matchMinutes: 0,
     matchTimerSeconds: 0,
 
     winnerName: "",
@@ -319,6 +323,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             countdownMs: game.countdown / game.tps * 1000,
             mode: game.settings.mode,
             maxKills: game.settings.maxKills,
+            matchMinutes: game.settings.matchMinutes,
             matchTimerSeconds: Math.ceil(game.matchTimer / game.tps),
             winnerName,
             winnerCount: game.winnerIds.length,

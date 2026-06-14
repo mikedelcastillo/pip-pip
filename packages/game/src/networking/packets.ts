@@ -3,7 +3,7 @@ import { PacketManager, ExtractSerializerMap } from "@pip-pip/core/src/networkin
 import { Packet } from "@pip-pip/core/src/networking/packets/packet"
 
 import { PipPlayer } from "../logic/player"
-import { PipPipGame, PipPipGamePhase } from "../logic"
+import { PipPipGame, PipPipGamePhase, PipPipGameMode } from "../logic"
 import { Bullet } from "../logic/bullet"
 import { Powerup, POWERUP_ID_LENGTH, POWERUP_TYPE_TO_CODE } from "../logic/powerup"
 import { WORLD_QUANT_RANGE } from "../logic/constants"
@@ -203,6 +203,17 @@ export const packetManager = new PacketManager({
     gameMap: new Packet({
         mapIndex: $uint8,
     }),
+    // Host-only request to change the match mode + its target while still in the
+    // lobby (SETUP). The server validates the host, clamps the values and applies
+    // them via game.setSettings (a no-op outside SETUP); the change then rides the
+    // normal per-tick gameState broadcast back to every client. mode is the
+    // PipPipGameMode wire value; maxKills is the DEATHMATCH target, matchMinutes
+    // the KILL_FRENZY length - both sent every time so neither is lost on a switch.
+    gameMode: new Packet({
+        mode: $uint8,
+        maxKills: $uint8,
+        matchMinutes: $uint8,
+    }),
 
     // A powerup that became active (full state on join + on spawn). type is the
     // PowerupType wire code (see POWERUP_TYPE_TO_CODE); the id is a fixed-length
@@ -262,6 +273,11 @@ export const encode = {
     }),
     gameMap: (mapIndex: number) => packetManager.serializers.gameMap.encode({
         mapIndex,
+    }),
+    gameMode: (mode: PipPipGameMode, maxKills: number, matchMinutes: number) => packetManager.serializers.gameMode.encode({
+        mode,
+        maxKills,
+        matchMinutes,
     }),
 
     addPlayer: (player: PipPlayer) => packetManager.serializers.addPlayer.encode({

@@ -1,7 +1,7 @@
 import type { NavigateFunction } from "react-router-dom"
 import { useGameStore } from "./store"
 import { useUiStore } from "../store/ui"
-import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { PipPipGame, PipPipGamePhase, PipPipGameMode } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { KeyboardListener } from "@pip-pip/core/src/client/keyboard"
 import { MouseListener } from "@pip-pip/core/src/client/mouse"
@@ -283,6 +283,16 @@ export class GameContext {
 
     setMap(index: number) {
         const code = encode.gameMap(index)
+        this.sendCode(code)
+    }
+
+    // Host-only: change the match mode + its target from inside the lobby (so
+    // players never have to leave and re-host just to switch modes). The server
+    // validates the host and ignores this outside SETUP; the new settings come
+    // back to every client on the normal gameState broadcast, which the store
+    // mirrors - so the UI here just drives off the store and stays authoritative.
+    setGameMode(mode: PipPipGameMode, maxKills: number, matchMinutes: number) {
+        const code = encode.gameMode(mode, maxKills, matchMinutes)
         this.sendCode(code)
     }
 

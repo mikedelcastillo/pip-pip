@@ -31,6 +31,20 @@ describe("game packetManager wire format", () => {
         expect(decoded.sendChat?.[0]?.message).toBe(message)
     })
 
+    it("round-trips gameMode (host in-lobby mode + target change)", () => {
+        // The lobby sends this when the host switches mode; the server clamps and
+        // applies it via setSettings. Both targets ride along so neither is lost.
+        const dm = packetManager.decode(
+            packetManager.encode("gameMode", { mode: 0, maxKills: 30, matchMinutes: 5 }),
+        )
+        expect(dm.gameMode?.[0]).toEqual({ mode: 0, maxKills: 30, matchMinutes: 5 })
+
+        const kf = packetManager.decode(
+            packetManager.encode("gameMode", { mode: 1, maxKills: 25, matchMinutes: 7 }),
+        )
+        expect(kf.gameMode?.[0]).toEqual({ mode: 1, maxKills: 25, matchMinutes: 7 })
+    })
+
     it("round-trips playerScores with values above 255 (no uint8 wrap)", () => {
         // Long matches push kills/assists/deaths past 255. These fields are
         // uint16, so a 300-kill score must survive the wire untouched (uint8
