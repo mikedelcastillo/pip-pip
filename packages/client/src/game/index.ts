@@ -337,6 +337,15 @@ export class GameContext {
     async reconnect(lobbyId: string) {
         await this.client.connect()
         await this.client.joinLobby(lobbyId)
+        // The server may have pruned the connection during the outage, so connect()
+        // can hand back a FRESH connectionId. game.clientPlayerId was set once in
+        // mountGameView to the OLD id and is updated nowhere else, so re-sync it the
+        // same way - otherwise the sim's playerIsClient check (local bullet
+        // prediction), the camera highlight, the minimap marker and the kill feed
+        // would all key off a player id that no longer exists.
+        if (typeof this.client.connectionId === "string") {
+            this.game.clientPlayerId = this.client.connectionId
+        }
     }
 
     getClientPlayer() {
