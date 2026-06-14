@@ -651,8 +651,23 @@ export class PipPipGame{
         }
 
         if(this.phase !== PipPipGamePhase.SETUP){
-            this.updateSystems()
-            this.updatePhysics()
+            // Build the per-tick player list ONCE here and thread it through the
+            // two per-tick systems (and the helpers they call this tick). The
+            // ~5 Object.values(this.players) calls inside updateSystems /
+            // updatePhysics / updateBulletPhysics / updatePowerupPickups each
+            // rebuilt the SAME array per tick; this hoists that allocation to a
+            // single call. It is byte-identical to the old code because the
+            // player SET cannot change between here and the uses: players are
+            // only ever added (PipPlayer constructor) or removed
+            // (PipPlayer.remove) via lobby/connection events processed BEFORE
+            // game.update(), never mid-update. The per-tick code only mutates
+            // player STATE (spawned / score / position / velocity / inputs) and
+            // physics OBJECTS - never this.players itself - so the cached
+            // array's contents and ORDER stay exactly what each old
+            // Object.values(this.players) call would have produced.
+            const tickPlayers = Object.values(this.players)
+            this.updateSystems(tickPlayers)
+            this.updatePhysics(tickPlayers)
         }
     }
 
@@ -840,7 +855,11 @@ export class PipPipGame{
         player.setSpectator(true)
     }
 
-    updateSystems(){
+    // players is the per-tick snapshot built once in update() and shared across
+    // every per-tick loop here; it is exactly Object.values(this.players) for
+    // this tick (same contents, same order). Defaulted so any out-of-tick caller
+    // still works unchanged.
+    updateSystems(players: PipPlayer[] = Object.values(this.players)){
         if(this.phase === PipPipGamePhase.MATCH){
 
             // Anti-farm: despawn idle (disconnected) real players during MATCH
@@ -849,7 +868,7 @@ export class PipPipGame{
             // targets and are never idle. Gated on triggerSpawns so only the
             // authoritative server despawns; the client mirrors it via packets.
             if(this.options.triggerSpawns === true){
-                for(const player of Object.values(this.players)){
+                for(const player of players){
                     if(player.idle === true && player.isBot === false && player.spawned === true){
                         player.setSpawned(false)
                     }
@@ -862,7 +881,7 @@ export class PipPipGame{
             // intact). Gated by calculateAi so a non-authoritative client
             // instance never re-derives bot behaviour locally.
             if(this.options.calculateAi === true){
-                const allPlayers = Object.values(this.players)
+                const allPlayers = players
                 // Build the pathfinding context ONCE per tick and share it across
                 // every bot: the nav grid is cached per map (getNavGrid builds it
                 // only on a map change), and the wall arrays + tick are read off
@@ -898,11 +917,11 @@ export class PipPipGame{
             // is a no-op on the client and for AI (their queues are empty);
             // only the server populates inputQueue (one connection's stream
             // per player), so it stays server-authoritative without a flag.
-            for(const player of Object.values(this.players)){
+            for(const player of players){
                 player.consumeQueuedInput()
             }
 
-            for(const player of Object.values(this.players)){
+            for(const player of players){
                 const playerIsClient = player.id === this.clientPlayerId
                 const authorizedToShootBullet = playerIsClient === true || this.options.shootPlayerBullets === true
                 // update player (ticks the respawn timer down, among other things)
@@ -933,7 +952,7 @@ export class PipPipGame{
             }
 
 
-            for(const player of Object.values(this.players)){
+            for(const player of players){
                 const playerIsClient = player.id === this.clientPlayerId
                 const authorizedToShootBullet = playerIsClient === true || this.options.shootPlayerBullets === true
 
@@ -1074,10 +1093,12 @@ export class PipPipGame{
     // is marked dead, and powerupPickup is emitted so the broadcast can tell
     // clients to remove it. A non-authoritative client never runs this (the flag
     // is off there); it removes powerups purely from the powerupPickup packet.
-    updatePowerupPickups(){
+    // players is the per-tick snapshot threaded from updatePhysics (built once in
+    // update()); defaulted so an out-of-tick caller still works unchanged.
+    updatePowerupPickups(players: PipPlayer[] = Object.values(this.players)){
         if(this.options.spawnPowerups !== true) return
 
-        for(const player of Object.values(this.players)){
+        for(const player of players){
             if(player.spawned === false) continue
             for(const powerup of this.powerups.getActive()){
                 const dx = player.ship.physics.position.x - powerup.position.x
@@ -1392,7 +1413,13 @@ export class PipPipGame{
         this.bullets.unset(bullet)
     }
 
-    updateBulletPhysics(){
+    // tickPlayers is the per-tick snapshot threaded from updatePhysics (built
+    // once in update()); it is exactly Object.values(this.players) for this tick
+    // and is used only for the collide-with-players pass below. Defaulted so an
+    // out-of-tick caller still works unchanged. The bullet pool IS mutated during
+    // this method (bullets unset on a wall/player hit), but the PLAYER set is
+    // never touched, so reusing the cached player array is safe and identical.
+    updateBulletPhysics(tickPlayers: PipPlayer[] = Object.values(this.players)){
         // check wall collisions: swept circle (the bullet's motion segment,
         // inflated by both radii) vs each wall. The previous test used a
         // zero-width line intersection that missed corner grazes and skims for
@@ -1548,7 +1575,7 @@ export class PipPipGame{
         }
 
         // collide with players
-        const players = Object.values(this.players)
+        const players = tickPlayers
         for(const player of players){
             if(player.spawned === false) continue
 
@@ -1635,20 +1662,24 @@ export class PipPipGame{
         }
     }
 
-    updatePhysics(){
+    // players is the per-tick snapshot built once in update() and shared with the
+    // physics helpers + the two loops below; it is exactly
+    // Object.values(this.players) for this tick. Defaulted so an out-of-tick
+    // caller still works unchanged.
+    updatePhysics(players: PipPlayer[] = Object.values(this.players)){
         // Run physics
-        this.updateBulletPhysics()
+        this.updateBulletPhysics(players)
         this.physics.update(this.deltaMs)
 
         // Enforce map bounds
-        for(const player of Object.values(this.players)){
+        for(const player of players){
             this.applyMapBounds(player)
         }
 
         // Resolve powerup pickups against final ship positions this tick.
-        this.updatePowerupPickups()
+        this.updatePowerupPickups(players)
 
-        for(const player of Object.values(this.players)){
+        for(const player of players){
             player.trackPositionState()
         }
     }
