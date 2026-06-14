@@ -144,17 +144,58 @@ describe("validateGridMapData", () => {
     })
 
     it("accepts a map exactly at the cell cap", () => {
-        // A 1 x MAX_CUSTOM_CELLS strip is exactly at the cap and must be accepted.
-        const cols = MAX_CUSTOM_CELLS
+        // A 250 x 250 square is exactly at the cap (62500 cells). cellSize is kept
+        // small so the world extent still fits the position quant range (a 1 x
+        // 62500 strip would hit the cap but span millions of units, see below).
+        const side = Math.sqrt(MAX_CUSTOM_CELLS) // 250
         const map: GridMapData = {
             name: "Cap",
-            cellSize: 64,
-            cols,
-            rows: 1,
-            tiles: new Array(cols).fill(0),
+            cellSize: 32, // 250 * 32 = 8000 units, within WORLD_QUANT_RANGE
+            cols: side,
+            rows: side,
+            tiles: new Array(side * side).fill(0),
             spawns: [],
             palette: [{ key: "tile_default", shape: "full" }],
         }
+        expect(side * side).toBe(MAX_CUSTOM_CELLS)
+        expect(validateGridMapData(map)).not.toBeNull()
+    })
+
+    it("rejects a map whose world extent exceeds the position quant range", () => {
+        // 200 x 200 cells is within the cell cap (40000 <= 62500), but at this cell
+        // size it spans ~14400 world units, past WORLD_QUANT_RANGE (~8192) - so a
+        // position out there would saturate on the wire and desync server vs client.
+        const map = validMap()
+        map.cols = 200
+        map.rows = 200
+        map.cellSize = 72
+        map.originCol = 0
+        map.originRow = 0
+        map.tiles = new Array(200 * 200).fill(0)
+        expect(map.cols * map.rows).toBeLessThanOrEqual(MAX_CUSTOM_CELLS)
+        expect(validateGridMapData(map)).toBeNull()
+    })
+
+    it("rejects a tiny grid pushed out of range by its origin offset", () => {
+        // Only 4 cells, but the origin shifts them tens of thousands of units away.
+        const map = validMap()
+        map.cols = 2
+        map.rows = 2
+        map.cellSize = 64
+        map.tiles = [0, 0, 0, 0]
+        map.originCol = 1000 // 1000 * 64 = 64000 world units, far past the range
+        map.originRow = 0
+        expect(validateGridMapData(map)).toBeNull()
+    })
+
+    it("accepts a large map that stays within the quant range", () => {
+        const map = validMap()
+        map.cols = 100
+        map.rows = 100
+        map.cellSize = 64 // 100 * 64 = 6400 < 8192
+        map.originCol = 0
+        map.originRow = 0
+        map.tiles = new Array(100 * 100).fill(0)
         expect(validateGridMapData(map)).not.toBeNull()
     })
 })

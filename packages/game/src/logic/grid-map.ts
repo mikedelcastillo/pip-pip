@@ -1,5 +1,5 @@
 import { PointPhysicsRectWall, PointPhysicsSegmentWall } from "@pip-pip/core/src/physics"
-import { TILE_SIZE, SPAWN_DIAMETER } from "@pip-pip/game/src/logic/constants"
+import { TILE_SIZE, SPAWN_DIAMETER, WORLD_QUANT_RANGE } from "@pip-pip/game/src/logic/constants"
 import { PipGameMap, PipGameTile, PointRadius, PIP_MAP_DEFAULT_BOUNDS } from "@pip-pip/game/src/logic/map"
 
 // GRID MAP ENGINE (Phase 1): a compact, scalable map format plus a loader that
@@ -494,6 +494,20 @@ export function validateGridMapData(x: unknown): GridMapData | null{
 
     if(typeof data.originCol !== "undefined" && !isInteger(data.originCol)) return null
     if(typeof data.originRow !== "undefined" && !isInteger(data.originRow)) return null
+
+    // World-extent guard. Positions go on the wire through $quant16(WORLD_QUANT_RANGE),
+    // which SILENTLY saturates any coordinate outside +/-range, so the server and
+    // every client would permanently disagree on an entity placed beyond it. Ships
+    // are confined to the map bounds (cell extent padded by half a cell, shifted by
+    // the optional origin), so reject any map whose worst-case bound exceeds the
+    // range. The cell-count cap alone is NOT enough: 250*250 cells at the default
+    // cell size spans ~18000 units, far past the ~8192 range.
+    const half = data.cellSize / 2
+    const originCol = data.originCol ?? 0
+    const originRow = data.originRow ?? 0
+    const extentX = Math.max(Math.abs(originCol * data.cellSize - half), Math.abs((data.cols - 1 + originCol) * data.cellSize + half))
+    const extentY = Math.max(Math.abs(originRow * data.cellSize - half), Math.abs((data.rows - 1 + originRow) * data.cellSize + half))
+    if(Math.max(extentX, extentY) > WORLD_QUANT_RANGE) return null
 
     if(typeof data.segments !== "undefined"){
         if(!Array.isArray(data.segments)) return null
