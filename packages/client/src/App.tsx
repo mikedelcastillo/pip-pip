@@ -4,6 +4,8 @@ import GameLoading from "./components/GameLoading"
 import AssetLoadError from "./components/AssetLoadError"
 import AlertModal from "./components/AlertModal"
 import { assetLoader } from "./game/assets"
+import { GAME_CONTEXT } from "./game"
+import { shouldPlayClickFor } from "./game/audio"
 import { useUiStore } from "./store/ui"
 import { router } from "./router"
 
@@ -14,6 +16,33 @@ export default function App() {
     // first download never falls back to a native alert/prompt.
     const [retryToken, setRetryToken] = useState(0)
     const setLoading = useUiStore((s) => s.setLoading)
+
+    // App-wide UI click sound. The shared GAME_CONTEXT.audio used to come alive
+    // only inside a match (mountGameView); here we drive it from the app root so
+    // every button - home menu, lobby, in-match menus - gets the same soft tick.
+    //
+    // ONE document-level pointerdown listener covers desktop clicks AND mobile
+    // taps in a single path (pointer events unify both), so there is no click +
+    // touch double-fire. Browsers gate the AudioContext behind a user gesture,
+    // and this IS that gesture, so we (re)init + resume right here. init and
+    // resume are both idempotent, and play() no-ops on a suspended/closed
+    // context, so this stays safe across a GameView mount/dispose cycle (leaving
+    // a match disposes the context; the next tap recreates it).
+    useEffect(() => {
+        const onPointerDown = (event: PointerEvent) => {
+            const audio = GAME_CONTEXT.audio
+            audio.init()
+            audio.resume()
+            if (shouldPlayClickFor(event.target as Element | null)) {
+                audio.play("uiClick")
+            }
+        }
+        // pointerdown (not click) so the tick lands the instant the control is
+        // pressed. Capture phase so a stopPropagation inside a button's own
+        // handler cannot swallow it before we see it.
+        document.addEventListener("pointerdown", onPointerDown, true)
+        return () => document.removeEventListener("pointerdown", onPointerDown, true)
+    }, [])
 
     useEffect(() => {
         let cancelled = false

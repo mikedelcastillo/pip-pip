@@ -158,12 +158,16 @@ export const SFX_TABLE: Record<SfxName, SfxDefinition> = {
         noiseAmount: 0,
     },
     uiClick: {
-        waveform: "triangle",
-        frequency: 1047,
-        frequencyEnd: 1047,
-        duration: 0.06,
-        envelope: [{ t: 0, gain: 1 }, { t: 0.5, gain: 0.5 }, { t: 1, gain: 0 }],
-        gain: 0.2,
+        // Fires on EVERY button press app-wide, so it has to stay near-subliminal:
+        // a sine (the gentlest waveform, no upper harmonics), a brief 50 ms
+        // duration, and a low peak gain. A small downward sweep softens it
+        // further so the cue reads as a quiet "tick" rather than a beep.
+        waveform: "sine",
+        frequency: 660,
+        frequencyEnd: 520,
+        duration: 0.05,
+        envelope: [{ t: 0, gain: 1 }, { t: 0.4, gain: 0.4 }, { t: 1, gain: 0 }],
+        gain: 0.12,
         noiseAmount: 0,
     },
     uiHover: {

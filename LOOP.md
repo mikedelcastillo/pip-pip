@@ -380,4 +380,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 88 | `8fe317a`   | Replace native alert() with an on-brand AlertModal (global alert store) | `git revert 8fe317a`|
 | 89 | `60ffd4b`   | FIX public match list 401 "Connection lost" (ensure connection before GET /lobbies) | `git revert 60ffd4b`|
 | 90 | `03bbe41`   | Match HUD: Deathmatch king/progress meter + prominent Kill Frenzy timer + powerup feed like kill feed | `git revert 03bbe41`|
-| 91 | (latest)    | Mid-game join loadout screen (pick ship / Deploy / Spectate) + respawn "Change Loadout" | `git revert <sha>` |
+| 91 | `79cb9b5`   | Mid-game join loadout screen (pick ship / Deploy / Spectate) + respawn "Change Loadout" | `git revert 79cb9b5`|
+| 92 | (latest)    | Subtle UI click SFX on every button press (app-wide, soft, muteable) | `git revert <sha>` |
