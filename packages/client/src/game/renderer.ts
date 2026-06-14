@@ -328,12 +328,29 @@ export class PlayerGraphic {
     shipContainer: PIXI.Container = new PIXI.Container()
     shipSprite?: PIXI.Sprite
 
+    // The player's name, shown just above the health bar. Lives on `container`
+    // (not shipContainer) so it never spins with the ship and stays upright.
+    nameText: PIXI.Text = new PIXI.Text("", {
+        fontFamily: "VT323",
+        fontSize: 16,
+        fill: 0xFFFFFF,
+        stroke: COLORS.DARK_1,
+        strokeThickness: 4,
+        align: "center",
+    })
+
     constructor(player: PipPlayer){
         this.id = player.id
         this.player = player
 
+        // Bottom-centre anchored and parked just above the health bar (which sits
+        // at the negative HEALTH_BAR_OFFSET, i.e. above the ship).
+        this.nameText.anchor.set(0.5, 1)
+        this.nameText.position.set(0, DIMS.HEALTH_BAR_OFFSET - (DIMS.HEALTH_BAR_HEIGHT / 2 + DIMS.HEALTH_BAR_BORDER) - 2)
+
         this.container.addChild(this.shipContainer)
         this.container.addChild(this.overlayGraphic)
+        this.container.addChild(this.nameText)
     }
 
     updateShipSprite(){
@@ -759,6 +776,14 @@ export class PipPipRenderer{
             graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
             const h = graphic.player.ship.capacities.health / graphic.player.ship.maxHealth
             graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH * h - (DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
+
+            // Name above the health bar. Only re-set the text when it changes (a
+            // PIXI.Text rebuilds its texture on assignment), and fade it together
+            // with the ship so a cloaked enemy's name does not give them away.
+            if(graphic.nameText.text !== graphic.player.name){
+                graphic.nameText.text = graphic.player.name
+            }
+            graphic.nameText.alpha = graphic.shipContainer.alpha
 
             // Buff cues, drawn on the same overlay (centred on the ship). A
             // pulsing purple ring around a shielded ship; a subtle cyan halo for
