@@ -16,6 +16,16 @@ export function fraction(value: number, max: number): number {
     return Math.max(0, Math.min(1, value / max))
 }
 
+// Pure tick-to-seconds helper for countdown labels: rounds a tick count UP to
+// whole seconds at the given tick rate, clamped at 0 so a spent/negative timer
+// never reads as a negative "Respawning in -1". Used by the respawn overlay and
+// the player-list respawn indicator. Kept pure (no store/DOM access) so it is
+// trivially unit-testable.
+export function ticksToSeconds(ticks: number, tps: number): number {
+    if (tps <= 0) return 0
+    return Math.max(0, Math.ceil(ticks / tps))
+}
+
 export type GameStorePlayer = {
     id: string,
     name: string,
@@ -27,6 +37,11 @@ export type GameStorePlayer = {
     shipType: ShipType,
     isHost: boolean,
     isClient: boolean,
+    // Respawn state, networked to every player (client.ts applies playerTimings),
+    // so the scoreboard can show a "Respawning Ns" indicator for anyone who is
+    // currently dead. spawnTimeout is in ticks; convert with ticksToSeconds.
+    spawned: boolean,
+    spawnTimeout: number,
 }
 
 export function playerToGameStore(player: PipPlayer): GameStorePlayer {
@@ -41,6 +56,8 @@ export function playerToGameStore(player: PipPlayer): GameStorePlayer {
         shipType: player.shipType,
         isHost: GAME_CONTEXT.game.host?.id === player.id,
         isClient: GAME_CONTEXT.client.connectionId === player.id,
+        spawned: player.spawned,
+        spawnTimeout: player.timings.spawnTimeout,
     }
 }
 
@@ -50,6 +67,12 @@ export interface ClientPlayerStats {
     ammoMax: number
     health: number
     healthMax: number
+
+    // Respawn state for the LOCAL player, read each tick. spawned is false while
+    // dead; spawnTimeout is the respawn countdown in ticks (convert with
+    // ticksToSeconds). Drives the centered "Respawning in N" overlay.
+    spawned: boolean
+    spawnTimeout: number
 
     // Timed-buff timers (in ticks) and their max durations, read from the local
     // ship.timings each tick. Remaining fraction = ticks / maxTicks; a buff is
@@ -204,6 +227,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         reloading: false,
         ammo: 0, ammoMax: 0,
         health: 0, healthMax: 0,
+        spawned: false, spawnTimeout: 0,
         shieldTicks: 0, shieldMaxTicks: SHIELD_TICKS,
         hasteTicks: 0, hasteMaxTicks: HASTE_TICKS,
         invisTicks: 0, invisMaxTicks: INVIS_TICKS,
@@ -284,6 +308,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
                 ammoMax: ship.stats.weapon.capacity,
                 health: ship.capacities.health,
                 healthMax: ship.maxHealth,
+                spawned: gameClientPlayer.spawned,
+                spawnTimeout: gameClientPlayer.timings.spawnTimeout,
                 shieldTicks: ship.timings.shield,
                 shieldMaxTicks: SHIELD_TICKS,
                 hasteTicks: ship.timings.haste,

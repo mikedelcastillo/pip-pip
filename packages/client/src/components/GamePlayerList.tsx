@@ -1,11 +1,20 @@
 import { useMemo } from "react"
-import { useGameStore } from "../game/store"
+import { PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { useGameStore, ticksToSeconds } from "../game/store"
 import type { GameStorePlayer } from "../game/store"
 import { shipAssets } from "../game/assets"
+import { GAME_CONTEXT } from "../game"
 import styles from "./GamePlayerList.module.sass"
 
 const PING_GOOD_MS = 80
 const PING_OKAY_MS = 160
+
+// A player counts as awaiting respawn when they are in play (not a spectator)
+// yet currently dead (not spawned). Only meaningful during a live match - in
+// setup/lobby nobody is spawned, so the caller gates this on the MATCH phase.
+function isAwaitingRespawn(player: GameStorePlayer): boolean {
+    return !player.spectator && !player.spawned
+}
 
 // Scoreboard ordering: most kills first, break ties by damage dealt,
 // then fewest deaths. Idle (disconnected) players always sink to the bottom.
@@ -40,10 +49,15 @@ function getRowClass(player: GameStorePlayer): string {
 
 export default function GamePlayerList() {
     const playersRaw = useGameStore((s) => s.players)
+    const phase = useGameStore((s) => s.phase)
     const players = useMemo(
         () => [...playersRaw].sort(comparePlayers),
         [playersRaw],
     )
+
+    // The respawn indicator is only meaningful mid-match; in setup/lobby no one
+    // is spawned, so we would otherwise tag every player.
+    const inMatch = phase === PipPipGamePhase.MATCH
 
     return (
         <div className={styles.playerList}>
@@ -80,6 +94,11 @@ export default function GamePlayerList() {
                                 )}
                                 {player.spectator && (
                                     <span className={styles.tag}>Spec</span>
+                                )}
+                                {inMatch && isAwaitingRespawn(player) && (
+                                    <span className={`${styles.tag} ${styles.respawning}`}>
+                                        Respawning {ticksToSeconds(player.spawnTimeout, GAME_CONTEXT.game.tps)}s
+                                    </span>
                                 )}
                             </td>
                             <td className={`${styles.ping} ${player.idle ? "" : getPingClass(player.ping)}`}>

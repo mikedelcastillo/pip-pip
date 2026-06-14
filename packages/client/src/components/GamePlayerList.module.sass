@@ -89,6 +89,11 @@
                 background-color: transparentize($color-main, 0.4)
                 &.you
                     background-color: transparentize($color-accent, 0.3)
+                // Dead-player respawn countdown. Tinted "bad" red and kept on one
+                // line so the row stays readable + mobile-friendly.
+                &.respawning
+                    white-space: nowrap
+                    background-color: transparentize($color-bad, 0.4)
 
         // Color-coded ping by latency band.
         td.ping

@@ -359,4 +359,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 67 | `2200ad9`   | First-launch ALPHA notice modal + homepage banner     | `git revert 2200ad9` |
 | 68 | `411f73f`   | Copy: remove em-dashes from user-facing text (rule)   | `git revert 411f73f` |
 | 69 | `1528cad`   | In-game HUD overhaul: pause menu + floating sticks + declutter | `git revert 1528cad` |
-| 70 | (latest)    | Condense repo docs (CLAUDE/README/deploy), fix stale tests note | `git revert <sha>` |
+| 70 | `f95e39c`   | Condense repo docs (CLAUDE/README/deploy), fix stale tests note | `git revert f95e39c` |
+| 71 | (latest)    | Apex-style HUD redesign + "Respawning in N" overlay   | `git revert <sha>` |

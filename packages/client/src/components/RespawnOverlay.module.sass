@@ -1,0 +1,33 @@
+@import "../styles/variables"
+
+@keyframes respawn-zoom
+    $amount: 0.1
+    from
+        transform: scale(1 - $amount)
+    to
+        transform: scale(1 + $amount)
+
+.respawn
+    position: absolute
+    inset: 0
+    // Click-through so the touch sticks beneath stay usable. The overlay is only
+    // mounted while the local player is dead, so it never permanently blocks
+    // input. No full blackout: the action stays visible behind the countdown.
+    pointer-events: none
+
+    display: grid
+    align-items: center
+    justify-items: center
+
+    .center
+        text-align: center
+        text-shadow: 0 0 0.3em $color-dark-1, 0 0.1em 0.4em $color-dark-1
+        .text
+            font-size: 2em
+        .time
+            font-size: 3em
+            animation: respawn-zoom 200ms alternate infinite ease-in-out
+            color: $color-main
+        .waiting
+            font-size: 3em
+            color: $color-main

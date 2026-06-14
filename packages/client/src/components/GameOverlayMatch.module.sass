@@ -2,14 +2,20 @@
 
 // Powerup buff colors, mirrored from PowerupGraphic.COLORS (renderer.ts) so the
 // HUD reads the same hue as the pickup: haste 0x33CCFF, shield 0xAA66FF,
-// invis 0xCCE6FF. The shield color also drives the Apex-style shield bar.
+// invis 0xCCE6FF.
 $color-buff-haste: #33CCFF
 $color-buff-shield: #AA66FF
 $color-buff-invis: #CCE6FF
 
-// Single pause/options button in the top-right corner. Replaces the old loose
-// SFX + Host + Leave cluster, which stacked and overlapped on mobile. One small
-// square hit target; tapping it opens the PauseMenu (SFX, Leave, Host controls).
+// Apex HUD treatment: dark translucent panels, slanted parallelogram bars, a
+// cyan segmented shield over a near-white health bar, bold amber ammo.
+$hud-panel: transparentize($color-dark-1, 0.25)
+$hud-skew: -14deg
+$shield-color: #5FD0FF
+$health-color: #ECECEC
+$health-low: $color-bad
+
+// ---- Menu button (top-right corner) ----
 .menuButton
     position: absolute
     top: $screen-margin-dynamic
@@ -35,144 +41,189 @@ $color-buff-invis: #CCE6FF
     &:active
         background-color: $color-main-darker
 
-// Tab scoreboard, overlaid and centered over the canvas.
+// ---- Tab scoreboard, overlaid + centered ----
 .scoreboard
     position: absolute
     inset: 0
-    z-index: 15
+    z-index: 30
     display: grid
     align-items: center
     justify-items: center
     padding: $screen-margin-dynamic
     pointer-events: none
-    background-color: rgba(0, 0, 0, 0.35)
 
     > *
         max-height: 100%
         overflow: auto
         pointer-events: auto
 
-// Compact combat HUD pinned to the TOP-CENTER as a horizontal strip, so the
-// bottom corners stay clear for the floating touch sticks + action buttons.
-// Reads at a glance: shield (when up) above a row of labelled bars (health,
-// ammo/reload, tactical) plus ping. Sized with clamp/vw so it shrinks on phones.
-.hud
+// ---- Bottom-left: health + segmented shield (Apex signature) ----
+.healthStack
     position: absolute
-    top: $screen-margin-dynamic
-    left: 50%
-    transform: translateX(-50%)
+    left: $screen-margin-dynamic
+    bottom: $screen-margin-dynamic
     z-index: 10
+    width: clamp(11em, 34vw, 17em)
     display: flex
-    flex-wrap: wrap
-    align-items: flex-end
-    justify-content: center
-    gap: 0.4em 0.7em
-    max-width: calc(100% - 6em)
-    padding: 0.4em 0.7em
-    background-color: transparentize($color-dark-2, 0.2)
-    border: $border-size solid $color-border
-    border-radius: $border-radius
+    flex-direction: column
+    gap: 0.35em
     pointer-events: none
 
-    // Apex-style shield bar: a thin slimmer bar that spans the strip above the
-    // stat row. Only rendered while the shield buff is active; its fill is the
-    // remaining buff duration in the shield hue.
-    .shieldBar
-        flex: 1 1 100%
-        height: 0.4em
-        background-color: $color-dark-1
-        border: $border-size solid $color-border
-        border-radius: $border-radius
-        overflow: hidden
+.shield
+    position: relative
+    height: 0.7em
+    transform: skewX($hud-skew)
+    background-color: transparentize($color-dark-1, 0.15)
+    border: $border-size solid $color-border
+    overflow: hidden
 
-        .shieldBarFill
-            height: 100%
-            background-color: $color-buff-shield
-            transition: width 120ms linear
+    .shieldFill
+        position: absolute
+        top: 0
+        bottom: 0
+        left: 0
+        background-color: $shield-color
+        box-shadow: 0 0 0.6em transparentize($shield-color, 0.3)
+        transition: width 120ms linear
 
-    .stat
-        display: flex
-        flex-direction: column
-        gap: 0.15em
-        // Each bar gets a comfortable readable width in the horizontal strip.
-        flex: 0 1 9em
-        min-width: 7em
+    // Four segments: a thin dark divider every 25%, the Apex armor look.
+    .shieldSegments
+        position: absolute
+        inset: 0
+        background: repeating-linear-gradient(90deg, transparent 0, transparent calc(25% - 2px), $color-dark-1 calc(25% - 2px), $color-dark-1 25%)
 
-    .statLabel
-        display: flex
-        justify-content: space-between
-        align-items: baseline
-        font-size: clamp(13px, 3.6vw, 18px)
-        line-height: 1
-        color: $color-accent
-        text-transform: uppercase
-        letter-spacing: 0.05em
+.healthRow
+    display: flex
+    align-items: center
+    gap: 0.5em
 
-        .statValue
-            color: $color-text
-            letter-spacing: 0
+.healthBar
+    position: relative
+    flex: 1
+    height: 1.1em
+    transform: skewX($hud-skew)
+    background-color: transparentize($color-dark-1, 0.15)
+    border: $border-size solid $color-border
+    overflow: hidden
 
-    .bar
-        height: 0.7em
-        background-color: $color-dark-1
-        border: $border-size solid $color-border
-        border-radius: $border-radius
-        overflow: hidden
+    .healthFill
+        position: absolute
+        top: 0
+        bottom: 0
+        left: 0
+        background-color: $health-color
+        transition: width 160ms linear, background-color 200ms
 
-        .barFill
-            height: 100%
-            transition: width 120ms linear
+    &.low .healthFill
+        background-color: $health-low
 
-            &.health
-                background-color: $color-good
-                &.low
-                    background-color: $color-bad
+.healthNum
+    flex-shrink: 0
+    min-width: 1.6em
+    text-align: right
+    font-size: clamp(18px, 5vw, 26px)
+    line-height: 1
+    color: $color-text
+    text-shadow: 0 0.1em 0.3em $color-dark-1
 
-            &.ammo
-                background-color: $color-main
-                &.reloading
-                    background-color: $color-accent
+// ---- Bottom-right: weapon card (big ammo + tactical pip + ping) ----
+.weaponCard
+    position: absolute
+    right: $screen-margin-dynamic
+    bottom: $screen-margin-dynamic
+    z-index: 10
+    display: flex
+    flex-direction: column
+    align-items: flex-end
+    gap: 0.25em
+    pointer-events: none
+    text-shadow: 0 0.1em 0.3em $color-dark-1
 
-            // Tactical cooldown: charged = accent, charging = dimmed so a
-            // not-ready tactical reads differently from a ready one at a glance.
-            &.tactical
-                background-color: $color-accent
-                &.charging
-                    background-color: $color-accent-darker
+.ammo
+    display: flex
+    align-items: baseline
+    gap: 0.25em
 
-    .ping
-        align-self: flex-end
-        font-size: clamp(11px, 3vw, 14px)
+    .ammoNum
+        font-size: clamp(34px, 11vw, 56px)
+        line-height: 0.9
+        color: $color-main
+        letter-spacing: 0.02em
+
+    .ammoMax
+        font-size: clamp(16px, 4.5vw, 22px)
+        color: transparentize($color-text, 0.35)
+
+.cardRow
+    display: flex
+    align-items: center
+    gap: 0.6em
+
+// Tactical ability pip: a square with an angled corner whose fill rises from the
+// bottom toward "ready" while charging.
+.tac
+    position: relative
+    width: 2.4em
+    height: 2.4em
+    overflow: hidden
+    background-color: transparentize($color-dark-1, 0.15)
+    border: $border-size solid $color-border
+    clip-path: polygon(20% 0, 100% 0, 100% 80%, 80% 100%, 0 100%, 0 20%)
+    display: flex
+    align-items: center
+    justify-content: center
+
+    .tacFill
+        position: absolute
+        left: 0
+        right: 0
+        bottom: 0
+        transition: height 120ms linear
+
+    .tacLabel
+        position: relative
+        font-size: clamp(14px, 4vw, 20px)
         line-height: 1
         color: $color-text
-        opacity: 0.7
 
-// Active-buff stack. Moved to the TOP edge, directly under the combat HUD strip
-// and centered, so the bottom corners stay free for the sticks. One compact
-// labelled chip per active timed buff, each with a colored depleting bar. Self-
-// hides when empty (the component renders null). Compact enough for a 375px phone.
+    &.ready
+        border-color: $color-main
+        .tacFill
+            background-color: transparentize($color-main, 0.4)
+
+    &.charging
+        border-color: $color-accent
+        .tacFill
+            background-color: transparentize($color-accent, 0.4)
+
+.ping
+    font-size: clamp(11px, 3vw, 14px)
+    line-height: 1
+    color: transparentize($color-text, 0.3)
+
+    span
+        opacity: 0.55
+
+// ---- Buff chips, just above the health stack (bottom-left) ----
 .buffs
     position: absolute
-    top: calc(#{$screen-margin-dynamic} + 5.5em)
-    left: 50%
-    transform: translateX(-50%)
+    left: $screen-margin-dynamic
+    bottom: calc(#{$screen-margin-dynamic} + 3.4em)
     z-index: 11
     display: flex
     flex-direction: row
     flex-wrap: wrap
-    justify-content: center
-    align-items: stretch
     gap: 0.3em
-    max-width: calc(100% - 6em)
+    max-width: clamp(11em, 50vw, 18em)
     pointer-events: none
 
     .buff
         display: flex
         flex-direction: column
         gap: 0.1em
-        padding: 0.25em 0.4em
-        min-width: 6em
-        background-color: transparentize($color-dark-2, 0.2)
+        padding: 0.2em 0.4em
+        min-width: 5em
+        background-color: transparentize($color-dark-1, 0.2)
         border: $border-size solid $color-border
         border-radius: $border-radius
 
@@ -183,19 +234,16 @@ $color-buff-invis: #CCE6FF
         letter-spacing: 0.05em
 
     .buffBar
-        height: 0.4em
+        height: 0.35em
         background-color: $color-dark-1
-        border: $border-size solid $color-border
-        border-radius: $border-radius
+        border-radius: 9999px
         overflow: hidden
 
         .buffBarFill
             height: 100%
             transition: width 120ms linear
 
-// Spectator banner pinned top-center (replaces the combat HUD strip while the
-// local player is spectating): names the watched player and the keys to switch
-// targets. On-brand: same panel chrome as the HUD.
+// ---- Spectator banner (top-center) ----
 .spectateBanner
     position: absolute
     top: $screen-margin-dynamic
@@ -203,17 +251,13 @@ $color-buff-invis: #CCE6FF
     transform: translateX(-50%)
     z-index: 10
     display: flex
-    align-items: baseline
-    gap: 0.5em
-    padding: 0.5em 0.9em
-    font-size: clamp(13px, 3.6vw, 18px)
-    line-height: 1
-    text-align: center
-    white-space: nowrap
-    background-color: transparentize($color-dark-2, 0.2)
+    align-items: center
+    gap: 0.6em
+    padding: 0.3em 0.8em
+    background-color: $hud-panel
     border: $border-size solid $color-border
     border-radius: $border-radius
-    pointer-events: none
+    white-space: nowrap
 
     .label
         color: $color-accent
@@ -224,13 +268,10 @@ $color-buff-invis: #CCE6FF
         color: $color-main
 
     .hint
-        color: $color-text
-        opacity: 0.7
+        font-size: 0.7em
+        color: transparentize($color-text, 0.3)
 
-// Chat pinned TOP-LEFT under the minimap, collapsible so it never blocks the
-// lower-left move-stick zone. Defaults collapsed on phones (see
-// GameOverlayMatch.tsx) so its resting state is just the "Chat" toggle pill. The
-// toggle is a touch-friendly hit target.
+// ---- Chat, top-left under the minimap ----
 .chat
     position: absolute
     left: $screen-margin-dynamic
@@ -238,54 +279,47 @@ $color-buff-invis: #CCE6FF
     z-index: 10
     width: clamp(14em, 44vw, 28em)
     max-width: calc(100% - #{$screen-margin-dynamic} * 2)
+    display: flex
+    flex-direction: column
+    gap: 0.3em
 
     .chatToggle
-        display: inline-block
-        cursor: pointer
-        margin-bottom: 0.4em
-        padding: 0.3em 0.7em
-        min-height: 2em
-        font-size: clamp(14px, 3.6vw, 18px)
-        line-height: 1.4
-        color: $color-dark-3
-        background-color: $color-main
+        align-self: flex-start
+        padding: 0.2em 0.7em
+        background-color: $hud-panel
         border: $border-size solid $color-border
         border-radius: $border-radius
+        color: $color-main
+        cursor: pointer
+        user-select: none
 
-        &:active
+        &:hover
             background-color: $color-main-darker
+            color: $color-dark-3
 
     .chatBody
-        max-height: 32vh
+        max-height: 30vh
         overflow: hidden
 
     &.collapsed
         width: auto
 
-// Phone layout (~480px and below): keep the top HUD strip compact and the chat
-// pill tucked top-left under the (smaller) minimap so nothing reaches the
-// lower-left / right-half stick zones along the bottom and right.
+// ---- Phone tuning ----
+// On a phone the bottom-right is the aim-stick + action-button zone, so the
+// weapon card moves to bottom-CENTER (clear of the buttons). Health stays
+// bottom-left; both are pointer-events:none so the floating sticks pass through.
 @media (max-width: 480px)
-    .hud
-        max-width: calc(100% - 3.5em)
-        gap: 0.3em 0.5em
+    .healthStack
+        width: clamp(9em, 46vw, 13em)
 
-        .stat
-            flex: 1 1 7em
-            min-width: 6em
-
-        .ping
-            flex: 1 1 100%
-            text-align: right
+    .weaponCard
+        right: auto
+        left: 50%
+        transform: translateX(-50%)
+        align-items: center
 
     .buffs
-        top: calc(#{$screen-margin-dynamic} + 7em)
-        max-width: calc(100% - 3.5em)
+        max-width: 46vw
 
     .chat
         width: clamp(10em, 60vw, 18em)
-        top: calc(#{$screen-margin-dynamic} + 7em)
-        left: $screen-margin-dynamic
-
-        .chatBody
-            max-height: 24vh
