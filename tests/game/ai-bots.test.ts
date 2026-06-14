@@ -230,6 +230,37 @@ describe("AI reaction lag + difficulty feel", () => {
         expect(Math.abs(radianDifference(bot.inputs.aimRotation, 0))).toBeLessThan(0.05)
     })
 
+    it("rate-limits a bot's fire (no machine-gun trigger holding)", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        // A skilled bot aimed at an in-range target: it WANTS to fire every tick,
+        // but trigger discipline should space the shots out.
+        bot.skill = {
+            aimJitter: 0,
+            fireRange: BOT_FIRE_RANGE,
+            fireAimTolerance: 1.0,
+            desiredRange: 350,
+            rangeBand: 120,
+            reactionTicks: 2,
+        }
+        const target = game.createPlayer("AA")
+        target.setShip(BLU)
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(target, 200, 0) // in range, dead ahead
+        bot.ship.rotation = 0 // already aimed
+
+        const players = Object.values(game.players)
+        let fireTicks = 0
+        for(let i = 0; i < 24; i++){
+            updateBotInputs(bot, players)
+            if(bot.inputs.useWeapon) fireTicks++
+        }
+        // reactionTicks 2 -> a ~12-tick fire gap, so over 24 ticks it fires only a
+        // couple of times, NOT on every tick.
+        expect(fireTicks).toBeGreaterThan(0)
+        expect(fireTicks).toBeLessThan(6)
+    })
+
     it("EASY is sloppier + slower-reacting than HARD", () => {
         const noVariance = () => 0.5
         const easy = makeBotSkill(BotDifficulty.EASY, noVariance)

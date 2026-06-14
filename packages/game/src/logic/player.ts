@@ -148,6 +148,11 @@ export class PipPlayer{
     aimTargetId?: string
     aimBias = 0
 
+    // Bot-only trigger cooldown (ticks). Set after a shot to fireIntervalTicks so
+    // the bot fires in bursts instead of holding the trigger every tick; counts
+    // down in updateBotInputs. 0 for real players and bots with no skill profile.
+    fireCooldown = 0
+
     // TEAM_DEATHMATCH team (0 or 1). -1 marks an unassigned player: the default
     // for every player outside a live TDM match (free-for-all modes never read
     // it, and a TDM player is assigned a real team at startMatch / on join).

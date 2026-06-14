@@ -408,4 +408,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 116| `83c24cb`   | Player names rendered above the health bar (upright, fades with cloak) | `git revert 83c24cb`|
 | 117| `e686064`   | Bot A* pathfinding around walls (nav-grid cached per map, path throttled, AI runs on a 3-tick cadence) - net CPU REDUCTION | `git revert e686064`|
 | 118| `9c4c959`   | Bot reaction time (50-120ms by difficulty) + wandering aim error; fire gate now uses the perceived target so jitter actually misses (EASY no longer laser-accurate) | `git revert 9c4c959`|
-| 119| (latest)    | FIX hosting dropped you into an existing game: joinLobby only reuses the current lobby when its id matches the requested one (was returning any current lobby) | `git revert <sha>` |
+| 119| `9d23f36`   | FIX hosting dropped you into an existing game: joinLobby only reuses the current lobby when its id matches the requested one (was returning any current lobby) | `git revert 9d23f36`|
+| 120| (latest)    | Bots fire on their ACTUAL (off-centre) aim so wander really misses, + trigger discipline (reaction-scaled fire cooldown; no fire between decision ticks) so they no longer machine-gun on sight | `git revert <sha>` |

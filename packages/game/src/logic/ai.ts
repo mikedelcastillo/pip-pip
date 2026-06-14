@@ -35,6 +35,12 @@ export const PATH_RECOMPUTE_TICKS = 10
 // world units), at which point the path advances to the next waypoint.
 export const PATH_WAYPOINT_REACHED = 60
 
+// Trigger discipline: a bot waits ~reactionTicks * this many ticks between shots,
+// so it fires in human bursts instead of a continuous machine-gun stream. Scaled
+// by reaction time so EASY (slow) fires ~1.5/s and HARD (fast) ~3/s. No extra
+// skill field or rng draw, so it does not perturb makeBotSkill's draw sequence.
+export const FIRE_INTERVAL_PER_REACTION = 6
+
 // Pathfinding dependencies handed to the bot brain so it stays unit-testable:
 // the cached nav grid, the map walls (for line-of-sight + smoothing) and the
 // current tick (the clock that drives the recompute cooldown). All are injected
@@ -278,12 +284,13 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
         inputs.doReload = true
     }
 
-    // Fire when the ship is aimed at the PERCEIVED target (not the true one), so a
-    // laggy/wandering aim genuinely fires off-centre and misses, instead of the
-    // old behaviour where the bot waited to align on the true target and so always
-    // hit. A wider tolerance (EASY) sprays; a tight one (HARD) waits for a clean
-    // shot.
-    const aimedWithinTolerance = Math.abs(radianDifference(aim, bot.ship.rotation)) <= fireAimTolerance
+    // Fire when the ship is settled on the bot's ACTUAL aim (inputs.aimRotation =
+    // the lagged + wandered angle), NOT the true target. So the bullet flies along
+    // that off-centre aim and genuinely misses, instead of the old behaviour where
+    // the bot waited to align on the true target and always hit. A wider tolerance
+    // (EASY) lets it fire while less settled; a tight one (HARD) waits for a clean
+    // shot. Trigger RATE is limited separately in updateBotInputs.
+    const aimedWithinTolerance = Math.abs(radianDifference(inputs.aimRotation, bot.ship.rotation)) <= fireAimTolerance
     if(distance <= fireRange && aimedWithinTolerance === true){
         inputs.useWeapon = true
         // Also lob the tactical/grenade when one is ready. The tactical's own
@@ -421,6 +428,15 @@ function nextAimBias(bot: PipPlayer, jitter: number, rng: () => number): number 
     return bot.aimBias
 }
 
+// Ticks a bot must wait after a shot before firing again. Derived from its
+// reaction time (floored so even HARD has a small gap), so harder bots shoot
+// more often. No skill profile -> 0 (plain bots / pure tests fire freely).
+function fireIntervalTicks(bot: PipPlayer): number {
+    const reaction = bot.skill?.reactionTicks ?? 0
+    if(reaction <= 0) return 0
+    return Math.max(2, Math.round(reaction * FIRE_INTERVAL_PER_REACTION))
+}
+
 // Drive one bot for this tick: pick a target, compute inputs, write them onto
 // the bot. Called by the game loop for every isBot player when calculateAi is
 // on. Copies field-by-field (not a reference swap) so the bot keeps its single
@@ -440,9 +456,10 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
     const jitter = bot.skill?.aimJitter ?? 0
     const aimNoise = nextAimBias(bot, jitter, rng)
 
-    // The path-recompute cooldown ticks down once per call so its 0.5s cadence is
-    // measured in real ticks regardless of the decision cadence.
+    // The path-recompute + fire cooldowns tick down once per call so their
+    // cadences are measured in real ticks regardless of the decision cadence.
     if(bot.pathCooldown > 0) bot.pathCooldown--
+    if(bot.fireCooldown > 0) bot.fireCooldown--
 
     // CADENCE: only re-run the full decision (target + path + movement intent)
     // every AI_DECISION_TICKS. On the in-between ticks we keep the held movement
@@ -454,8 +471,12 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
     if(fullDecision === false){
         // Between decisions: keep movement intent, only re-aim at the current
         // nearest enemy (lagged by reaction time + wandering error) so the bot
-        // tracks a moving target imperfectly, like a human would.
+        // tracks a moving target imperfectly, like a human would. Hold FIRE between
+        // decisions so the trigger is not pinned every tick (the trigger only
+        // pulls on a full-decision tick, gated by the fire cooldown).
         bot.aiDecisionCooldown--
+        bot.inputs.useWeapon = false
+        bot.inputs.useTactical = false
         const quick = findNearestEnemy(bot, players)
         if(typeof quick !== "undefined"){
             bot.inputs.aimRotation = perceivedAimAngle(bot, quick) + aimNoise
@@ -480,10 +501,25 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
     // tight and current. With no target, computeBotInputs ignores aimBase.
     const aimBase = typeof found !== "undefined" ? perceivedAimAngle(bot, found) : undefined
     const next = computeBotInputs(bot, found, aimNoise, nav, aimBase)
+
+    // Trigger discipline: when the brain wants to fire, only actually pull the
+    // trigger if the per-bot fire cooldown has elapsed, then start a fresh one. So
+    // the bot shoots in human bursts instead of a continuous machine-gun stream.
+    let fire = next.useWeapon
+    let tactical = next.useTactical
+    if(fire === true){
+        if(bot.fireCooldown > 0){
+            fire = false
+            tactical = false
+        } else{
+            bot.fireCooldown = fireIntervalTicks(bot)
+        }
+    }
+
     bot.inputs.movementAngle = next.movementAngle
     bot.inputs.movementAmount = next.movementAmount
     bot.inputs.aimRotation = next.aimRotation
-    bot.inputs.useWeapon = next.useWeapon
-    bot.inputs.useTactical = next.useTactical
+    bot.inputs.useWeapon = fire
+    bot.inputs.useTactical = tactical
     bot.inputs.doReload = next.doReload
 }
