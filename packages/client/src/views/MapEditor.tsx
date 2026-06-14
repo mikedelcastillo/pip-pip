@@ -24,6 +24,7 @@ import {
     rectCells,
     lineCells,
     boundedFloodFill,
+    brushAtCell,
     Cell,
 } from "../game/mapEditor"
 import { trackEvent, trackPageView } from "../analytics"
@@ -146,12 +147,20 @@ const SLOPE_TOOLS: ToolDef[] = SLOPE_BRUSHES.map((b) => ({
 // L/F/B clash, and keeping modes click-only avoids any ambiguity), so the mode
 // strip is the one place modes are chosen. Each entry carries an icon kind drawn
 // by ModeIcon and a label shown in the portal tooltip.
-type ModeDef = { mode: DrawMode, label: string }
+// The mode strip carries the four DRAW MODES plus one TOOL: "pick" (the
+// eyedropper). Pick is NOT a DrawMode (it never paints a cell set, so the pure
+// model's DrawMode stays exactly the paint modes); it is a VIEW-only mode that, on
+// a single tap, reads the tapped cell's brush back into the active brush and then
+// auto-returns to freehand so the author paints immediately with the picked brush
+// (Aseprite-like). EditorMode is therefore DrawMode widened by "pick".
+type EditorMode = DrawMode | "pick"
+type ModeDef = { mode: EditorMode, label: string }
 const MODE_DEFS: ModeDef[] = [
     { mode: "freehand", label: "Freehand" },
     { mode: "rect", label: "Rectangle" },
     { mode: "line", label: "Line" },
     { mode: "fill", label: "Fill" },
+    { mode: "pick", label: "Pick (eyedropper)" },
 ]
 
 // Translucent fill for the live rect/line preview overlay drawn while dragging,
@@ -231,10 +240,11 @@ export default function MapEditor(){
 
     const initial = mapRef.current
     const [brush, setBrush] = useState<EditorBrush>("full")
-    // The active DRAW MODE (orthogonal to the brush). Freehand by default = the
+    // The active mode (orthogonal to the brush). Freehand by default = the
     // original one-cell-per-position painting; rect/line preview then commit a
-    // shape; fill flood-fills under a click.
-    const [mode, setMode] = useState<DrawMode>("freehand")
+    // shape; fill flood-fills under a click; pick is the eyedropper (a single tap
+    // reads the cell's brush, then auto-returns to freehand).
+    const [mode, setMode] = useState<EditorMode>("freehand")
     const [name, setName] = useState(initial.name)
     const [showCollision, setShowCollision] = useState(false)
     const [message, setMessage] = useState("")
@@ -529,6 +539,21 @@ export default function MapEditor(){
         }
     }, [cellFromEvent, bump, draw, markDirty])
 
+    // PICK / eyedropper: read the brush of the cell under the pointer back into
+    // the active brush (Aseprite's eyedropper). PURE READ: it calls brushAtCell on
+    // the model and never mutates the map, so it paints/erases nothing and creates
+    // NO undo step. A pick over empty space picks "empty" (the eraser). When
+    // `returnToFreehand` is true (the Pick MODE path) the mode auto-switches back
+    // to freehand so the author paints immediately with the picked brush; the
+    // one-shot Alt+click path passes false so the current mode is preserved.
+    const pickAt = useCallback((clientX: number, clientY: number, returnToFreehand: boolean) => {
+        const cellPos = cellFromEvent(clientX, clientY)
+        if(cellPos === null) return
+        const picked = brushAtCell(mapRef.current, cellPos.col, cellPos.row)
+        setBrush(picked)
+        if(returnToFreehand) setMode("freehand")
+    }, [cellFromEvent])
+
     // Apply the active brush to a whole SET of cells in one batch, then redraw
     // once. Used by the rect/line/fill modes on pointer-up: each cell routes
     // through setCell so spawn/tile mutual exclusion and the spawn toggle stay
@@ -613,6 +638,23 @@ export default function MapEditor(){
             pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
             canvas.setPointerCapture(e.pointerId)
             if(pointers.size === 1){
+                // PICK paths first (they never paint, never open a history step):
+                // (a) Alt+click is a desktop one-shot eyedropper in ANY mode and
+                // leaves the current mode unchanged; (b) the Pick MODE reads the
+                // cell and auto-returns to freehand. Either way we read the cell and
+                // stop: no `painting`, no history.begin, so a pick can never paint,
+                // erase, or create an undo step.
+                const m = modeRef.current
+                if(e.altKey){
+                    pickAt(e.clientX, e.clientY, false)
+                    e.preventDefault()
+                    return
+                }
+                if(m === "pick"){
+                    pickAt(e.clientX, e.clientY, true)
+                    e.preventDefault()
+                    return
+                }
                 painting = true
                 lastCellRef.current = null
                 // Open one history step for this whole gesture: snapshot the
@@ -620,7 +662,6 @@ export default function MapEditor(){
                 // changed. A freehand drag, a rect/line shape, or a fill each
                 // therefore undoes in ONE step (Aseprite-style).
                 historyRef.current.begin(mapRef.current)
-                const m = modeRef.current
                 if(m === "rect" || m === "line"){
                     // Record the shape's start cell but do NOT mutate the map yet:
                     // the preview overlay shows the shape, and pointer-up commits it.
@@ -744,7 +785,7 @@ export default function MapEditor(){
             canvas.removeEventListener("pointercancel", onUp)
             canvas.removeEventListener("pointerleave", onUp)
         }
-    }, [paintAt, applyCells, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags])
+    }, [paintAt, applyCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags])
 
     // Native trackpad: a Mac pinch arrives as wheel + ctrlKey (so does Ctrl+wheel)
     // -> zoom around the cursor; a plain two-finger scroll -> pan. passive:false so
@@ -986,9 +1027,12 @@ export default function MapEditor(){
         <div className={styles.root}>
             <canvas ref={canvasRef} className={styles.canvas} />
 
-            {/* Mode strip: HOW to paint (freehand / rect / line / fill), orthogonal
-                to the brush rail below (WHAT to paint). Click-only, each a 46px
-                tap target with a portal tooltip and a clear active state. */}
+            {/* Mode strip: HOW to paint (freehand / rect / line / fill) plus the
+                eyedropper (pick), orthogonal to the brush rail below (WHAT to
+                paint). Click-only, each a 46px tap target with a portal tooltip and
+                a clear active state. Pick is the MOBILE-first eyedropper (no Alt key
+                on a phone): a single tap reads the cell's brush, then auto-returns
+                to freehand so the author paints with the picked brush right away. */}
             <div className={styles.modeRail} role="toolbar" aria-label="Draw modes">
                 {MODE_DEFS.map((m) => (
                     <Tooltip key={m.mode} label={m.label} placement="right">
@@ -1448,9 +1492,19 @@ function ToolIcon({ brush, color }: { brush: EditorBrush, color: string }){
 // pencil for freehand, a hollow square for rectangle, a slash for line, and a
 // paint-bucket-ish wedge for fill. Tinted with the accent so they read as
 // "how to paint" controls distinct from the coloured brush swatches.
-function ModeIcon({ mode }: { mode: DrawMode }){
+function ModeIcon({ mode }: { mode: EditorMode }){
     const size = 22
     const stroke = COLOR_MODE_ICON
+    if(mode === "pick"){
+        // An eyedropper: a slanted dropper with a bulb, signalling "pick the cell".
+        return (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 19l8-8" />
+                <path d="M13 5l6 6-2 2-6-6 2-2z" />
+                <path d="M4 20l3-1 1-3-3 3z" fill={stroke} stroke="none" />
+            </svg>
+        )
+    }
     if(mode === "freehand"){
         // A pencil drawing a freehand squiggle.
         return (

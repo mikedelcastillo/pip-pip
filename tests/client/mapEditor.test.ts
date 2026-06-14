@@ -27,6 +27,7 @@ import {
     rectCells,
     lineCells,
     boundedFloodFill,
+    brushAtCell,
     DRAW_MODES,
     FILL_BOUNDS_MARGIN,
     FILL_CELL_CAP,
@@ -854,6 +855,83 @@ describe("lineCells (8-connected Bresenham pixel line)", () => {
 describe("DRAW_MODES", () => {
     it("lists the four modes with freehand first (the default)", () => {
         expect(DRAW_MODES).toEqual(["freehand", "rect", "line", "fill"])
+    })
+})
+
+describe("brushAtCell (eyedropper / pick)", () => {
+    it("picks 'empty' over an empty cell (the eraser)", () => {
+        const map = new EditorMap()
+        expect(brushAtCell(map, 0, 0)).toBe("empty")
+        // A far / negative empty cell is still empty.
+        expect(brushAtCell(map, -50, 999)).toBe("empty")
+    })
+
+    it("picks 'full' over a painted full block", () => {
+        const map = new EditorMap()
+        map.setCell(3, 4, "full")
+        expect(brushAtCell(map, 3, 4)).toBe("full")
+    })
+
+    it("picks each diagonal shape's brush over a painted slope", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "diag_tl")
+        map.setCell(1, 0, "diag_tr")
+        map.setCell(0, 1, "diag_bl")
+        map.setCell(1, 1, "diag_br")
+        expect(brushAtCell(map, 0, 0)).toBe("diag_tl")
+        expect(brushAtCell(map, 1, 0)).toBe("diag_tr")
+        expect(brushAtCell(map, 0, 1)).toBe("diag_bl")
+        expect(brushAtCell(map, 1, 1)).toBe("diag_br")
+    })
+
+    it("picks 'deco' over a painted deco tile", () => {
+        const map = new EditorMap()
+        map.setCell(7, 7, "deco")
+        expect(brushAtCell(map, 7, 7)).toBe("deco")
+    })
+
+    it("picks 'spawn' over a spawn cell", () => {
+        const map = new EditorMap()
+        map.setCell(2, 2, "spawn")
+        expect(brushAtCell(map, 2, 2)).toBe("spawn")
+    })
+
+    it("never returns 'auto': an auto-painted cell holds a concrete shape, so it picks that shape", () => {
+        const map = new EditorMap()
+        // Walls above and to the left of (2,2) -> auto resolves to diag_tl, which is
+        // the concrete shape stored; picking it yields diag_tl, never "auto".
+        map.setCell(2, 1, "full")
+        map.setCell(1, 2, "full")
+        map.setCell(2, 2, "auto")
+        const picked = brushAtCell(map, 2, 2)
+        expect(picked).toBe("diag_tl")
+        expect(picked).not.toBe("auto")
+    })
+
+    it("a spawn wins when a cell would otherwise be empty (mutual exclusion: spawn is what is there)", () => {
+        const map = new EditorMap()
+        // Dropping a spawn over a tile evicts the tile (mutual exclusion), so the
+        // cell holds only the spawn and the pick is 'spawn'.
+        map.setCell(5, 5, "full")
+        map.setCell(5, 5, "spawn")
+        expect(map.hasSpawn(5, 5)).toBe(true)
+        expect(map.tileAt(5, 5)).toBe(0)
+        expect(brushAtCell(map, 5, 5)).toBe("spawn")
+    })
+
+    it("does NOT mutate the map (no paint, no spawn toggle, no undo step)", () => {
+        const map = new EditorMap()
+        map.setCell(1, 1, "full")
+        map.setCell(2, 2, "spawn")
+        const tilesBefore = map.tiles.size
+        const spawnsBefore = map.spawns.length
+        brushAtCell(map, 1, 1)
+        brushAtCell(map, 2, 2)
+        brushAtCell(map, 9, 9)
+        expect(map.tiles.size).toBe(tilesBefore)
+        expect(map.spawns.length).toBe(spawnsBefore)
+        expect(map.tileAt(1, 1)).toBe(paletteValueForBrush("full"))
+        expect(map.hasSpawn(2, 2)).toBe(true)
     })
 })
 

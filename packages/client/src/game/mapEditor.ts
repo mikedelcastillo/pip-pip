@@ -499,6 +499,29 @@ export class EditorMap{
     }
 }
 
+// The brush that corresponds to a cell's CURRENT content, for the eyedropper /
+// PICK tool: a single tap reads the cell back into the active brush so the author
+// can re-select "the thing already painted there" without guessing. A spawn WINS
+// (a cell can never hold both a tile and a spawn, but if a spawn is present it is
+// what the eyedropper picks); otherwise a painted tile resolves to the brush whose
+// shape matches its palette entry (full -> "full", each diagonal -> its brush,
+// deco -> "deco"); an empty cell picks "empty" (the eraser). It NEVER returns
+// "auto": auto is resolved to a concrete shape at paint time, so a painted cell
+// always holds a concrete shape, and picking it yields that concrete shape's
+// brush. Pure + DOM-free so the view can call it from a pointer handler and it
+// unit-tests cleanly. Reading does not mutate the map (no spawn toggle, no tile
+// write), so a pick creates no undo step.
+export function brushAtCell(map: EditorMap, col: number, row: number): EditorBrush{
+    if(map.hasSpawn(col, row)) return "spawn"
+    const value = map.tileAt(col, row)
+    if(value <= 0) return "empty"
+    const entry = map.palette[value - 1]
+    if(typeof entry === "undefined") return "empty"
+    // Every concrete tile shape shares its name with the brush that paints it
+    // (full/diag_*/deco), so the palette entry's shape IS the picked brush.
+    return entry.shape
+}
+
 // An undoable snapshot of the editor's CANVAS CONTENT: the full sparse tile map
 // and every spawn, captured by value so a later mutation of the live EditorMap
 // can never reach back and corrupt a stored snapshot. `tiles` is a flat list of
