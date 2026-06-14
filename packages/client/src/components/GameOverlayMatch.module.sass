@@ -1,5 +1,12 @@
 @import "../styles/variables"
 
+// Powerup buff colors, mirrored from PowerupGraphic.COLORS (renderer.ts) so the
+// HUD reads the same hue as the pickup: haste 0x33CCFF, shield 0xAA66FF,
+// invis 0xCCE6FF. The shield color also drives the Apex-style shield bar.
+$color-buff-haste: #33CCFF
+$color-buff-shield: #AA66FF
+$color-buff-invis: #CCE6FF
+
 // Top-right control cluster. Stacks the SFX toggle and the host button so they
 // never overlap the scoreboard or the HUD. Buttons keep the shared GameButton
 // look but are scaled down a touch for the in-match corner.
@@ -50,6 +57,22 @@
     border-radius: $border-radius
     pointer-events: none
 
+    // Apex-style shield bar: a thin slimmer bar that sits directly above the
+    // health bar. Only rendered while the shield buff is active; its fill is the
+    // remaining buff duration in the shield hue.
+    .shieldBar
+        height: 0.4em
+        background-color: $color-dark-1
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        overflow: hidden
+        margin-bottom: -0.15em
+
+        .shieldBarFill
+            height: 100%
+            background-color: $color-buff-shield
+            transition: width 120ms linear
+
     .stat
         display: flex
         flex-direction: column
@@ -90,12 +113,61 @@
                 &.reloading
                     background-color: $color-accent
 
+            // Tactical cooldown: charged = accent, charging = dimmed so a
+            // not-ready tactical reads differently from a ready one at a glance.
+            &.tactical
+                background-color: $color-accent
+                &.charging
+                    background-color: $color-accent-darker
+
     .ping
         align-self: flex-end
         font-size: clamp(11px, 3vw, 14px)
         line-height: 1
         color: $color-text
         opacity: 0.7
+
+// Active-buff stack, bottom-right, sitting ABOVE the combat HUD so the two never
+// overlap (the HUD owns the very bottom; this floats clear above it). One compact
+// labelled chip per active timed buff, each with a colored depleting bar. Self-
+// hides when empty (the component renders null). Compact enough for a 375px phone.
+.buffs
+    position: absolute
+    right: $screen-margin-dynamic
+    bottom: calc(#{$screen-margin-dynamic} + 13em)
+    z-index: 11
+    width: clamp(8em, 30vw, 12em)
+    display: flex
+    flex-direction: column
+    align-items: stretch
+    gap: 0.3em
+    pointer-events: none
+
+    .buff
+        display: flex
+        flex-direction: column
+        gap: 0.1em
+        padding: 0.25em 0.4em
+        background-color: transparentize($color-dark-2, 0.2)
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+
+    .buffLabel
+        font-size: clamp(11px, 3vw, 14px)
+        line-height: 1
+        text-transform: uppercase
+        letter-spacing: 0.05em
+
+    .buffBar
+        height: 0.4em
+        background-color: $color-dark-1
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        overflow: hidden
+
+        .buffBarFill
+            height: 100%
+            transition: width 120ms linear
 
 // Spectator banner pinned bottom-center. Shown instead of the combat HUD while
 // the local player is spectating: names the watched player and the keys to
@@ -176,12 +248,23 @@
         flex-wrap: wrap
         align-items: flex-end
 
+        // Shield bar spans the full HUD width above the wrapped stat row.
+        .shieldBar
+            flex: 1 1 100%
+            margin-bottom: 0
+
         .stat
             flex: 1 1 8em
 
         .ping
             flex: 1 1 100%
             text-align: right
+
+    // Lift the buff stack clear above the taller wrapped HUD; keep it compact and
+    // right-aligned so it never collides with the bottom-left chat or the sticks.
+    .buffs
+        bottom: calc(#{$screen-margin-dynamic} + 9em)
+        width: clamp(7em, 40vw, 10em)
 
     .chat
         width: clamp(10em, 60vw, 18em)

@@ -1,10 +1,20 @@
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer, PlayerScores } from "@pip-pip/game/src/logic/player"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS } from "@pip-pip/game/src/logic/powerup"
 import { PIP_SHIPS, ShipType } from "@pip-pip/game/src/ships"
 import { create } from "zustand"
 import { GAME_CONTEXT, getClientPlayer } from "."
 import { ChatMessage } from "./chat"
+
+// Pure clamped fraction helper: value / max, pinned to [0, 1]. Returns 0 when
+// max is non-positive so callers never divide by zero. Used to turn raw tick
+// counts (buff timers, reloads) into a 0..1 bar fill. Kept pure (no store/DOM
+// access) so it is trivially unit-testable.
+export function fraction(value: number, max: number): number {
+    if (max <= 0) return 0
+    return Math.max(0, Math.min(1, value / max))
+}
 
 export type GameStorePlayer = {
     id: string,
@@ -40,6 +50,25 @@ export interface ClientPlayerStats {
     ammoMax: number
     health: number
     healthMax: number
+
+    // Timed-buff timers (in ticks) and their max durations, read from the local
+    // ship.timings each tick. Remaining fraction = ticks / maxTicks; a buff is
+    // active while its ticks > 0. Powers the bottom-right buff bars and the
+    // Apex-style shield bar in the combat HUD.
+    shieldTicks: number
+    shieldMaxTicks: number
+    hasteTicks: number
+    hasteMaxTicks: number
+    invisTicks: number
+    invisMaxTicks: number
+
+    // Secondary/tactical cannon state: reload countdown (ticks) vs its full
+    // reload duration, plus remaining ammo. Drives the tactical cooldown
+    // indicator so the player knows when the tactical is ready.
+    tacticalReloadTicks: number
+    tacticalReloadMaxTicks: number
+    tacticalAmmo: number
+    tacticalAmmoMax: number
 }
 
 // One transient line in the in-match kill feed. `time` is the Date.now() the
@@ -120,6 +149,11 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         reloading: false,
         ammo: 0, ammoMax: 0,
         health: 0, healthMax: 0,
+        shieldTicks: 0, shieldMaxTicks: SHIELD_TICKS,
+        hasteTicks: 0, hasteMaxTicks: HASTE_TICKS,
+        invisTicks: 0, invisMaxTicks: INVIS_TICKS,
+        tacticalReloadTicks: 0, tacticalReloadMaxTicks: 0,
+        tacticalAmmo: 0, tacticalAmmoMax: 0,
     },
 
     clientSpectating: false,
@@ -176,12 +210,23 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             next.ping = gameClientPlayer.ping
             next.clientPlayerShipIndex = gameClientPlayer.shipIndex
             next.clientPlayerShipType = PIP_SHIPS[gameClientPlayer.shipIndex]
+            const ship = gameClientPlayer.ship
             next.clientPlayerStats = {
-                reloading: gameClientPlayer.ship.isReloading,
-                ammo: gameClientPlayer.ship.capacities.weapon,
-                ammoMax: gameClientPlayer.ship.stats.weapon.capacity,
-                health: gameClientPlayer.ship.capacities.health,
-                healthMax: gameClientPlayer.ship.maxHealth,
+                reloading: ship.isReloading,
+                ammo: ship.capacities.weapon,
+                ammoMax: ship.stats.weapon.capacity,
+                health: ship.capacities.health,
+                healthMax: ship.maxHealth,
+                shieldTicks: ship.timings.shield,
+                shieldMaxTicks: SHIELD_TICKS,
+                hasteTicks: ship.timings.haste,
+                hasteMaxTicks: HASTE_TICKS,
+                invisTicks: ship.timings.invisibility,
+                invisMaxTicks: INVIS_TICKS,
+                tacticalReloadTicks: ship.timings.tacticalReload,
+                tacticalReloadMaxTicks: ship.stats.tactical.reload.ticks,
+                tacticalAmmo: ship.capacities.tactical,
+                tacticalAmmoMax: ship.stats.tactical.capacity,
             }
             next.clientSpectating = gameClientPlayer.spectator
             next.spectateTargetName = gameClientPlayer.spectator

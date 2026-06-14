@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useGameStore } from "../game/store"
+import { useGameStore, fraction } from "../game/store"
 import GameChat from "./GameChat"
 import GamePlayerList from "./GamePlayerList"
 import GameButton from "./GameButton"
@@ -8,6 +8,7 @@ import LeaveButton from "./LeaveButton"
 import HostControls from "./HostControls"
 import KillFeed from "./KillFeed"
 import Minimap from "./Minimap"
+import GameBuffBars from "./GameBuffBars"
 import styles from "./GameOverlayMatch.module.sass"
 
 export default function GameOverlayMatch() {
@@ -28,6 +29,18 @@ export default function GameOverlayMatch() {
         ? Math.max(0, Math.min(1, stats.ammo / stats.ammoMax)) * 100
         : 0
     const lowHealth = healthPct <= 30
+
+    // Apex-style shield bar: the timed "shield" buff shown as its own bar above
+    // health. Fill = remaining duration; the row only appears while it is active.
+    const shieldPct = fraction(stats.shieldTicks, stats.shieldMaxTicks) * 100
+    const shieldActive = stats.shieldTicks > 0
+
+    // Tactical cooldown: while reloading, fill counts UP toward ready (1 - the
+    // remaining reload fraction); when not reloading it sits full and shows ammo.
+    const tacticalReloading = stats.tacticalReloadTicks > 0
+    const tacticalReadyPct = tacticalReloading
+        ? (1 - fraction(stats.tacticalReloadTicks, stats.tacticalReloadMaxTicks)) * 100
+        : 100
 
     return (
         <div className="game-overlay">
@@ -69,8 +82,19 @@ export default function GameOverlayMatch() {
                     <span className={styles.hint}>← / → to switch</span>
                 </div>
             ) : (
-                /* Compact combat HUD: health, ammo/reload, ping. */
+                /* Compact combat HUD: shield, health, ammo/reload, tactical, ping. */
                 <div className={styles.hud}>
+                    {/* Apex-style shield bar: a thin bar sitting just above health,
+                        only present while the shield buff is up. */}
+                    {shieldActive && (
+                        <div className={styles.shieldBar}>
+                            <div
+                                className={styles.shieldBarFill}
+                                style={{ width: `${shieldPct}%` }}
+                            />
+                        </div>
+                    )}
+
                     <div className={styles.stat}>
                         <div className={styles.statLabel}>
                             <span>HP</span>
@@ -103,9 +127,34 @@ export default function GameOverlayMatch() {
                         </div>
                     </div>
 
+                    {/* Tactical cooldown/reload: counts up to ready while reloading,
+                        otherwise shows it is charged with remaining tactical ammo. */}
+                    <div className={styles.stat}>
+                        <div className={styles.statLabel}>
+                            <span>TAC</span>
+                            <span className={styles.statValue}>
+                                {tacticalReloading
+                                    ? "CHARGING"
+                                    : stats.tacticalAmmoMax > 0
+                                        ? `${stats.tacticalAmmo} / ${stats.tacticalAmmoMax}`
+                                        : "READY"}
+                            </span>
+                        </div>
+                        <div className={styles.bar}>
+                            <div
+                                className={`${styles.barFill} ${styles.tactical} ${tacticalReloading ? styles.charging : ""}`}
+                                style={{ width: `${tacticalReadyPct}%` }}
+                            />
+                        </div>
+                    </div>
+
                     <div className={styles.ping}>{ping}ms</div>
                 </div>
             )}
+
+            {/* Bottom-right active-buff stack. Self-gates to nothing when no buff
+                is active; hidden entirely while spectating (no ship → no buffs). */}
+            {!spectating && <GameBuffBars />}
 
             {/* Chat: collapsible so it stays out of the way on small screens. */}
             <div className={`${styles.chat} ${chatOpen ? "" : styles.collapsed}`}>
