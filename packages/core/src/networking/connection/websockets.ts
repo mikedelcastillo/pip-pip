@@ -18,24 +18,57 @@ export function initializeWebSockets<
         connection.events.emit("socketMessage", { data })
     }
 
-    const handleSocketClose = () => {
-        connection.removeWebSocket()
-        connection.events.emit("socketClose")
+    // The close handler bound to the CURRENT socket, tracked so removeWebSocket can
+    // detach exactly that handler. Each adopted socket gets its OWN close handler so
+    // a stale socket's late close can never tear down a newer one (see setWebSocket).
+    let currentClose: (() => void) | undefined
+
+    // Detach our listeners from a socket and close it WITHOUT running the idle /
+    // teardown path. Used to discard a socket that a newer one has superseded.
+    const detachSocket = (ws: WebSocket, onClose?: () => void) => {
+        ws.off("message", handleSocketMessage)
+        if(typeof onClose !== "undefined") ws.off("close", onClose)
+        ws.close()
     }
 
-    
     connection.setWebSocket = (ws: WebSocket) => {
+        const previous = connection.ws
+        const previousClose = currentClose
+
+        // A close handler SPECIFIC to this socket: it only tears the connection down
+        // if `ws` is still the live socket when it fires. On a flaky network the old
+        // socket's OS-level "close" can arrive seconds AFTER the client has already
+        // reconnected on a new socket; without this identity guard that late close
+        // would run removeWebSocket() against the new socket and kill the fresh
+        // session, stranding the player.
+        const onClose = () => {
+            if(connection.ws !== ws) return
+            connection.removeWebSocket()
+            connection.events.emit("socketClose")
+        }
+
         connection.ws = ws
-        connection.ws.on("message", handleSocketMessage)
-        connection.ws.on("close", handleSocketClose)
-        connection.stopIdle() // Emits statusChange 
+        currentClose = onClose
+        ws.on("message", handleSocketMessage)
+        ws.on("close", onClose)
+
+        // Replacing an existing socket on reconnect: discard the old one so it can
+        // neither leak its listeners nor later fire a close/message at this
+        // connection. Its close handler is detached first, so closing it is silent.
+        if(typeof previous !== "undefined" && previous !== ws){
+            detachSocket(previous, previousClose)
+        }
+
+        connection.stopIdle() // Emits statusChange
     }
 
     connection.removeWebSocket = () => {
         if(typeof connection.ws !== "undefined"){
             connection.ws.off("message", handleSocketMessage)
-            connection.ws.off("close", handleSocketClose)
+            if(typeof currentClose !== "undefined") connection.ws.off("close", currentClose)
             connection.ws.close()
+            connection.ws = undefined
+            currentClose = undefined
         }
         connection.events.emit("statusChange", { status: connection.status })
         connection.startIdle() // Emits status
