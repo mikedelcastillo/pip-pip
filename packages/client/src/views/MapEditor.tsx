@@ -7,7 +7,7 @@ import { loadGridMap } from "@pip-pip/game/src/logic/grid-map"
 import {
     EditorMap,
     EditorBrush,
-    EDITOR_PALETTE,
+    SLOPE_BRUSHES,
     MIN_GRID,
     MAX_GRID,
     DEFAULT_COLS,
@@ -76,28 +76,46 @@ function clampScale(scale: number): number{
 const SHORTCUT_FOR: Record<EditorBrush, string> = {
     empty: "E",
     full: "B",
+    auto: "S",
     diag_tl: "Q",
     diag_tr: "W",
     diag_bl: "A",
-    diag_br: "S",
+    diag_br: "X",
     deco: "D",
     spawn: "G",
 }
 
-// One entry per tool in the rail: erase first, then every shape from the shared
-// editor palette, then the spawn marker last. `shortcut` is the single key that
-// selects it (also rendered in the tooltip).
 type ToolDef = { brush: EditorBrush, label: string, color: string, shortcut: string }
+
+// Human label per brush (the four slope directions show in the Auto-slope
+// dropdown). Pulled from the shared palette where possible.
+const LABEL_FOR: Record<EditorBrush, string> = {
+    empty: "Erase",
+    full: "Block",
+    auto: "Auto slope",
+    diag_tl: "Slope TL",
+    diag_tr: "Slope TR",
+    diag_bl: "Slope BL",
+    diag_br: "Slope BR",
+    deco: "Deco",
+    spawn: "Spawn",
+}
+
+// The rail tools, top to bottom. The four explicit slopes are NOT here: they are
+// tucked into a dropdown under the Auto slope tool, which picks the direction
+// from neighbours automatically.
 const TOOLS: ToolDef[] = [
-    { brush: "empty", label: "Erase", color: COLOR_GRID_STRONG, shortcut: SHORTCUT_FOR.empty },
-    ...EDITOR_PALETTE.map((entry) => ({
-        brush: entry.brush,
-        label: entry.label,
-        color: entry.shape === "full" ? COLOR_BLOCK : entry.shape === "deco" ? COLOR_DECO : COLOR_SLOPE,
-        shortcut: SHORTCUT_FOR[entry.brush],
-    })),
-    { brush: "spawn", label: "Spawn", color: COLOR_SPAWN, shortcut: SHORTCUT_FOR.spawn },
+    { brush: "empty", label: LABEL_FOR.empty, color: COLOR_GRID_STRONG, shortcut: SHORTCUT_FOR.empty },
+    { brush: "full", label: LABEL_FOR.full, color: COLOR_BLOCK, shortcut: SHORTCUT_FOR.full },
+    { brush: "auto", label: LABEL_FOR.auto, color: COLOR_SLOPE, shortcut: SHORTCUT_FOR.auto },
+    { brush: "deco", label: LABEL_FOR.deco, color: COLOR_DECO, shortcut: SHORTCUT_FOR.deco },
+    { brush: "spawn", label: LABEL_FOR.spawn, color: COLOR_SPAWN, shortcut: SHORTCUT_FOR.spawn },
 ]
+
+// The explicit slope directions shown in the Auto slope dropdown.
+const SLOPE_TOOLS: ToolDef[] = SLOPE_BRUSHES.map((b) => ({
+    brush: b, label: LABEL_FOR[b], color: COLOR_SLOPE, shortcut: SHORTCUT_FOR[b],
+}))
 
 // Fill colour for a painted shape, used by both the canvas tiles and the
 // rail icons.
@@ -146,6 +164,7 @@ export default function MapEditor(){
     const [showCollision, setShowCollision] = useState(false)
     const [message, setMessage] = useState("")
     const [optionsOpen, setOptionsOpen] = useState(false)
+    const [slopeOpen, setSlopeOpen] = useState(false)
     const [confirmLeave, setConfirmLeave] = useState(false)
     // Becomes true on the first paint/resize/import/clear so the leave guard
     // (Back button + browser beforeunload) only fires when there is real work to
@@ -670,23 +689,79 @@ export default function MapEditor(){
 
             {/* Tool rail: compact vertical toolbar of brush tools, Aseprite-style. */}
             <div className={styles.toolRail} role="toolbar" aria-label="Brush tools">
-                {TOOLS.map((tool) => (
-                    <button
-                        key={tool.brush}
-                        type="button"
-                        className={`${styles.tool} ${brush === tool.brush ? styles.toolActive : ""}`}
-                        onClick={() => setBrush(tool.brush)}
-                        aria-pressed={brush === tool.brush}
-                        aria-label={`${tool.label} (${tool.shortcut})`}
-                        title={`${tool.label} (${tool.shortcut})`}
-                        data-tip={`${tool.label} (${tool.shortcut})`}
-                    >
-                        <span className={styles.toolIcon}>
-                            <ToolIcon brush={tool.brush} color={tool.color} />
-                        </span>
-                        <span className={styles.toolKey}>{tool.shortcut}</span>
-                    </button>
-                ))}
+                {TOOLS.map((tool) => {
+                    if(tool.brush === "auto"){
+                        // Auto slope: the active state covers the auto brush AND any
+                        // explicit direction (they live in its dropdown). The rail
+                        // icon mirrors whichever is selected.
+                        const slopeActive = brush === "auto" || SLOPE_BRUSHES.indexOf(brush) !== -1
+                        const iconBrush: EditorBrush = SLOPE_BRUSHES.indexOf(brush) !== -1 ? brush : "auto"
+                        return (
+                            <div key="auto" className={styles.toolGroup}>
+                                <button
+                                    type="button"
+                                    className={`${styles.tool} ${slopeActive ? styles.toolActive : ""}`}
+                                    onClick={() => setBrush("auto")}
+                                    aria-pressed={slopeActive}
+                                    aria-label={`${tool.label} (${tool.shortcut})`}
+                                    title={`${tool.label} (${tool.shortcut})`}
+                                    data-tip={`${tool.label} (${tool.shortcut})`}
+                                >
+                                    <span className={styles.toolIcon}>
+                                        <ToolIcon brush={iconBrush} color={tool.color} />
+                                    </span>
+                                    <span className={styles.toolKey}>{tool.shortcut}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={styles.toolCaret}
+                                    onClick={() => setSlopeOpen((o) => !o)}
+                                    aria-label="Slope directions"
+                                    aria-expanded={slopeOpen}
+                                    title="Slope directions"
+                                >&#9656;</button>
+                                {slopeOpen && (
+                                    <div className={styles.slopeFlyout} role="menu">
+                                        {SLOPE_TOOLS.map((s) => (
+                                            <button
+                                                key={s.brush}
+                                                type="button"
+                                                className={`${styles.slopeItem} ${brush === s.brush ? styles.slopeItemActive : ""}`}
+                                                onClick={() => { setBrush(s.brush); setSlopeOpen(false) }}
+                                                aria-pressed={brush === s.brush}
+                                                aria-label={`${s.label} (${s.shortcut})`}
+                                                title={`${s.label} (${s.shortcut})`}
+                                            >
+                                                <span className={styles.toolIcon}>
+                                                    <ToolIcon brush={s.brush} color={s.color} />
+                                                </span>
+                                                <span className={styles.slopeItemLabel}>{s.label}</span>
+                                                <span className={styles.toolKey}>{s.shortcut}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    }
+                    return (
+                        <button
+                            key={tool.brush}
+                            type="button"
+                            className={`${styles.tool} ${brush === tool.brush ? styles.toolActive : ""}`}
+                            onClick={() => setBrush(tool.brush)}
+                            aria-pressed={brush === tool.brush}
+                            aria-label={`${tool.label} (${tool.shortcut})`}
+                            title={`${tool.label} (${tool.shortcut})`}
+                            data-tip={`${tool.label} (${tool.shortcut})`}
+                        >
+                            <span className={styles.toolIcon}>
+                                <ToolIcon brush={tool.brush} color={tool.color} />
+                            </span>
+                            <span className={styles.toolKey}>{tool.shortcut}</span>
+                        </button>
+                    )
+                })}
             </div>
 
             {/* Top bar: title, Options, and Back. Floats over the canvas. */}
@@ -925,6 +1000,15 @@ function ToolIcon({ brush, color }: { brush: EditorBrush, color: string }){
         return (
             <svg width={size} height={size} viewBox="0 0 20 20">
                 <rect x="2" y="2" width="16" height="16" fill={color} opacity={brush === "deco" ? 0.85 : 1} />
+            </svg>
+        )
+    }
+    if(brush === "auto"){
+        // A slope triangle with a small spark, signalling "smart / auto" slope.
+        return (
+            <svg width={size} height={size} viewBox="0 0 20 20">
+                <polygon points="3,17 17,17 17,4" fill={color} opacity="0.9" />
+                <circle cx="6" cy="6" r="1.8" fill={color} />
             </svg>
         )
     }

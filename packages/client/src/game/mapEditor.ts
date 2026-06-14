@@ -18,22 +18,26 @@ import { TILE_SIZE } from "@pip-pip/game/src/logic/constants"
 // does not write into the tiles array at all but toggles a spawn marker at the
 // cell. Keeping spawn in the same brush enum lets the palette UI present one
 // uniform list of paintable things.
-export type EditorBrush = "empty" | "full" | "diag_tl" | "diag_tr" | "diag_bl" | "diag_br" | "deco" | "spawn"
+export type EditorBrush = "empty" | "full" | "auto" | "diag_tl" | "diag_tr" | "diag_bl" | "diag_br" | "deco" | "spawn"
+
+// The four explicit slope directions, tucked under the Auto slope tool.
+export const SLOPE_BRUSHES: EditorBrush[] = ["diag_tl", "diag_tr", "diag_bl", "diag_br"]
 
 // Single-key keyboard shortcut for every tool, Aseprite-style: one letter
-// selects one brush. Lower-cased keys map to brushes; the four slopes share the
-// "Q W A S" cluster so they sit under the home row like a corner pad (top-left,
-// top-right, bottom-left, bottom-right). Kept here (DOM-free) so the
-// shortcut-key -> brush mapping is unit-testable without rendering the view.
+// selects one brush. "S" is the primary SLOPE tool = Auto slope (it picks the
+// direction from neighbours); the four explicit directions keep the Q/W/A/X
+// corner cluster for power users but live in a dropdown under Auto slope. Kept
+// here (DOM-free) so the shortcut-key -> brush mapping is unit-testable.
 export const BRUSH_SHORTCUTS: Record<string, EditorBrush> = {
     e: "empty",
     b: "full",
+    s: "auto",
     d: "deco",
     g: "spawn",
     q: "diag_tl",
     w: "diag_tr",
     a: "diag_bl",
-    s: "diag_br",
+    x: "diag_br",
 }
 
 // Resolve a raw KeyboardEvent.key into the brush it selects, or null when the
@@ -41,6 +45,19 @@ export const BRUSH_SHORTCUTS: Record<string, EditorBrush> = {
 export function brushForKey(key: string): EditorBrush | null{
     const brush = BRUSH_SHORTCUTS[key.toLowerCase()]
     return typeof brush === "undefined" ? null : brush
+}
+
+// AUTO SLOPE: pick the 45-degree slope whose RIGHT ANGLE sits in the corner where
+// two PERPENDICULAR-ADJACENT solid (full) neighbours meet, so the diagonal chamfers
+// that inner corner into a smooth ramp the ship glides along. Anything that is not
+// a clean two-wall corner (0/1/3/4 solid neighbours, or two OPPOSITE walls) has no
+// sensible slope, so it falls back to a full block. Pure + unit-tested.
+export function autoSlopeShape(top: boolean, right: boolean, bottom: boolean, left: boolean): TileShape{
+    if(top && left && !right && !bottom) return "diag_tl"
+    if(top && right && !left && !bottom) return "diag_tr"
+    if(bottom && left && !top && !right) return "diag_bl"
+    if(bottom && right && !top && !left) return "diag_br"
+    return "full"
 }
 
 // The fixed editor palette. The editor authors with a SINGLE shared texture key
@@ -120,6 +137,25 @@ export class EditorMap{
         return this.spawns.some(([c, r]) => c === col && r === row)
     }
 
+    // Is the cell a FULL (square wall) tile? The auto-slope tool reads which
+    // orthogonal neighbours are walls to choose the slope direction.
+    isFull(col: number, row: number): boolean{
+        const value = this.tileAt(col, row)
+        if(value <= 0) return false
+        const entry = this.palette[value - 1]
+        return typeof entry !== "undefined" && entry.shape === "full"
+    }
+
+    // The shape the AUTO brush paints at a cell, derived from its full neighbours.
+    autoShapeAt(col: number, row: number): TileShape{
+        return autoSlopeShape(
+            this.isFull(col, row - 1),
+            this.isFull(col + 1, row),
+            this.isFull(col, row + 1),
+            this.isFull(col - 1, row),
+        )
+    }
+
     // Paint one brush into one cell. "empty" erases the tile, every shape brush
     // writes that shape's palette value, and "spawn" toggles a spawn marker
     // (leaving the tile untouched). Returns true when something actually
@@ -132,7 +168,15 @@ export class EditorMap{
         }
 
         const i = this.index(col, row)
-        const next = brush === "empty" ? 0 : paletteValueForBrush(brush)
+        let next: number
+        if(brush === "empty"){
+            next = 0
+        } else if(brush === "auto"){
+            // Auto slope resolves to a concrete shape from the cell's neighbours.
+            next = paletteValueForShape(this.autoShapeAt(col, row))
+        } else{
+            next = paletteValueForBrush(brush)
+        }
         if(this.tiles[i] === next) return false
         this.tiles[i] = next
         return true
@@ -253,6 +297,16 @@ export function paletteValueForBrush(brush: EditorBrush): number{
     const index = EDITOR_PALETTE.findIndex((entry) => entry.brush === brush)
     if(index === -1){
         throw new Error(`brush "${brush}" has no palette entry`)
+    }
+    return index + 1
+}
+
+// The "palette index + 1" tiles value for a concrete shape. The auto-slope tool
+// resolves a cell to a TileShape (full or a diagonal) and writes it via this.
+export function paletteValueForShape(shape: TileShape): number{
+    const index = EDITOR_PALETTE.findIndex((entry) => entry.shape === shape)
+    if(index === -1){
+        throw new Error(`shape "${shape}" has no palette entry`)
     }
     return index + 1
 }

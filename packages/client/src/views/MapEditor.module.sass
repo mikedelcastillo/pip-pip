@@ -106,6 +106,74 @@
 
 .toolActive .toolKey
     color: $color-main
+
+// Auto slope tool group: the tool plus a caret that opens the direction dropdown.
+.toolGroup
+    position: relative
+    display: flex
+    flex-direction: column
+    align-items: center
+    gap: 0.1em
+
+.toolCaret
+    appearance: none
+    -webkit-appearance: none
+    background: transparent
+    border: none
+    color: $color-accent
+    cursor: pointer
+    font-size: 0.7em
+    line-height: 1
+    padding: 0.15em 0.4em
+    opacity: 0.8
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
+    &:active
+        transform: translateY(1px)
+
+// The slope-direction dropdown. position:fixed so it ESCAPES the tool rail's
+// scroll/overflow clipping (which would otherwise cut it off), anchored just to
+// the right of the rail. z-index above the rail.
+.slopeFlyout
+    +panel
+    position: fixed
+    left: calc(0.6em + var(--inset-left) + 58px)
+    top: 50%
+    transform: translateY(-50%)
+    z-index: 30
+    display: flex
+    flex-direction: column
+    gap: 0.25em
+    padding: 0.4em
+
+.slopeItem
+    appearance: none
+    -webkit-appearance: none
+    background: $color-dark-2
+    border: $border-size solid transparent
+    border-radius: $border-radius
+    color: $color-text
+    cursor: pointer
+    display: flex
+    align-items: center
+    gap: 0.5em
+    min-height: 44px
+    padding: 0.3em 0.6em
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
+    @media (hover: hover)
+        &:hover
+            border-color: $color-accent
+
+.slopeItemActive
+    border-color: $color-main
+    background: $color-dark-3
+
+.slopeItemLabel
+    font-family: $font-family-game
+    flex: 1
+    text-align: left
+    font-size: 0.85em
     opacity: 1
 
 // TOP BAR: brand + Options/Back, floating across the top.

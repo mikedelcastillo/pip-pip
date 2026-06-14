@@ -8,6 +8,8 @@ import {
     MAX_GRID,
     clampGrid,
     paletteValueForBrush,
+    paletteValueForShape,
+    autoSlopeShape,
     parseGridMapData,
     serializeGridMapData,
     mapFileName,
@@ -229,17 +231,57 @@ describe("mapFileName", () => {
     })
 })
 
+describe("autoSlopeShape (neighbour-aware auto slope)", () => {
+    it("picks the diagonal whose right angle is the corner of two perpendicular walls", () => {
+        // (top, right, bottom, left)
+        expect(autoSlopeShape(true, false, false, true)).toBe("diag_tl")
+        expect(autoSlopeShape(true, true, false, false)).toBe("diag_tr")
+        expect(autoSlopeShape(false, false, true, true)).toBe("diag_bl")
+        expect(autoSlopeShape(false, true, true, false)).toBe("diag_br")
+    })
+
+    it("falls back to a full block when there is no clean two-wall corner", () => {
+        expect(autoSlopeShape(false, false, false, false)).toBe("full") // isolated
+        expect(autoSlopeShape(true, false, false, false)).toBe("full") // single wall
+        expect(autoSlopeShape(true, false, true, false)).toBe("full") // opposite walls
+        expect(autoSlopeShape(true, true, true, false)).toBe("full") // three walls
+        expect(autoSlopeShape(true, true, true, true)).toBe("full") // surrounded
+    })
+})
+
+describe("EditorMap auto-slope brush", () => {
+    it("paints the corner-matching slope from full neighbours", () => {
+        const map = new EditorMap(5, 5)
+        // Walls above and to the left of (2,2) -> top-left corner -> diag_tl.
+        map.setCell(2, 1, "full")
+        map.setCell(1, 2, "full")
+        const changed = map.setCell(2, 2, "auto")
+        expect(changed).toBe(true)
+        expect(map.tileAt(2, 2)).toBe(paletteValueForShape("diag_tl"))
+    })
+
+    it("paints a full block when neighbours do not form a corner", () => {
+        const map = new EditorMap(5, 5)
+        // No solid neighbours -> auto resolves to a full block.
+        expect(map.setCell(2, 2, "auto")).toBe(true)
+        expect(map.tileAt(2, 2)).toBe(paletteValueForShape("full"))
+    })
+})
+
 describe("brushForKey shortcut mapping", () => {
     it("maps each single key to the brush its tool selects", () => {
         expect(brushForKey("e")).toBe("empty")
         expect(brushForKey("b")).toBe("full")
         expect(brushForKey("d")).toBe("deco")
         expect(brushForKey("g")).toBe("spawn")
-        // The four slopes sit on the Q/W/A/S corner cluster.
+        // S is the primary SLOPE tool = Auto slope.
+        expect(brushForKey("s")).toBe("auto")
+        // The explicit directions keep the Q/W/A/X corner cluster (tucked in the
+        // Auto-slope dropdown).
         expect(brushForKey("q")).toBe("diag_tl")
         expect(brushForKey("w")).toBe("diag_tr")
         expect(brushForKey("a")).toBe("diag_bl")
-        expect(brushForKey("s")).toBe("diag_br")
+        expect(brushForKey("x")).toBe("diag_br")
     })
 
     it("is case-insensitive so Shift does not break a shortcut", () => {
@@ -255,10 +297,11 @@ describe("brushForKey shortcut mapping", () => {
     })
 
     it("only maps keys to brushes that exist on an EditorMap", () => {
-        // Every mapped shape brush must round-trip to a palette entry; empty and
-        // spawn are valid brushes EditorMap.setCell accepts even without one.
+        // Every mapped SHAPE brush must round-trip to a palette entry; empty,
+        // spawn and auto are valid brushes EditorMap.setCell accepts even without
+        // a static palette entry (auto resolves to a shape from neighbours).
         const map = new EditorMap()
-        for(const key of ["b", "d", "q", "w", "a", "s"]){
+        for(const key of ["b", "d", "q", "w", "a", "x"]){
             const brush = brushForKey(key)
             expect(brush).not.toBe(null)
             const value = paletteValueForBrush(brush as never)
