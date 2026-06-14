@@ -1405,11 +1405,31 @@ export class PipPipGame{
         // once a contact bounces or destroys the bullet we stop checking it, so
         // a later wall cannot double-resolve a bullet that already bounced or
         // was unset this tick.
-        const segWalls = Object.values(this.physics.segWalls)
-        const rectWalls = Object.values(this.physics.rectWalls)
         for(const bullet of this.bullets.getActive()){
             const hitRadius = bullet.physics.radius
             let resolved = false
+
+            // Broadphase: query the walls near this bullet's MOTION SEGMENT only,
+            // instead of scanning every wall. The query AABB is the min/max of
+            // the bullet's start (position) and end (position + velocity),
+            // expanded by hitRadius. This is conservative for the same reason as
+            // the ship resolver: the swept tests below add hitRadius (segWall:
+            // also segWall.radius, already baked into that wall's footprint;
+            // rectWall: the box AABB), so any wall a brute-force swept scan would
+            // flag as a hit overlaps this expanded motion-segment AABB and thus
+            // shares a grid cell. The narrowphase (distanceBetweenSegments /
+            // distanceSegmentToRect) and the segs-before-rects order are
+            // unchanged, so the bullet outcome is identical to the full scan.
+            const startX = bullet.physics.position.x
+            const startY = bullet.physics.position.y
+            const endX = startX + bullet.physics.velocity.x
+            const endY = startY + bullet.physics.velocity.y
+            const minX = Math.min(startX, endX) - hitRadius
+            const minY = Math.min(startY, endY) - hitRadius
+            const maxX = Math.max(startX, endX) + hitRadius
+            const maxY = Math.max(startY, endY) + hitRadius
+            const segWalls = this.physics.querySegWalls(minX, minY, maxX, maxY)
+            const rectWalls = this.physics.queryRectWalls(minX, minY, maxX, maxY)
 
             for(const segWall of segWalls){
                 const dist = distanceBetweenSegments(
