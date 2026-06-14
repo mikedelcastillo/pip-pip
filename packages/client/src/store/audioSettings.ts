@@ -12,8 +12,13 @@ export interface AudioSettings {
     muted: boolean
 }
 
+// 0.35 (35%) is a deliberately gentle default. The procedural SFX plus the
+// master limiter mean a busy moment (shooting + explosions) can stack several
+// voices at once, so a low starting volume keeps a fresh player from getting
+// blasted before they find the slider. Existing players keep their persisted
+// value; only first-load defaults to this.
 export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
-    volume: 0.8,
+    volume: 0.35,
     muted: false,
 }
 

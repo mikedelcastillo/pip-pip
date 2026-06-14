@@ -1,6 +1,12 @@
-// Pure, side-effect-free sound definitions and helpers. NO Web Audio here —
+// Pure, side-effect-free sound definitions and helpers. NO Web Audio here -
 // this module is safe to import in tests and on any platform. The AudioManager
 // consumes SFX_TABLE to synthesise procedural audio at runtime.
+//
+// Loudness note: the AudioManager scales every `gain` below by a global
+// MASTER_SFX_GAIN softening factor and routes the master bus through a low-pass
+// + limiter, so these numbers are relative balance, not absolute output. The
+// harshest repeated cue (shoot) uses a triangle rather than a square wave to
+// stay easy on the ears even when fired in long bursts.
 
 export type Waveform = "square" | "sawtooth" | "triangle" | "sine"
 
@@ -85,7 +91,9 @@ export function midiToHz(note: number): number {
 
 export const SFX_TABLE: Record<SfxName, SfxDefinition> = {
     shoot: {
-        waveform: "square",
+        // Triangle, not square: shoot fires constantly, so the softer triangle
+        // harmonics keep rapid fire from becoming fatiguing.
+        waveform: "triangle",
         frequency: 880,
         frequencyEnd: 220,
         duration: 0.08,
@@ -130,7 +138,8 @@ export const SFX_TABLE: Record<SfxName, SfxDefinition> = {
         noiseAmount: 0,
     },
     reloadStart: {
-        waveform: "square",
+        // Triangle keeps these high beeps from being shrill.
+        waveform: "triangle",
         frequency: 660,
         frequencyEnd: 550,
         duration: 0.06,
@@ -139,7 +148,8 @@ export const SFX_TABLE: Record<SfxName, SfxDefinition> = {
         noiseAmount: 0,
     },
     reloadEnd: {
-        waveform: "square",
+        // Triangle keeps these high beeps from being shrill.
+        waveform: "triangle",
         frequency: 880,
         frequencyEnd: 990,
         duration: 0.1,

@@ -6,6 +6,7 @@ import {
     SFX_TABLE,
     SfxName,
 } from "@pip-pip/client/src/game/audio/sfxDefs"
+import { DEFAULT_AUDIO_SETTINGS } from "@pip-pip/client/src/store/audioSettings"
 
 const ALL_NAMES: SfxName[] = [
     "shoot",
@@ -44,6 +45,23 @@ describe("SFX_TABLE", () => {
             expect(env[0].t).toBe(0)
             expect(env[env.length - 1].t).toBe(1)
         }
+    })
+})
+
+describe("DEFAULT_AUDIO_SETTINGS", () => {
+    it("defaults the master volume to a gentle 0.35", () => {
+        // Kept low on purpose: with the procedural SFX + master limiter a busy
+        // moment stacks several voices, so a fresh player should start quiet.
+        expect(DEFAULT_AUDIO_SETTINGS.volume).toBe(0.35)
+    })
+
+    it("keeps the default volume within the clamped [0, 1] range", () => {
+        expect(DEFAULT_AUDIO_SETTINGS.volume).toBeGreaterThanOrEqual(0)
+        expect(DEFAULT_AUDIO_SETTINGS.volume).toBeLessThanOrEqual(1)
+    })
+
+    it("starts unmuted", () => {
+        expect(DEFAULT_AUDIO_SETTINGS.muted).toBe(false)
     })
 })
 
