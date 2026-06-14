@@ -495,20 +495,6 @@ export function validateGridMapData(x: unknown): GridMapData | null{
     if(typeof data.originCol !== "undefined" && !isInteger(data.originCol)) return null
     if(typeof data.originRow !== "undefined" && !isInteger(data.originRow)) return null
 
-    // World-extent guard. Positions go on the wire through $quant16(WORLD_QUANT_RANGE),
-    // which SILENTLY saturates any coordinate outside +/-range, so the server and
-    // every client would permanently disagree on an entity placed beyond it. Ships
-    // are confined to the map bounds (cell extent padded by half a cell, shifted by
-    // the optional origin), so reject any map whose worst-case bound exceeds the
-    // range. The cell-count cap alone is NOT enough: 250*250 cells at the default
-    // cell size spans ~18000 units, far past the ~8192 range.
-    const half = data.cellSize / 2
-    const originCol = data.originCol ?? 0
-    const originRow = data.originRow ?? 0
-    const extentX = Math.max(Math.abs(originCol * data.cellSize - half), Math.abs((data.cols - 1 + originCol) * data.cellSize + half))
-    const extentY = Math.max(Math.abs(originRow * data.cellSize - half), Math.abs((data.rows - 1 + originRow) * data.cellSize + half))
-    if(Math.max(extentX, extentY) > WORLD_QUANT_RANGE) return null
-
     if(typeof data.segments !== "undefined"){
         if(!Array.isArray(data.segments)) return null
         for(const seg of data.segments){
@@ -518,6 +504,40 @@ export function validateGridMapData(x: unknown): GridMapData | null{
             }
         }
     }
+
+    // World-extent guard. Positions go on the wire through $quant16(WORLD_QUANT_RANGE),
+    // which SILENTLY saturates any coordinate outside +/-range, so the server and
+    // every client would permanently disagree on an entity placed beyond it. The map
+    // bounds AND the ship spawn points are derived from the CELL grid, the SPAWN
+    // cells AND the SEGMENT endpoints - each scaled by cellSize, shifted by the
+    // optional origin and padded by half a cell - so all three coordinate sources
+    // must be folded in. The cell-count cap alone is not enough, and checking the
+    // cell grid alone misses out-of-grid spawns/segments (which still place ships and
+    // grow the bounds, then saturate). Reject any map whose worst-case world bound
+    // exceeds the range.
+    let minCol = 0
+    let maxCol = data.cols - 1
+    let minRow = 0
+    let maxRow = data.rows - 1
+    const includeCell = (c: number, r: number) => {
+        if(c < minCol) minCol = c
+        if(c > maxCol) maxCol = c
+        if(r < minRow) minRow = r
+        if(r > maxRow) maxRow = r
+    }
+    for(const [c, r] of data.spawns) includeCell(c, r)
+    if(Array.isArray(data.segments)){
+        for(const [sc, sr, ec, er] of data.segments){
+            includeCell(sc, sr)
+            includeCell(ec, er)
+        }
+    }
+    const half = data.cellSize / 2
+    const originCol = data.originCol ?? 0
+    const originRow = data.originRow ?? 0
+    const extentX = Math.max(Math.abs((minCol + originCol) * data.cellSize - half), Math.abs((maxCol + originCol) * data.cellSize + half))
+    const extentY = Math.max(Math.abs((minRow + originRow) * data.cellSize - half), Math.abs((maxRow + originRow) * data.cellSize + half))
+    if(Math.max(extentX, extentY) > WORLD_QUANT_RANGE) return null
 
     // Every field checked: the value is structurally a GridMapData. The cast is
     // safe because each branch above narrowed the corresponding field.

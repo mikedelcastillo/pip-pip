@@ -198,4 +198,46 @@ describe("validateGridMapData", () => {
         map.tiles = new Array(100 * 100).fill(0)
         expect(validateGridMapData(map)).not.toBeNull()
     })
+
+    it("rejects a map whose SPAWN sits far outside the grid", () => {
+        // A 1x1 grid, but a spawn at col 1000 places a ship at 1000*72 = 72000 world
+        // units, ~9x past WORLD_QUANT_RANGE - the server keeps it, the wire saturates
+        // it, and remote clients permanently disagree on the position.
+        const map = validMap()
+        map.cols = 1
+        map.rows = 1
+        map.cellSize = 72
+        map.originCol = 0
+        map.originRow = 0
+        map.tiles = [0]
+        map.spawns = [[1000, 0]]
+        map.segments = undefined
+        expect(validateGridMapData(map)).toBeNull()
+    })
+
+    it("rejects a map whose SEGMENT endpoint is far outside the grid", () => {
+        const map = validMap()
+        map.cols = 1
+        map.rows = 1
+        map.cellSize = 72
+        map.originCol = 0
+        map.originRow = 0
+        map.tiles = [0]
+        map.spawns = []
+        map.segments = [[0, 0, 1000, 0]]
+        expect(validateGridMapData(map)).toBeNull()
+    })
+
+    it("accepts in-grid spawns and segments within the quant range", () => {
+        const map = validMap()
+        map.cols = 50
+        map.rows = 50
+        map.cellSize = 64 // 50 * 64 = 3200 < 8192
+        map.originCol = 0
+        map.originRow = 0
+        map.tiles = new Array(50 * 50).fill(0)
+        map.spawns = [[10, 10], [40, 40]]
+        map.segments = [[0, 0, 49, 49]]
+        expect(validateGridMapData(map)).not.toBeNull()
+    })
 })
