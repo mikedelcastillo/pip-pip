@@ -24,6 +24,13 @@ import {
     stashPlayMap,
     loadPlayMap,
     clearPlayMap,
+    rectCells,
+    lineCells,
+    boundedFloodFill,
+    DRAW_MODES,
+    FILL_BOUNDS_MARGIN,
+    FILL_CELL_CAP,
+    Cell,
 } from "../../packages/client/src/game/mapEditor"
 import { loadGridMap } from "../../packages/game/src/logic/grid-map"
 
@@ -747,5 +754,295 @@ describe("EditorHistory (Aseprite-style undo / redo)", () => {
         expect(history.canUndo()).toBe(false)
         // A fresh commit with no pending baseline is also a no-op.
         expect(history.commit(map)).toBe(false)
+    })
+})
+
+// Compare a cell list to an expected set order-independently, so a test reads as
+// "these exact cells" regardless of the enumeration order the helper happens to
+// return them in.
+function sortedCellKeys(cells: Cell[]): string[]{
+    return cells.map(([c, r]) => cellKey(c, r)).sort()
+}
+
+describe("rectCells (filled bounding box)", () => {
+    it("enumerates the inclusive bounding box", () => {
+        const cells = rectCells([1, 1], [3, 2])
+        // cols [1..3] x rows [1..2] = 6 cells.
+        expect(cells.length).toBe(6)
+        expect(sortedCellKeys(cells)).toEqual(sortedCellKeys([
+            [1, 1], [2, 1], [3, 1],
+            [1, 2], [2, 2], [3, 2],
+        ]))
+    })
+
+    it("is order-independent: start > end gives the same box", () => {
+        const forward = rectCells([2, 3], [5, 7])
+        const reverse = rectCells([5, 7], [2, 3])
+        expect(sortedCellKeys(forward)).toEqual(sortedCellKeys(reverse))
+        // 4 cols x 5 rows = 20 cells.
+        expect(forward.length).toBe(20)
+    })
+
+    it("a single cell (start == end) yields exactly that one cell", () => {
+        const cells = rectCells([4, 9], [4, 9])
+        expect(cells).toEqual([[4, 9]])
+    })
+
+    it("handles negative coordinates", () => {
+        const cells = rectCells([-2, -2], [-1, -1])
+        expect(sortedCellKeys(cells)).toEqual(sortedCellKeys([
+            [-2, -2], [-1, -2], [-2, -1], [-1, -1],
+        ]))
+    })
+})
+
+describe("lineCells (8-connected Bresenham pixel line)", () => {
+    // Every pair of consecutive cells in a line must TOUCH (Chebyshev distance 1),
+    // so the line has no gaps a brush would skip over.
+    function isGapFree(cells: Cell[]): boolean{
+        for(let i = 1; i < cells.length; i++){
+            const dx = Math.abs(cells[i][0] - cells[i - 1][0])
+            const dy = Math.abs(cells[i][1] - cells[i - 1][1])
+            if(Math.max(dx, dy) !== 1) return false
+        }
+        return true
+    }
+
+    it("a single cell (start == end) yields exactly that one cell", () => {
+        expect(lineCells([3, 3], [3, 3])).toEqual([[3, 3]])
+    })
+
+    it("draws a horizontal line, gap-free, both endpoints included", () => {
+        const cells = lineCells([0, 5], [4, 5])
+        expect(cells.length).toBe(5)
+        expect(cells[0]).toEqual([0, 5])
+        expect(cells[cells.length - 1]).toEqual([4, 5])
+        expect(cells.every(([, r]) => r === 5)).toBe(true)
+        expect(isGapFree(cells)).toBe(true)
+    })
+
+    it("draws a vertical line, gap-free", () => {
+        const cells = lineCells([2, 0], [2, 6])
+        expect(cells.length).toBe(7)
+        expect(cells.every(([c]) => c === 2)).toBe(true)
+        expect(isGapFree(cells)).toBe(true)
+    })
+
+    it("draws a 45-degree diagonal, one cell per step, gap-free", () => {
+        const cells = lineCells([0, 0], [4, 4])
+        expect(cells).toEqual([[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]])
+        expect(isGapFree(cells)).toBe(true)
+    })
+
+    it("draws an arbitrary-slope line gap-free, including both endpoints", () => {
+        const cells = lineCells([0, 0], [6, 2])
+        expect(cells[0]).toEqual([0, 0])
+        expect(cells[cells.length - 1]).toEqual([6, 2])
+        expect(isGapFree(cells)).toBe(true)
+        // A shallow line spans the longer axis (cols), so 7 cells.
+        expect(cells.length).toBe(7)
+    })
+
+    it("works for a line drawn in the negative direction", () => {
+        const cells = lineCells([5, 5], [1, 3])
+        expect(cells[0]).toEqual([5, 5])
+        expect(cells[cells.length - 1]).toEqual([1, 3])
+        expect(isGapFree(cells)).toBe(true)
+    })
+})
+
+describe("DRAW_MODES", () => {
+    it("lists the four modes with freehand first (the default)", () => {
+        expect(DRAW_MODES).toEqual(["freehand", "rect", "line", "fill"])
+    })
+})
+
+describe("boundedFloodFill (safe flood fill on an infinite sparse canvas)", () => {
+    // A tile reader over a sparse Map<cellKey, value>, matching EditorMap.tileAt's
+    // contract (missing cell = 0 = empty).
+    function readerFor(tiles: Map<string, number>): (col: number, row: number) => number{
+        return (col, row) => tiles.get(cellKey(col, row)) ?? 0
+    }
+
+    it("fills exactly the enclosed interior of a walled room (4-connected)", () => {
+        // A 5x5 ring of walls (value 1) with a hollow 3x3 interior.
+        const tiles = new Map<string, number>()
+        for(let c = 0; c < 5; c++){
+            for(let r = 0; r < 5; r++){
+                if(c === 0 || c === 4 || r === 0 || r === 4){
+                    tiles.set(cellKey(c, r), 1)
+                }
+            }
+        }
+        // Clamp generously around the room; a click inside fills only the interior.
+        const clamp = { minCol: -2, minRow: -2, maxCol: 6, maxRow: 6 }
+        const cells = boundedFloodFill([2, 2], readerFor(tiles), clamp)
+        // The hollow 3x3 interior is exactly the empty connected region.
+        expect(cells.length).toBe(9)
+        const keys = new Set(sortedCellKeys(cells))
+        for(let c = 1; c <= 3; c++){
+            for(let r = 1; r <= 3; r++){
+                expect(keys.has(cellKey(c, r))).toBe(true)
+            }
+        }
+        // No wall cell and no cell outside the ring was visited.
+        expect(keys.has(cellKey(0, 0))).toBe(false)
+        expect(keys.has(cellKey(2, 0))).toBe(false)
+        expect(keys.has(cellKey(5, 5))).toBe(false)
+    })
+
+    it("an OPEN empty region terminates within the clamp (never loops forever)", () => {
+        // A totally empty map: a naive flood fill would walk to infinity. The
+        // clamp bounds it to a finite rectangle, which it must fill fully and stop.
+        const tiles = new Map<string, number>()
+        const clamp = { minCol: 0, minRow: 0, maxCol: 9, maxRow: 9 }
+        const cells = boundedFloodFill([5, 5], readerFor(tiles), clamp)
+        // Exactly the 10x10 clamped rectangle, no more.
+        expect(cells.length).toBe(100)
+        // Every returned cell lies inside the clamp.
+        for(const [c, r] of cells){
+            expect(c).toBeGreaterThanOrEqual(0)
+            expect(c).toBeLessThanOrEqual(9)
+            expect(r).toBeGreaterThanOrEqual(0)
+            expect(r).toBeLessThanOrEqual(9)
+        }
+    })
+
+    it("respects the hard cell cap, stopping cleanly with a partial fill", () => {
+        // A large empty clamp with a tiny cap: the fill stops at the cap, partial.
+        const tiles = new Map<string, number>()
+        const clamp = { minCol: 0, minRow: 0, maxCol: 99, maxRow: 99 }
+        const cells = boundedFloodFill([0, 0], readerFor(tiles), clamp, 50)
+        expect(cells.length).toBe(50)
+    })
+
+    it("replaces only the connected same-value region, not other equal-valued cells", () => {
+        // Two SEPARATE blobs of value 1, divided by a column of empty cells. A
+        // fill seeded in the left blob must not jump the gap to the right blob.
+        const tiles = new Map<string, number>()
+        tiles.set(cellKey(0, 0), 1)
+        tiles.set(cellKey(1, 0), 1)
+        tiles.set(cellKey(0, 1), 1)
+        // gap at col 2
+        tiles.set(cellKey(4, 0), 1)
+        tiles.set(cellKey(5, 0), 1)
+        const clamp = { minCol: -1, minRow: -1, maxCol: 6, maxRow: 2 }
+        const cells = boundedFloodFill([0, 0], readerFor(tiles), clamp)
+        const keys = new Set(sortedCellKeys(cells))
+        // The left connected blob of value-1 cells, nothing from the right blob.
+        expect(keys.has(cellKey(0, 0))).toBe(true)
+        expect(keys.has(cellKey(1, 0))).toBe(true)
+        expect(keys.has(cellKey(0, 1))).toBe(true)
+        expect(keys.has(cellKey(4, 0))).toBe(false)
+        expect(keys.has(cellKey(5, 0))).toBe(false)
+    })
+
+    it("returns nothing when the seed is outside the clamp", () => {
+        const tiles = new Map<string, number>()
+        const clamp = { minCol: 0, minRow: 0, maxCol: 4, maxRow: 4 }
+        expect(boundedFloodFill([10, 10], readerFor(tiles), clamp)).toEqual([])
+    })
+
+    it("clicking a cell already equal to the surrounding value fills that region (idempotent repaint)", () => {
+        // The semantics: a fill always returns the connected same-value region,
+        // even if the brush would paint the same value back. Here every cell is
+        // value 1; the whole connected blob is returned and a caller repainting
+        // value 1 over it is a harmless no-op per cell.
+        const tiles = new Map<string, number>()
+        for(let c = 0; c < 3; c++){
+            for(let r = 0; r < 3; r++){
+                tiles.set(cellKey(c, r), 1)
+            }
+        }
+        const clamp = { minCol: -1, minRow: -1, maxCol: 3, maxRow: 3 }
+        const cells = boundedFloodFill([1, 1], readerFor(tiles), clamp)
+        // All 9 connected value-1 cells (the surrounding empty margin differs in
+        // value, so it is not part of the region).
+        expect(cells.length).toBe(9)
+    })
+})
+
+describe("EditorMap.fillClamp (bbox + margin clamp for flood fill)", () => {
+    it("on an empty map, clamps to a small box around the seed", () => {
+        const map = new EditorMap()
+        const clamp = map.fillClamp([0, 0])
+        expect(clamp).toEqual({
+            minCol: -FILL_BOUNDS_MARGIN,
+            minRow: -FILL_BOUNDS_MARGIN,
+            maxCol: FILL_BOUNDS_MARGIN,
+            maxRow: FILL_BOUNDS_MARGIN,
+        })
+    })
+
+    it("expands the painted bbox by the margin and always includes the seed", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full")
+        map.setCell(4, 4, "full")
+        // A seed well outside the bbox grows the clamp to include it.
+        const clamp = map.fillClamp([10, -3])
+        expect(clamp.minCol).toBe(0 - FILL_BOUNDS_MARGIN)
+        expect(clamp.minRow).toBe(-3 - FILL_BOUNDS_MARGIN)
+        expect(clamp.maxCol).toBe(10 + FILL_BOUNDS_MARGIN)
+        expect(clamp.maxRow).toBe(4 + FILL_BOUNDS_MARGIN)
+    })
+})
+
+describe("shape application integrates with one undo step", () => {
+    // Mirrors how the view applies a shape: begin a history step, paint each cell
+    // of the shape's cell set via setCell, commit ONCE. The whole shape must undo
+    // as a single step back to the prior canvas state.
+    it("applies a rectangle as ONE undo step restoring the prior state", () => {
+        const map = new EditorMap()
+        // Seed the canvas with one tile so the prior state is non-empty.
+        map.setCell(0, 0, "full")
+        const history = new EditorHistory()
+
+        history.begin(map)
+        for(const [col, row] of rectCells([2, 2], [4, 4])){
+            map.setCell(col, row, "full")
+        }
+        expect(history.commit(map)).toBe(true)
+        // 1 seed + 9 rect cells.
+        expect(map.tiles.size).toBe(10)
+
+        // A single undo restores the canvas to exactly the seed tile.
+        expect(history.undo(map)).toBe(true)
+        expect(map.tiles.size).toBe(1)
+        expect(map.tileAt(0, 0)).toBe(paletteValueForBrush("full"))
+        // And a single redo re-applies the whole rectangle at once.
+        expect(history.redo(map)).toBe(true)
+        expect(map.tiles.size).toBe(10)
+    })
+
+    it("applies a bounded fill as ONE undo step", () => {
+        // A walled room; fill the interior with deco, then undo it in one step.
+        const map = new EditorMap()
+        for(let c = 0; c < 5; c++){
+            for(let r = 0; r < 5; r++){
+                if(c === 0 || c === 4 || r === 0 || r === 4){
+                    map.setCell(c, r, "full")
+                }
+            }
+        }
+        const before = map.tiles.size // 16 wall cells
+        const history = new EditorHistory()
+
+        history.begin(map)
+        const cells = boundedFloodFill([2, 2], (c, r) => map.tileAt(c, r), map.fillClamp([2, 2]))
+        for(const [col, row] of cells){
+            map.setCell(col, row, "deco")
+        }
+        expect(history.commit(map)).toBe(true)
+        // The 3x3 interior is now deco on top of the 16 walls.
+        expect(map.tiles.size).toBe(before + 9)
+
+        expect(history.undo(map)).toBe(true)
+        expect(map.tiles.size).toBe(before)
+        expect(history.redo(map)).toBe(true)
+        expect(map.tiles.size).toBe(before + 9)
+    })
+
+    it("the cap constant is the documented backstop", () => {
+        expect(FILL_CELL_CAP).toBe(20000)
     })
 })

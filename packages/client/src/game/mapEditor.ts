@@ -24,6 +24,25 @@ export type EditorBrush = "empty" | "full" | "auto" | "diag_tl" | "diag_tr" | "d
 // The four explicit slope directions, tucked under the Auto slope tool.
 export const SLOPE_BRUSHES: EditorBrush[] = ["diag_tl", "diag_tr", "diag_bl", "diag_br"]
 
+// A DRAW MODE is orthogonal to the brush: the BRUSH says WHAT to paint (block /
+// slope / deco / spawn / erase) and the MODE says HOW. "freehand" is the default
+// (one cell per pointer position while dragging, the original behaviour); "rect"
+// fills the bounding box between the gesture's start and end cell; "line" draws a
+// straight pixel line between them; "fill" flood-fills the connected same-value
+// region under a single click. Shape/fill modes apply the active brush to a SET
+// of cells in one batch (one undo step), so e.g. rect+full draws a filled block
+// rectangle and line+empty erases a line. Kept here (DOM-free) so the cell-set
+// enumeration is unit-testable independent of the view.
+export type DrawMode = "freehand" | "rect" | "line" | "fill"
+
+// Every draw mode, in the order the mode strip renders them. Freehand first as
+// the default tool.
+export const DRAW_MODES: DrawMode[] = ["freehand", "rect", "line", "fill"]
+
+// A single cell coordinate as a tuple. Shape helpers return arrays of these so
+// the view can paint each via setCell without re-parsing keys.
+export type Cell = [number, number]
+
 // Single-key keyboard shortcut for every tool, Aseprite-style: one letter
 // selects one brush. "S" is the primary SLOPE tool = Auto slope (it picks the
 // direction from neighbours); the four explicit directions keep the Q/W/A/X
@@ -102,6 +121,127 @@ export type EditorBounds = {
     minRow: number,
     maxCol: number,
     maxRow: number,
+}
+
+// Every cell in the INCLUSIVE bounding box between two corners (a filled
+// rectangle). The corners may be given in any diagonal order; the min/max of
+// each axis is taken, so (5,7)->(2,3) and (2,3)->(5,7) enumerate the same box. A
+// zero-area span (the same cell twice) yields exactly that one cell. Pure +
+// unit-tested: the view just paints whatever this returns. Row-major order so a
+// caller iterating the result paints top-to-bottom, left-to-right.
+export function rectCells(a: Cell, b: Cell): Cell[]{
+    const minCol = Math.min(a[0], b[0])
+    const maxCol = Math.max(a[0], b[0])
+    const minRow = Math.min(a[1], b[1])
+    const maxRow = Math.max(a[1], b[1])
+    const cells: Cell[] = []
+    for(let row = minRow; row <= maxRow; row++){
+        for(let col = minCol; col <= maxCol; col++){
+            cells.push([col, row])
+        }
+    }
+    return cells
+}
+
+// A straight CELL LINE from `a` to `b` via Bresenham's 8-connected algorithm (a
+// pixel line, so a 45-degree drag steps diagonally without gaps). Both endpoints
+// are included; a zero-length line (a == b) yields the single start cell. The
+// result is gap-free: consecutive cells always touch (orthogonally or
+// diagonally). Pure + unit-tested.
+export function lineCells(a: Cell, b: Cell): Cell[]{
+    let x0 = a[0]
+    let y0 = a[1]
+    const x1 = b[0]
+    const y1 = b[1]
+    const dx = Math.abs(x1 - x0)
+    const dy = Math.abs(y1 - y0)
+    const sx = x0 < x1 ? 1 : -1
+    const sy = y0 < y1 ? 1 : -1
+    let err = dx - dy
+    const cells: Cell[] = []
+    // A line of N cells spans (Chebyshev distance + 1) steps; bound the loop by
+    // exactly that count so it always terminates at (x1, y1) without a constant
+    // `while(true)` condition.
+    const steps = Math.max(dx, dy)
+    for(let i = 0; i <= steps; i++){
+        cells.push([x0, y0])
+        if(x0 === x1 && y0 === y1) break
+        const e2 = 2 * err
+        if(e2 > -dy){
+            err -= dy
+            x0 += sx
+        }
+        if(e2 < dx){
+            err += dx
+            y0 += sy
+        }
+    }
+    return cells
+}
+
+// The default extra margin (in cells) the bounded flood fill expands the painted
+// content bounding box by before clamping. Lets a fill spill one or two cells
+// into the empty border around the content (so an enclosed room whose walls sit
+// on the bbox edge still fills), without ever running off into infinite empty
+// space.
+export const FILL_BOUNDS_MARGIN = 2
+
+// The default hard cap on cells a single bounded flood fill may visit. A backstop
+// beneath the bbox clamp: even a pathological clamp can never make the fill hang
+// or blow memory; once the cap is hit the fill stops cleanly and returns the
+// partial result.
+export const FILL_CELL_CAP = 20000
+
+// A BOUNDED 4-connected flood fill, pure and DOM-free so its termination is
+// unit-testable. Starting at `start`, it visits every orthogonally-connected cell
+// whose CURRENT value equals the start cell's value (empty counts as the value 0)
+// and returns the set of cells to repaint. The canvas is INFINITE and the model
+// SPARSE, so an OPEN empty region would otherwise fill forever; two bounds keep it
+// safe: (a) a CLAMP rectangle (the caller passes the painted-content bbox expanded
+// by FILL_BOUNDS_MARGIN) outside which no cell is ever visited, and (b) a hard CAP
+// on visited cells as a backstop. Hitting either bound stops the fill cleanly with
+// a partial result (no crash, no hang). `tileAt` reads the value at any cell (0 =
+// empty); the caller wires it to EditorMap.tileAt.
+export function boundedFloodFill(
+    start: Cell,
+    tileAt: (col: number, row: number) => number,
+    clamp: { minCol: number, minRow: number, maxCol: number, maxRow: number },
+    cap: number = FILL_CELL_CAP,
+): Cell[]{
+    // A start outside the clamp can never be the seed of an in-bounds fill.
+    if(start[0] < clamp.minCol || start[0] > clamp.maxCol || start[1] < clamp.minRow || start[1] > clamp.maxRow){
+        return []
+    }
+    const target = tileAt(start[0], start[1])
+    const result: Cell[] = []
+    const seen = new Set<string>()
+    const stack: Cell[] = [start]
+    seen.add(cellKey(start[0], start[1]))
+    while(stack.length > 0){
+        // Backstop cap: stop cleanly with whatever we have rather than hang.
+        if(result.length >= cap) break
+        const cell = stack.pop() as Cell
+        const col = cell[0]
+        const row = cell[1]
+        if(tileAt(col, row) !== target) continue
+        result.push(cell)
+        // 4-connected neighbours, each gated by the clamp and the visited set so
+        // no cell is ever queued twice or outside the bounded region.
+        const neighbours: Cell[] = [
+            [col + 1, row],
+            [col - 1, row],
+            [col, row + 1],
+            [col, row - 1],
+        ]
+        for(const next of neighbours){
+            if(next[0] < clamp.minCol || next[0] > clamp.maxCol || next[1] < clamp.minRow || next[1] > clamp.maxRow) continue
+            const key = cellKey(next[0], next[1])
+            if(seen.has(key)) continue
+            seen.add(key)
+            stack.push(next)
+        }
+    }
+    return result
 }
 
 // The editor's own working state, SPARSE and UNBOUNDED. `tiles` is a Map keyed
@@ -252,6 +392,31 @@ export class EditorMap{
             return { empty: true, minCol: 0, minRow: 0, maxCol: 0, maxRow: 0 }
         }
         return { empty: false, minCol, minRow, maxCol, maxRow }
+    }
+
+    // The clamp rectangle a bounded flood fill seeded at `start` may visit: the
+    // painted-content bbox expanded by `margin` on every side, but always grown
+    // to include the seed cell so a click on an empty cell just outside the
+    // current content still fills the bounded region around it (and a fill on a
+    // totally blank canvas fills a small box around the click rather than
+    // nothing). Routed through boundedFloodFill, which never visits a cell
+    // outside this rectangle, so an open empty region can never fill forever.
+    fillClamp(start: Cell, margin: number = FILL_BOUNDS_MARGIN): { minCol: number, minRow: number, maxCol: number, maxRow: number }{
+        const box = this.bounds()
+        if(box.empty){
+            return {
+                minCol: start[0] - margin,
+                minRow: start[1] - margin,
+                maxCol: start[0] + margin,
+                maxRow: start[1] + margin,
+            }
+        }
+        return {
+            minCol: Math.min(box.minCol, start[0]) - margin,
+            minRow: Math.min(box.minRow, start[1]) - margin,
+            maxCol: Math.max(box.maxCol, start[0]) + margin,
+            maxRow: Math.max(box.maxRow, start[1]) + margin,
+        }
     }
 
     // Serialize to the exact GridMapData shape loadGridMap consumes. The canvas

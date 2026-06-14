@@ -9,6 +9,7 @@ import {
     EditorMap,
     EditorBrush,
     EditorHistory,
+    DrawMode,
     SLOPE_BRUSHES,
     DEFAULT_MAP_NAME,
     parseCellKey,
@@ -20,6 +21,10 @@ import {
     loadEditorMap,
     clearEditorMap,
     stashPlayMap,
+    rectCells,
+    lineCells,
+    boundedFloodFill,
+    Cell,
 } from "../game/mapEditor"
 import { trackEvent, trackPageView } from "../analytics"
 import styles from "./MapEditor.module.sass"
@@ -50,6 +55,9 @@ const COLOR_SPAWN = "#33DD55"
 const COLOR_GRID = "rgba(255, 255, 255, 0.08)"
 const COLOR_GRID_STRONG = "rgba(255, 255, 255, 0.18)"
 const COLOR_COLLISION = "rgba(51, 221, 85, 0.9)"
+// A neutral light tint for the draw-mode glyphs, so the mode strip reads as
+// monochrome "how to paint" controls distinct from the coloured brush swatches.
+const COLOR_MODE_ICON = "rgba(255, 255, 255, 0.85)"
 
 // Aseprite-style transparency checkerboard behind empty cells, so the grid reads
 // as a sprite canvas. Two near-black shades; one square per CHECKER_DIV-th of a
@@ -130,6 +138,27 @@ const SLOPE_TOOLS: ToolDef[] = SLOPE_BRUSHES.map((b) => ({
     brush: b, label: LABEL_FOR[b], color: COLOR_SLOPE, shortcut: SHORTCUT_FOR[b],
 }))
 
+// The DRAW MODES, orthogonal to the brush: the brush says WHAT to paint, the
+// mode says HOW. Freehand is the default (one cell per pointer position);
+// rect/line draw a previewed shape committed on pointer-up; fill flood-fills the
+// connected region under a click. Modes are CLICK-ONLY (no keyboard shortcut):
+// the single-key brush shortcuts already claim the obvious letters (R is free but
+// L/F/B clash, and keeping modes click-only avoids any ambiguity), so the mode
+// strip is the one place modes are chosen. Each entry carries an icon kind drawn
+// by ModeIcon and a label shown in the portal tooltip.
+type ModeDef = { mode: DrawMode, label: string }
+const MODE_DEFS: ModeDef[] = [
+    { mode: "freehand", label: "Freehand" },
+    { mode: "rect", label: "Rectangle" },
+    { mode: "line", label: "Line" },
+    { mode: "fill", label: "Fill" },
+]
+
+// Translucent fill for the live rect/line preview overlay drawn while dragging,
+// so the author sees the shape's cells before committing on pointer-up.
+const COLOR_PREVIEW = "rgba(230, 174, 16, 0.35)"
+const COLOR_PREVIEW_ERASE = "rgba(255, 80, 80, 0.30)"
+
 // Fill colour for a painted shape, used by both the canvas tiles and the
 // rail icons.
 function shapeColor(shape: string): string{
@@ -202,6 +231,10 @@ export default function MapEditor(){
 
     const initial = mapRef.current
     const [brush, setBrush] = useState<EditorBrush>("full")
+    // The active DRAW MODE (orthogonal to the brush). Freehand by default = the
+    // original one-cell-per-position painting; rect/line preview then commit a
+    // shape; fill flood-fills under a click.
+    const [mode, setMode] = useState<DrawMode>("freehand")
     const [name, setName] = useState(initial.name)
     const [showCollision, setShowCollision] = useState(false)
     const [message, setMessage] = useState("")
@@ -218,8 +251,20 @@ export default function MapEditor(){
     // currently selected brush, not the one selected when the canvas mounted.
     const brushRef = useRef(brush)
     brushRef.current = brush
+    // The active mode is likewise read inside the imperative pointer handlers, so
+    // mirror it into a ref so a gesture always uses the currently selected mode.
+    const modeRef = useRef(mode)
+    modeRef.current = mode
     const showCollisionRef = useRef(showCollision)
     showCollisionRef.current = showCollision
+
+    // The in-progress shape gesture for rect/line: the cell the pointer went down
+    // on (start) and the cell it is currently over (current). Held in a ref (not
+    // state) so the high-rate drag updates it and re-draws the preview without a
+    // React re-render per move. null when no shape gesture is open. draw() reads
+    // this to render the translucent preview overlay; pointer-up reads it to
+    // compute the committed cell set.
+    const shapeRef = useRef<{ start: Cell, current: Cell } | null>(null)
 
     useEffect(() => {
         trackPageView("/editor")
@@ -396,6 +441,24 @@ export default function MapEditor(){
             ctx.stroke()
         }
 
+        // Live shape PREVIEW for rect/line: while a shape gesture is open, draw a
+        // translucent overlay of the cells the shape WOULD paint, so the author
+        // sees the result before pointer-up commits it. Erase brushes preview in
+        // red (removing), everything else in amber (adding). Culled to the visible
+        // window like the painted tiles so a huge rectangle stays cheap.
+        const shape = shapeRef.current
+        const activeMode = modeRef.current
+        if(shape !== null && (activeMode === "rect" || activeMode === "line")){
+            const previewCells = activeMode === "rect"
+                ? rectCells(shape.start, shape.current)
+                : lineCells(shape.start, shape.current)
+            ctx.fillStyle = brushRef.current === "empty" ? COLOR_PREVIEW_ERASE : COLOR_PREVIEW
+            for(const [col, row] of previewCells){
+                if(col < startCol || col >= endCol || row < startRow || row >= endRow) continue
+                ctx.fillRect(ox + col * cell, oy + row * cell, cell, cell)
+            }
+        }
+
         // Optional collision overlay from loadGridMap: outline every rect wall
         // and draw every segment wall in the world->cell scale. World units are
         // cellSize per cell, so dividing by cellSize maps world back to cells.
@@ -466,6 +529,28 @@ export default function MapEditor(){
         }
     }, [cellFromEvent, bump, draw, markDirty])
 
+    // Apply the active brush to a whole SET of cells in one batch, then redraw
+    // once. Used by the rect/line/fill modes on pointer-up: each cell routes
+    // through setCell so spawn/tile mutual exclusion and the spawn toggle stay
+    // correct (a spawn brush over the set toggles a spawn per cell). The caller
+    // owns the history step (begin before, commit after), so the whole shape is
+    // ONE undo step. Returns true if any cell changed, so a no-op shape commits
+    // nothing.
+    const applyCells = useCallback((cells: Cell[]) => {
+        const map = mapRef.current
+        const brushNow = brushRef.current
+        let changed = false
+        for(const [col, row] of cells){
+            if(map.setCell(col, row, brushNow)) changed = true
+        }
+        if(changed){
+            markDirty()
+            bump()
+            draw()
+        }
+        return changed
+    }, [bump, draw, markDirty])
+
     // Zoom by `ratio` around a canvas-relative focal point, keeping the world
     // point under the focal fixed (natural pinch / scroll-wheel zoom).
     const applyZoom = useCallback((focalX: number, focalY: number, ratio: number) => {
@@ -495,6 +580,9 @@ export default function MapEditor(){
         if(canvas === null) return
 
         const pointers = pointersRef.current
+        // Whether a single-pointer gesture is live and may paint/preview/commit.
+        // Cleared the instant a second finger lands so two-finger gestures never
+        // paint and any open shape preview is abandoned.
         let painting = false
         // Pinch/pan gesture state while two pointers are down.
         let gesture: { dist: number, midX: number, midY: number } | null = null
@@ -508,25 +596,67 @@ export default function MapEditor(){
             return { dist: Math.max(1, Math.hypot(bx - ax, by - ay)), midX: (ax + bx) / 2, midY: (ay + by) / 2 }
         }
 
+        // Abandon any in-progress single-pointer gesture WITHOUT committing it:
+        // drop the open history step and clear a rect/line preview. Called when a
+        // second finger lands (the gesture becomes a pinch/pan) so a half-drawn
+        // shape never paints and the snapshot opened at pointer-down is discarded.
+        const abandonGesture = () => {
+            painting = false
+            if(shapeRef.current !== null){
+                shapeRef.current = null
+                historyRef.current.cancel()
+                draw()
+            }
+        }
+
         const onDown = (e: PointerEvent) => {
             pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
             canvas.setPointerCapture(e.pointerId)
             if(pointers.size === 1){
                 painting = true
                 lastCellRef.current = null
-                // Open one history step for this whole stroke: snapshot the
-                // pre-stroke canvas now, commit it at pointer-up if anything
-                // changed. A click-drag that paints 40 cells thus undoes in ONE
-                // step (Aseprite-style).
+                // Open one history step for this whole gesture: snapshot the
+                // pre-gesture canvas now, commit it at pointer-up if anything
+                // changed. A freehand drag, a rect/line shape, or a fill each
+                // therefore undoes in ONE step (Aseprite-style).
                 historyRef.current.begin(mapRef.current)
-                paintAt(e.clientX, e.clientY)
+                const m = modeRef.current
+                if(m === "rect" || m === "line"){
+                    // Record the shape's start cell but do NOT mutate the map yet:
+                    // the preview overlay shows the shape, and pointer-up commits it.
+                    const cellPos = cellFromEvent(e.clientX, e.clientY)
+                    if(cellPos !== null){
+                        const c: Cell = [cellPos.col, cellPos.row]
+                        shapeRef.current = { start: c, current: c }
+                        draw()
+                    }
+                } else if(m === "fill"){
+                    // Flood-fill the connected region under the click in one batch,
+                    // bounded by the painted-content bbox + margin and a hard cap so
+                    // an open empty region can never run forever (see model).
+                    const cellPos = cellFromEvent(e.clientX, e.clientY)
+                    if(cellPos !== null){
+                        const map = mapRef.current
+                        const start: Cell = [cellPos.col, cellPos.row]
+                        const cells = boundedFloodFill(start, (col, row) => map.tileAt(col, row), map.fillClamp(start))
+                        applyCells(cells)
+                    }
+                } else{
+                    // Freehand: paint the cell under the pointer immediately, then
+                    // each cell the drag passes over.
+                    paintAt(e.clientX, e.clientY)
+                }
             } else if(pointers.size === 2){
-                // A second finger turns the drag into a pinch/pan gesture: stop
-                // painting and seed the gesture from the current two-finger pose.
-                // Commit whatever the single finger already painted as its own
-                // step, so the tap that preceded the pinch is not lost.
-                painting = false
-                if(historyRef.current.commit(mapRef.current)) refreshHistoryFlags()
+                // A second finger turns the drag into a pinch/pan gesture: abandon
+                // any open shape preview, then commit whatever a freehand/fill
+                // gesture already painted as its own step so the tap that preceded
+                // the pinch is not lost.
+                if(shapeRef.current !== null){
+                    abandonGesture()
+                } else{
+                    painting = false
+                    if(historyRef.current.commit(mapRef.current)) refreshHistoryFlags()
+                }
                 gesture = pinchState()
             }
             e.preventDefault()
@@ -545,12 +675,29 @@ export default function MapEditor(){
                 }
                 gesture = next
             } else if(painting){
-                paintAt(e.clientX, e.clientY)
+                if(shapeRef.current !== null){
+                    // Rect/line drag: update the current cell and re-render the
+                    // preview overlay; the map is not mutated until pointer-up.
+                    const cellPos = cellFromEvent(e.clientX, e.clientY)
+                    if(cellPos !== null){
+                        const cur = shapeRef.current.current
+                        if(cur[0] !== cellPos.col || cur[1] !== cellPos.row){
+                            shapeRef.current = { start: shapeRef.current.start, current: [cellPos.col, cellPos.row] }
+                            draw()
+                        }
+                    }
+                } else if(modeRef.current === "freehand"){
+                    // Freehand drag paints each cell the pointer passes over. Fill
+                    // is a single click applied on pointer-down, so a drag after it
+                    // must NOT freehand-paint with the fill brush.
+                    paintAt(e.clientX, e.clientY)
+                }
             }
             e.preventDefault()
         }
         const onUp = (e: PointerEvent) => {
             const wasPainting = painting
+            const openShape = shapeRef.current
             pointers.delete(e.pointerId)
             if(canvas.hasPointerCapture(e.pointerId)){
                 canvas.releasePointerCapture(e.pointerId)
@@ -559,11 +706,24 @@ export default function MapEditor(){
             if(pointers.size === 0){
                 painting = false
                 lastCellRef.current = null
-                // Close the stroke: commit the gesture opened at pointer-down as a
-                // single undo step (a no-op stroke commits nothing). Only when this
-                // pointer was actually painting, so lifting a pinch finger does not
-                // touch history.
-                if(wasPainting && historyRef.current.commit(mapRef.current)){
+                if(wasPainting && openShape !== null){
+                    // Close a rect/line gesture: compute the final cell set and
+                    // apply the active brush to every cell in ONE batch, then commit
+                    // the history step opened at pointer-down (a no-op shape commits
+                    // nothing). A zero-length drag (tap) is a single cell.
+                    shapeRef.current = null
+                    const cells = modeRef.current === "rect"
+                        ? rectCells(openShape.start, openShape.current)
+                        : lineCells(openShape.start, openShape.current)
+                    applyCells(cells)
+                    if(historyRef.current.commit(mapRef.current)){
+                        refreshHistoryFlags()
+                    } else{
+                        historyRef.current.cancel()
+                    }
+                } else if(wasPainting && historyRef.current.commit(mapRef.current)){
+                    // Close a freehand/fill gesture: commit the single undo step (a
+                    // no-op gesture commits nothing).
                     refreshHistoryFlags()
                 } else{
                     historyRef.current.cancel()
@@ -584,7 +744,7 @@ export default function MapEditor(){
             canvas.removeEventListener("pointercancel", onUp)
             canvas.removeEventListener("pointerleave", onUp)
         }
-    }, [paintAt, applyZoom, applyPan, draw, refreshHistoryFlags])
+    }, [paintAt, applyCells, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags])
 
     // Native trackpad: a Mac pinch arrives as wheel + ctrlKey (so does Ctrl+wheel)
     // -> zoom around the cursor; a plain two-finger scroll -> pan. passive:false so
@@ -826,6 +986,28 @@ export default function MapEditor(){
         <div className={styles.root}>
             <canvas ref={canvasRef} className={styles.canvas} />
 
+            {/* Mode strip: HOW to paint (freehand / rect / line / fill), orthogonal
+                to the brush rail below (WHAT to paint). Click-only, each a 46px
+                tap target with a portal tooltip and a clear active state. */}
+            <div className={styles.modeRail} role="toolbar" aria-label="Draw modes">
+                {MODE_DEFS.map((m) => (
+                    <Tooltip key={m.mode} label={m.label} placement="right">
+                        <button
+                            type="button"
+                            className={`${styles.tool} ${mode === m.mode ? styles.toolActive : ""}`}
+                            onClick={() => setMode(m.mode)}
+                            aria-pressed={mode === m.mode}
+                            aria-label={m.label}
+                            title={m.label}
+                        >
+                            <span className={styles.toolIcon}>
+                                <ModeIcon mode={m.mode} />
+                            </span>
+                        </button>
+                    </Tooltip>
+                ))}
+            </div>
+
             {/* Tool rail: compact vertical toolbar of brush tools, Aseprite-style. */}
             <div className={styles.toolRail} role="toolbar" aria-label="Brush tools">
                 {TOOLS.map((tool) => {
@@ -1023,6 +1205,7 @@ export default function MapEditor(){
                             <GameButton accent onClick={onClear}>Clear</GameButton>
                         </div>
                         <div className={styles.hint}>
+                            Pick a draw mode (freehand, rectangle, line, fill) on the left, then a brush.
                             Scroll to pan, pinch (or ctrl+scroll) to zoom. Two fingers pan/zoom on touch.
                             Press F to fit, Cmd/Ctrl+S to download.
                         </div>
@@ -1257,6 +1440,47 @@ function ToolIcon({ brush, color }: { brush: EditorBrush, color: string }){
     return (
         <svg width={size} height={size} viewBox="0 0 20 20">
             <polygon points={points} fill={color} />
+        </svg>
+    )
+}
+
+// A small SVG glyph for each draw mode so the mode strip reads at a glance: a
+// pencil for freehand, a hollow square for rectangle, a slash for line, and a
+// paint-bucket-ish wedge for fill. Tinted with the accent so they read as
+// "how to paint" controls distinct from the coloured brush swatches.
+function ModeIcon({ mode }: { mode: DrawMode }){
+    const size = 22
+    const stroke = COLOR_MODE_ICON
+    if(mode === "freehand"){
+        // A pencil drawing a freehand squiggle.
+        return (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 18c2-4 4 2 6-1s2-6 4-7" />
+                <path d="M14 4l6 6-9 9-6 1 1-6 8-10z" opacity="0.45" />
+            </svg>
+        )
+    }
+    if(mode === "rect"){
+        return (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2.2" strokeLinejoin="round">
+                <rect x="4" y="5" width="16" height="14" />
+            </svg>
+        )
+    }
+    if(mode === "line"){
+        return (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2.4" strokeLinecap="round">
+                <path d="M5 19L19 5" />
+                <circle cx="5" cy="19" r="1.6" fill={stroke} stroke="none" />
+                <circle cx="19" cy="5" r="1.6" fill={stroke} stroke="none" />
+            </svg>
+        )
+    }
+    // Fill: a tipped paint bucket pouring.
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 11l6-6 7 7-6 6a2 2 0 0 1-3 0l-4-4a2 2 0 0 1 0-3z" />
+            <path d="M19 16c1.2 1.6 1.2 3 0 4" />
         </svg>
     )
 }

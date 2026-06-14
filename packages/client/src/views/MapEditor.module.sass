@@ -58,6 +58,25 @@
     max-height: calc(100% - 2em)
     overflow-y: auto
 
+// MODE STRIP: the HOW-to-paint controls (freehand / rect / line / fill), docked
+// to the left just below the top bar, above and visually separate from the brush
+// TOOL RAIL (the WHAT-to-paint controls). A compact vertical strip of the same
+// 46px tap targets so touch users clear the platform minimum; it scrolls
+// internally on a short phone if it ever needs to. Kept a distinct panel from the
+// tool rail so the two axes (mode vs brush) read as separate choices.
+.modeRail
+    +panel
+    position: absolute
+    top: calc(4em + var(--inset-top))
+    left: calc(0.6em + var(--inset-left))
+    z-index: 20
+    display: flex
+    flex-direction: column
+    gap: 0.3em
+    padding: 0.4em
+    max-height: calc(100% - 8em)
+    overflow-y: auto
+
 .tool
     appearance: none
     -webkit-appearance: none
