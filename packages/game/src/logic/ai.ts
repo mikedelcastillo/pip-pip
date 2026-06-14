@@ -360,16 +360,27 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
         ? moveAngle
         : nextWaypointAngle(bot, botX, botY, moveAngle)
 
+    // Whether THIS tick's movement is the bot TRAVELLING toward a destination
+    // (closing on the move target, or following the A* path around a wall) versus
+    // merely holding station (orbiting/strafing at its desired range). Only a
+    // travelling bot can genuinely WEDGE against a wall on the way somewhere, so
+    // only this drives the stuck detector (see applyStuckEscape). An orbiting bot
+    // makes little net headway by design, so treating it as a stuck candidate
+    // false-positived into the "wiggle in place" regression. Retreat is excluded
+    // too: it drives directly AWAY from the target, never into a wall ahead of it.
+    let traveling = false
     if(seekingPowerup === true){
         // Going for a powerup: drive straight at it (along the path when routing).
         // No orbit/retreat here - the bot WANTS to touch the pickup, so it closes
         // all the way in while it keeps shooting the enemy below.
         inputs.movementAngle = approachAngle
         inputs.movementAmount = 1
+        traveling = true
     } else if(distance > desiredRange + rangeBand){
         // Too far: close the gap (along the path when routing).
         inputs.movementAngle = approachAngle
         inputs.movementAmount = 1
+        traveling = true
     } else if(distance < desiredRange - rangeBand){
         // Too close: retreat directly away from the target.
         inputs.movementAngle = angle + Math.PI
@@ -384,7 +395,13 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
         // a clear shot rather than strafing into the wall.
         inputs.movementAngle = approachAngle
         inputs.movementAmount = 1
+        traveling = true
     }
+
+    // Record the travel intent so applyStuckEscape (which can run on a later
+    // held-intent tick) only treats the bot as a stuck candidate when it was
+    // actually trying to travel, never when it is intentionally orbiting.
+    bot.botTraveling = traveling
 
     // Reload while we have no shot lined up so we are not caught empty.
     if(bot.ship.weaponEmpty === true){
@@ -555,12 +572,21 @@ function fireIntervalTicks(bot: PipPlayer): number {
 }
 
 // Robust unstick step, run EVERY tick a bot has a nav context. It tracks the
-// bot's recent progress and, when the bot has been WANTING to move yet barely
-// travelling (wedged into a wall pocket), it overrides this tick's movement to
-// steer at the nearest open nav cell for a short burst until the bot is free.
-// Otherwise it applies a gentle local wall-avoidance nudge so a bot following a
-// waypoint skims along a wall instead of grinding into the corner. Returns with
-// the bot's movement inputs possibly rewritten; aim/fire are never touched.
+// bot's recent progress and, when the bot has been TRAVELLING toward a
+// destination yet barely advancing (wedged into a wall pocket), it overrides
+// this tick's movement to steer at the nearest open nav cell for a short burst
+// until the bot is free. Otherwise it applies a gentle local wall-avoidance
+// nudge so a bot following a waypoint skims along a wall instead of grinding
+// into the corner. Returns with the bot's movement inputs possibly rewritten;
+// aim/fire are never touched.
+//
+// CRUCIAL: only a TRAVELLING bot (bot.botTraveling, set by computeBotInputs when
+// it is closing on its target / following the path) is a stuck candidate. A bot
+// orbiting/strafing at its desired range makes little net headway BY DESIGN, so
+// gating on raw "wants to move" false-positived it as stuck and opened an escape
+// burst every few ticks - the bot then jittered between orbit and escape and
+// "wiggled in place" instead of chasing. Gating on the travel intent fixes that
+// while a genuine wall-wedge (which only happens WHILE travelling) still recovers.
 //
 // Called only with a nav context, so a plain bot (no nav - the pure tests) never
 // reaches here and behaves exactly as before. Pure aside from updating the bot's
@@ -569,23 +595,35 @@ function applyStuckEscape(bot: PipPlayer, nav: BotNavContext){
     const botX = bot.ship.physics.position.x
     const botY = bot.ship.physics.position.y
 
-    // "Wanted to move" is the brain's own intent this tick. A bot that is parked
-    // (no target, amount 0) is never flagged stuck, so idle bots are untouched.
-    const wantedToMove = bot.inputs.movementAmount > 0
+    // The bot is a stuck candidate only while it is TRAVELLING toward a
+    // destination (approaching / path-following), never while orbiting, retreating
+    // or parked. An orbiting bot legitimately holds station, so feeding its intent
+    // to the detector would false-positive it as wedged - the regression we fix.
+    const traveling = bot.botTraveling === true
 
-    // Measure progress against where the bot was a tick ago (lastStuckX/Y), then
-    // remember this position for next tick. updateStuckTicks resets the counter
-    // the instant the bot makes real progress or stops wanting to move.
+    // Measure NET progress against where the bot was when the stuck WINDOW opened
+    // (lastStuckX/Y is the window origin, NOT just last tick), so a bot that is
+    // ramping up or weaving still counts the ground it covers across the window
+    // rather than being judged on one slow tick. updateStuckTicks accumulates the
+    // counter while the bot stays within the progress threshold of that origin and
+    // resets it the instant the bot travels far enough or stops TRAVELLING.
     const progress = updateStuckTicks(
         nav.grid,
         bot.lastStuckX, bot.lastStuckY,
         botX, botY,
-        wantedToMove,
+        traveling,
         bot.stuckTicks,
     )
-    bot.lastStuckX = botX
-    bot.lastStuckY = botY
     bot.stuckTicks = progress.stuckTicks
+    // Re-anchor the window origin only when the counter has RESET (progress made,
+    // or the bot stopped travelling). While the counter is climbing the origin
+    // stays put so net displacement is measured over the whole window, not per
+    // tick - the mis-scaled per-tick window was why a freely chasing bot in a
+    // coarse grid read as permanently stuck.
+    if(progress.stuckTicks === 0){
+        bot.lastStuckX = botX
+        bot.lastStuckY = botY
+    }
 
     // Newly stuck -> open an escape burst and force a fresh path next decision so
     // the bot does not keep following the route that drove it into the pocket.
@@ -596,23 +634,26 @@ function applyStuckEscape(bot: PipPlayer, nav: BotNavContext){
     }
 
     if(bot.escapeTicks > 0){
-        bot.escapeTicks--
         // Steer straight at the nearest open cell, overriding the normal target
-        // steering, at full throttle. escapeHeading is undefined only when the bot
-        // is already on an open cell (nothing to escape) - then we just let the
-        // burst expire without forcing a bad heading.
+        // steering, at full throttle. escapeHeading is undefined when the bot is
+        // already on an open cell - i.e. it is no longer wedged, so we END the
+        // burst at once and let normal chasing resume instead of burning the whole
+        // burst steering nowhere. This keeps the escape BRIEF and stops it ever
+        // suppressing a bot that has already freed itself.
         const heading = escapeHeading(nav.grid, botX, botY)
         if(typeof heading === "number"){
+            bot.escapeTicks--
             bot.inputs.movementAngle = heading
             bot.inputs.movementAmount = 1
             return
         }
+        bot.escapeTicks = 0
     }
 
     // Not escaping: when the bot still wants to move, ease its heading off any
     // immediately-adjacent wall so it stops grinding into a corner while chasing a
     // waypoint. A no-op in open space (avoidWallsHeading returns the input angle).
-    if(wantedToMove === true){
+    if(bot.inputs.movementAmount > 0){
         bot.inputs.movementAngle = avoidWallsHeading(nav.grid, botX, botY, bot.inputs.movementAngle)
     }
 }

@@ -10,7 +10,7 @@ import {
     makeBotSkill,
     updateBotInputs,
 } from "@pip-pip/game/src/logic/ai"
-import { buildNavGrid } from "@pip-pip/game/src/logic/pathfinding"
+import { buildNavGrid, clearNavGridCache, STUCK_TICKS_THRESHOLD } from "@pip-pip/game/src/logic/pathfinding"
 import { PointPhysicsSegmentWall } from "@pip-pip/core/src/physics"
 import { radianDifference } from "@pip-pip/core/src/math"
 
@@ -545,5 +545,118 @@ describe("AI stuck recovery (unstick)", () => {
         expect(Math.abs(radianDifference(bot.inputs.movementAngle, 0))).toBeLessThan(0.01)
         expect(bot.escapeTicks).toBe(0)
         expect(bot.stuckTicks).toBe(0)
+    })
+})
+
+// Regression: stuck-escape must NOT false-positive on a bot that is moving
+// legitimately. The recently-added unstick logic flagged a freely chasing bot (in
+// a coarse nav grid the per-tick progress threshold was larger than any ship can
+// cover in a tick) and an intentionally orbiting bot as wedged, opening escape
+// bursts every few ticks - so the bot jittered between chase/orbit and escape and
+// "wiggled in place" instead of chasing. These drive the REAL game loop
+// (game.update builds the live nav context and runs applyStuckEscape exactly as
+// production does), so a bot that is genuinely travelling or intentionally
+// orbiting must never be flagged stuck.
+describe("AI chase regression (stuck-escape must not false-positive)", () => {
+    // A genuinely OPEN arena: makeArena removes the walls from the PHYSICS world
+    // but leaves them on game.map (so the live nav context the loop builds still
+    // sees them). Clear the map's wall arrays too so the nav grid is fully open and
+    // the only thing under test is the stuck detector, not routing.
+    function openArena(){
+        clearNavGridCache()
+        const game = makeArena()
+        game.map.segWalls = []
+        game.map.rectWalls = []
+        clearNavGridCache()
+        return game
+    }
+
+    // A fixed, middle-of-the-road skill so the geometry is deterministic (no rng
+    // variance moving the range bands): desiredRange 350 +/- band 120.
+    function fixedSkill(){
+        return {
+            aimJitter: 0,
+            fireRange: BOT_FIRE_RANGE,
+            fireAimTolerance: 0.25,
+            desiredRange: 350,
+            rangeBand: 120,
+            reactionTicks: 1,
+        }
+    }
+
+    it("a far bot drives toward its target in an OPEN arena and actually closes distance", () => {
+        const game = openArena()
+        const bot = game.addBot()
+        bot.skill = fixedSkill()
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        // Enemy far along +x, well beyond the range band, so the bot is in pure
+        // approach (movementAmount high, movementAngle pointing at the target).
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(enemy, BOT_FIRE_RANGE + 4000, 0)
+
+        const startDistance = enemy.ship.physics.position.x - bot.ship.physics.position.x
+
+        // Run the real loop (the bot is driven WITH the live nav context, then the
+        // physics step actually moves it). Over these ticks it must keep wanting to
+        // travel toward the target and never be flagged stuck or opened into escape.
+        let sawHighThrottleTowardTarget = false
+        for(let i = 0; i < 30; i++){
+            game.update()
+            // While still far it should be driving at full throttle straight at the
+            // enemy (+x === 0), never strafing or escaping.
+            if(bot.inputs.movementAmount > 0.9 && Math.abs(radianDifference(bot.inputs.movementAngle, 0)) < 0.2){
+                sawHighThrottleTowardTarget = true
+            }
+            // The escape burst must NEVER open while the bot is legitimately
+            // travelling across open ground - that is the regression.
+            expect(bot.escapeTicks).toBe(0)
+        }
+
+        // It actually chased: it drove toward the enemy and meaningfully closed the
+        // gap (the bug left it wiggling in place, closing nothing).
+        expect(sawHighThrottleTowardTarget).toBe(true)
+        const endDistance = enemy.ship.physics.position.x - bot.ship.physics.position.x
+        expect(endDistance).toBeLessThan(startDistance - 200)
+        // The stuck counter never even climbed near its threshold.
+        expect(bot.stuckTicks).toBeLessThan(STUCK_TICKS_THRESHOLD)
+    })
+
+    it("an orbiting bot at its desired range is never stuck-escaped", () => {
+        const game = openArena()
+        const bot = game.addBot()
+        bot.skill = fixedSkill()
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        // Enemy at exactly the bot's desired orbit range (350), so the brain sits in
+        // the strafe band and holds station with the perpendicular orbit.
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(enemy, 350, 0)
+
+        let everStrafed = false
+        for(let i = 0; i < 40; i++){
+            // Re-pin the bot at its orbit distance every tick so it genuinely holds
+            // station (the sim would otherwise drift it out of the band), isolating
+            // "intentional orbit" from real travel.
+            bot.ship.physics.position.x = 0
+            bot.ship.physics.position.y = 0
+            bot.ship.physics.velocity.x = 0
+            bot.ship.physics.velocity.y = 0
+            game.update()
+            // In the band the brain strafes at the reduced throttle, perpendicular
+            // to the target line - the intentional orbit we must not punish.
+            if(bot.inputs.movementAmount > 0 && bot.inputs.movementAmount < 0.9){
+                everStrafed = true
+            }
+            // The orbit must never be misread as a wedge: no escape burst, ever.
+            expect(bot.escapeTicks).toBe(0)
+            // ...and the stuck counter must stay parked: an orbiting bot is not
+            // travelling, so the detector never even ticks up.
+            expect(bot.stuckTicks).toBe(0)
+        }
+
+        expect(everStrafed).toBe(true)
     })
 })

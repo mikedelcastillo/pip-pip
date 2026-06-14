@@ -438,10 +438,10 @@ export function clearNavGridCache(){
 // reason only about two positions, a "wanted to move" flag, and the nav grid, so
 // they carry no game state. ai.ts owns the per-bot counters and only calls these.
 
-// How far (as a fraction of a nav cell) a bot must travel over the stuck window
-// to count as "making progress". Below this while it WANTED to move, it is stuck.
-// A small fraction so only a genuinely wedged bot (almost no travel) trips it,
-// never a bot that is merely turning or strafing slowly.
+// How far (as a fraction of the progress unit) a bot must travel over the stuck
+// window to count as "making progress". Below this while it WANTED to move, it is
+// stuck. A small fraction so only a genuinely wedged bot (almost no travel) trips
+// it, never a bot that is merely turning or strafing slowly.
 export const STUCK_PROGRESS_FACTOR = 0.35
 
 // How many consecutive low-progress ticks (while wanting to move) before a bot is
@@ -454,22 +454,35 @@ export const STUCK_TICKS_THRESHOLD = 12
 // is plenty to back out of a one-cell pocket, then resumes normal behaviour.
 export const ESCAPE_BURST_TICKS = 10
 
-// The squared distance a bot must move over the stuck window to count as progress,
-// derived from the grid's cell size so it scales with the grid resolution. Pure.
+// The squared distance a bot must move over the stuck window to count as progress.
+// The progress UNIT is the SMALLER of the grid cell size and the ship diameter, so
+// the threshold tracks the grid on a normal (fine) map yet never blows up on a
+// coarse / degenerate grid. (A test or pathological arena with enormous bounds
+// gets cells thousands of units wide - see NAV_MAX_CELLS in buildNavGrid - and a
+// raw cellSize threshold there demanded MORE travel per window than any ship can
+// physically cover in a tick, so every TRAVELLING bot read as permanently stuck.
+// Clamping the unit to the ship diameter keeps the wedge signature physical: a
+// genuinely wedged ship moves far less than its own body over the window, while a
+// freely chasing one moves several diameters.) Pure.
 export function stuckProgressThresholdSq(grid: NavGrid): number{
-    const d = grid.cellSize * STUCK_PROGRESS_FACTOR
+    const unit = Math.min(grid.cellSize, SHIP_DAIMETER)
+    const d = unit * STUCK_PROGRESS_FACTOR
     return d * d
 }
 
-// Decide whether a bot is stuck this tick. Given where it was N ticks ago
-// (prevX/prevY), where it is now (x/y), whether it WANTED to move this tick
+// Decide whether a bot is stuck this tick. Given where it was when the stuck
+// WINDOW opened (prevX/prevY, the window origin the caller holds fixed while the
+// counter climbs), where it is now (x/y), whether it WANTED to move this tick
 // (wantedToMove) and a running low-progress counter (stuckTicks), returns the
-// updated counter plus a `stuck` flag. The counter rises while the bot wants to
-// move but barely travels, and RESETS to 0 the moment it either makes real
-// progress or stops wanting to move. `stuck` is true once the counter reaches
-// STUCK_TICKS_THRESHOLD. Pure: no game state, just arithmetic, so a test can drive
-// it tick by tick. A bot that is NOT trying to move (wantedToMove false) is never
-// stuck, so a parked / no-target bot behaves exactly as before.
+// updated counter plus a `stuck` flag. Because prevX/prevY is the window origin
+// (not last tick), `x - prevX` is the NET displacement over the whole window, so a
+// bot that is slowly ramping up or weaving still counts the ground it covers. The
+// counter rises while the bot stays within the progress threshold of the origin,
+// and RESETS to 0 the moment it travels far enough (real progress) or stops
+// wanting to move. `stuck` is true once the counter reaches STUCK_TICKS_THRESHOLD.
+// Pure: no game state, just arithmetic, so a test can drive it tick by tick. A bot
+// that is NOT trying to move (wantedToMove false) is never stuck, so a parked /
+// no-target bot behaves exactly as before.
 export function updateStuckTicks(
     grid: NavGrid,
     prevX: number, prevY: number,

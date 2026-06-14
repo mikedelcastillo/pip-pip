@@ -153,6 +153,17 @@ export class PipPlayer{
     stuckTicks = 0
     escapeTicks = 0
 
+    // Bot-only: did THIS tick's brain intend to TRAVEL toward a destination
+    // (closing on the enemy/powerup, or following the A* path around a wall) as
+    // opposed to merely holding station (orbiting/strafing at its desired range)?
+    // Stuck detection only runs while travelling: an orbiting bot legitimately
+    // makes little net headway, so flagging it stuck false-positived and made the
+    // bot wiggle in place instead of chasing. computeBotInputs sets this each
+    // decision and the held-intent ticks keep the last value, so the unstick logic
+    // never fires on a bot that is intentionally orbiting. False for a real player
+    // and a plain bot driven with no nav context, so legacy behaviour is untouched.
+    botTraveling = false
+
     // Bot-only aim imperfection. aimHistory is a small ring buffer of the current
     // target's recent positions, so the brain can aim at where the target WAS a
     // few ticks ago (reaction lag); aimTargetId tracks whose positions are buffered
