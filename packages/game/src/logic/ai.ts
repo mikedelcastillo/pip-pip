@@ -1,7 +1,7 @@
 import { radianDifference } from "@pip-pip/core/src/math"
 import { PointPhysicsRectWall, PointPhysicsSegmentWall } from "@pip-pip/core/src/physics"
 import { PipPlayer, PlayerInputs } from "./player"
-import { NavGrid, NavPoint, findPath, hasLineOfSight, worldToCell } from "./pathfinding"
+import { NavGrid, NavPoint, avoidWallsHeading, escapeHeading, findPath, hasLineOfSight, updateStuckTicks, worldToCell, ESCAPE_BURST_TICKS } from "./pathfinding"
 import { Powerup, PowerupType } from "./powerup"
 
 // "Training-grounds" enemy bots. A bot is a server-simulated PipPlayer with no
@@ -478,6 +478,14 @@ function maybeRecomputePath(bot: PipPlayer, targetX: number, targetY: number, na
     bot.pathCooldown = PATH_RECOMPUTE_TICKS
     bot.pathTargetCol = goalCell.col
     bot.pathTargetRow = goalCell.row
+
+    // No route to the target (sealed off, or wedged inside a wall): rather than
+    // press straight into the wall along the direct fallback angle, open an escape
+    // burst so applyStuckEscape steers the bot toward the nearest open cell / back
+    // the way it came. Cheap + additive: just primes the existing escape counter.
+    if(path.length === 0 && bot.escapeTicks <= 0){
+        bot.escapeTicks = ESCAPE_BURST_TICKS
+    }
 }
 
 // Maximum reaction lag we buffer target positions for (ticks). Bounds the per-bot
@@ -542,6 +550,69 @@ function fireIntervalTicks(bot: PipPlayer): number {
     return Math.max(2, Math.round(reaction * FIRE_INTERVAL_PER_REACTION))
 }
 
+// Robust unstick step, run EVERY tick a bot has a nav context. It tracks the
+// bot's recent progress and, when the bot has been WANTING to move yet barely
+// travelling (wedged into a wall pocket), it overrides this tick's movement to
+// steer at the nearest open nav cell for a short burst until the bot is free.
+// Otherwise it applies a gentle local wall-avoidance nudge so a bot following a
+// waypoint skims along a wall instead of grinding into the corner. Returns with
+// the bot's movement inputs possibly rewritten; aim/fire are never touched.
+//
+// Called only with a nav context, so a plain bot (no nav - the pure tests) never
+// reaches here and behaves exactly as before. Pure aside from updating the bot's
+// stuck/escape counters + the movement inputs it is meant to steer.
+function applyStuckEscape(bot: PipPlayer, nav: BotNavContext){
+    const botX = bot.ship.physics.position.x
+    const botY = bot.ship.physics.position.y
+
+    // "Wanted to move" is the brain's own intent this tick. A bot that is parked
+    // (no target, amount 0) is never flagged stuck, so idle bots are untouched.
+    const wantedToMove = bot.inputs.movementAmount > 0
+
+    // Measure progress against where the bot was a tick ago (lastStuckX/Y), then
+    // remember this position for next tick. updateStuckTicks resets the counter
+    // the instant the bot makes real progress or stops wanting to move.
+    const progress = updateStuckTicks(
+        nav.grid,
+        bot.lastStuckX, bot.lastStuckY,
+        botX, botY,
+        wantedToMove,
+        bot.stuckTicks,
+    )
+    bot.lastStuckX = botX
+    bot.lastStuckY = botY
+    bot.stuckTicks = progress.stuckTicks
+
+    // Newly stuck -> open an escape burst and force a fresh path next decision so
+    // the bot does not keep following the route that drove it into the pocket.
+    if(progress.stuck === true && bot.escapeTicks <= 0){
+        bot.escapeTicks = ESCAPE_BURST_TICKS
+        bot.stuckTicks = 0
+        bot.pathCooldown = 0
+    }
+
+    if(bot.escapeTicks > 0){
+        bot.escapeTicks--
+        // Steer straight at the nearest open cell, overriding the normal target
+        // steering, at full throttle. escapeHeading is undefined only when the bot
+        // is already on an open cell (nothing to escape) - then we just let the
+        // burst expire without forcing a bad heading.
+        const heading = escapeHeading(nav.grid, botX, botY)
+        if(typeof heading === "number"){
+            bot.inputs.movementAngle = heading
+            bot.inputs.movementAmount = 1
+            return
+        }
+    }
+
+    // Not escaping: when the bot still wants to move, ease its heading off any
+    // immediately-adjacent wall so it stops grinding into a corner while chasing a
+    // waypoint. A no-op in open space (avoidWallsHeading returns the input angle).
+    if(wantedToMove === true){
+        bot.inputs.movementAngle = avoidWallsHeading(nav.grid, botX, botY, bot.inputs.movementAngle)
+    }
+}
+
 // Drive one bot for this tick: pick a target, compute inputs, write them onto
 // the bot. Called by the game loop for every isBot player when calculateAi is
 // on. Copies field-by-field (not a reference swap) so the bot keeps its single
@@ -592,6 +663,11 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
         if(typeof quick !== "undefined"){
             bot.inputs.aimRotation = perceivedAimAngle(bot, quick) + aimNoise
         }
+        // Keep tracking progress + escaping even on held-intent ticks, so a bot
+        // wedged BETWEEN decisions still recovers without waiting for the next one.
+        // nav is necessarily defined here (fullDecision is false only when it is),
+        // but the explicit guard keeps every TS version's narrowing happy.
+        if(typeof nav !== "undefined") applyStuckEscape(bot, nav)
         return
     }
 
@@ -652,4 +728,12 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
     bot.inputs.useWeapon = fire
     bot.inputs.useTactical = tactical
     bot.inputs.doReload = next.doReload
+
+    // Final robustness pass: detect a wedged bot and override movement to steer at
+    // the nearest open cell (or just ease off a wall). Runs only with a nav
+    // context, so plain bots / pure tests are untouched. Movement-only - the aim +
+    // fire decided above are left exactly as they are.
+    if(typeof nav !== "undefined"){
+        applyStuckEscape(bot, nav)
+    }
 }

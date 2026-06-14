@@ -139,6 +139,20 @@ export class PipPlayer{
     // updateBotInputs.
     aiDecisionCooldown = 0
 
+    // Bot-only stuck detection + unstick state (see ai.ts / pathfinding.ts). A bot
+    // can wedge into a wall pocket: it keeps WANTING to move yet barely travels.
+    // lastStuckX/lastStuckY snapshot where the bot was when the stuck window opened;
+    // stuckTicks counts consecutive low-progress ticks while it wanted to move (it
+    // resets the moment the bot makes real progress or stops wanting to move).
+    // Once stuckTicks crosses the threshold the brain starts an escape burst:
+    // escapeTicks counts that burst down while the bot is steered at the nearest
+    // open cell instead of its normal target. All 0 for a real player and for a
+    // plain bot driven with no nav context, so legacy behaviour is untouched.
+    lastStuckX = 0
+    lastStuckY = 0
+    stuckTicks = 0
+    escapeTicks = 0
+
     // Bot-only aim imperfection. aimHistory is a small ring buffer of the current
     // target's recent positions, so the brain can aim at where the target WAS a
     // few ticks ago (reaction lag); aimTargetId tracks whose positions are buffered

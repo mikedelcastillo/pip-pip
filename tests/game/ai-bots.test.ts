@@ -454,3 +454,96 @@ describe("AI pathfinding around walls", () => {
         expect(Number.isFinite(bot.inputs.movementAngle)).toBe(true)
     })
 })
+
+describe("AI stuck recovery (unstick)", () => {
+    // A nav context with a single vertical wall down the middle leaving a gap at
+    // the top, reused from the routing tests: a bot held against the wall has to
+    // be steered back toward open space to recover.
+    function wallNav(): BotNavContext{
+        const bounds = { min: { x: -2000, y: -2000 }, max: { x: 2000, y: 2000 } }
+        const wall = new PointPhysicsSegmentWall(undefined, 0, -2000, 0, 600)
+        wall.radius = 25
+        const grid = buildNavGrid(bounds, [], [wall])
+        return { grid, rectWalls: [], segWalls: [wall], tick: 0 }
+    }
+
+    it("steers a wedged bot toward open space once it is detected stuck", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        const nav = wallNav()
+
+        // Bot pinned just LEFT of the wall, enemy across on the right: the bot wants
+        // to drive +x (straight into the wall) but cannot make progress. We hold it
+        // pinned (the sim never moves it here) and tick the brain repeatedly.
+        game.spawnPlayer(bot, -60, -200)
+        game.spawnPlayer(enemy, 800, -200)
+
+        const players = Object.values(game.players)
+        // Run well past the stuck window so the escape burst engages.
+        let movedAwayFromWall = false
+        for(let i = 0; i < 40; i++){
+            // Re-pin the bot each tick so it genuinely cannot progress (simulating a
+            // wedge), then let the brain decide a heading.
+            bot.ship.physics.position.x = -60
+            bot.ship.physics.position.y = -200
+            updateBotInputs(bot, players, Math.random, nav)
+            // A heading with a negative x-component points AWAY from the wall (back
+            // into open space on the left), i.e. the bot is escaping, not grinding.
+            if(Math.cos(bot.inputs.movementAngle) < -0.1) movedAwayFromWall = true
+        }
+        expect(movedAwayFromWall).toBe(true)
+        // A finite, valid heading throughout.
+        expect(Number.isFinite(bot.inputs.movementAngle)).toBe(true)
+    })
+
+    it("opens an escape burst when no route to the target exists", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        // Seal the bot in a closed box; the enemy is far outside, so findPath is
+        // empty and the brain must prime the escape instead of pressing into a wall.
+        const bounds = { min: { x: -2000, y: -2000 }, max: { x: 2000, y: 2000 } }
+        const walls = [
+            new PointPhysicsSegmentWall(undefined, -200, -200, 200, -200),
+            new PointPhysicsSegmentWall(undefined, 200, -200, 200, 200),
+            new PointPhysicsSegmentWall(undefined, 200, 200, -200, 200),
+            new PointPhysicsSegmentWall(undefined, -200, 200, -200, -200),
+        ]
+        for(const w of walls) w.radius = 25
+        const grid = buildNavGrid(bounds, [], walls)
+        const nav: BotNavContext = { grid, rectWalls: [], segWalls: walls, tick: 0 }
+
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(enemy, 1500, 0)
+
+        updateBotInputs(bot, Object.values(game.players), Math.random, nav)
+        // The unreachable target primes an escape burst.
+        expect(bot.escapeTicks).toBeGreaterThan(0)
+        expect(Number.isFinite(bot.inputs.movementAngle)).toBe(true)
+    })
+
+    it("leaves a plain bot with NO nav context completely unchanged", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        // A far target, beyond the range band, so the bot is in pure approach and
+        // should drive straight at it (+x === 0). With no nav context the new
+        // stuck/escape code must never run, so the heading stays dead-on.
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(enemy, BOT_FIRE_RANGE + 800, 0)
+
+        // No nav passed -> legacy path. The stuck counters must stay at their
+        // defaults and the movement must point straight at the target.
+        updateBotInputs(bot, Object.values(game.players))
+        expect(Math.abs(radianDifference(bot.inputs.movementAngle, 0))).toBeLessThan(0.01)
+        expect(bot.escapeTicks).toBe(0)
+        expect(bot.stuckTicks).toBe(0)
+    })
+})

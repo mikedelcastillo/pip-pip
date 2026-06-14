@@ -429,3 +429,188 @@ export function getNavGrid(map: PipGameMap): NavGrid{
 export function clearNavGridCache(){
     NAV_GRID_CACHE.clear()
 }
+
+// --- Stuck detection + unstick (robust bot navigation) ---------------------
+//
+// A bot can wedge itself into a wall pocket: it keeps WANTING to move (the brain
+// holds movementAmount > 0) yet the physics barely advances because it is
+// grinding into a corner. The helpers below are PURE and fully testable: they
+// reason only about two positions, a "wanted to move" flag, and the nav grid, so
+// they carry no game state. ai.ts owns the per-bot counters and only calls these.
+
+// How far (as a fraction of a nav cell) a bot must travel over the stuck window
+// to count as "making progress". Below this while it WANTED to move, it is stuck.
+// A small fraction so only a genuinely wedged bot (almost no travel) trips it,
+// never a bot that is merely turning or strafing slowly.
+export const STUCK_PROGRESS_FACTOR = 0.35
+
+// How many consecutive low-progress ticks (while wanting to move) before a bot is
+// declared stuck. At 20Hz this is ~0.6s of grinding with no real travel, long
+// enough to ignore a momentary nudge into a wall but short enough to recover fast.
+export const STUCK_TICKS_THRESHOLD = 12
+
+// How many ticks the escape burst lasts once a bot is flagged stuck. It steers at
+// the nearest open cell for this long (overriding normal target steering), which
+// is plenty to back out of a one-cell pocket, then resumes normal behaviour.
+export const ESCAPE_BURST_TICKS = 10
+
+// The squared distance a bot must move over the stuck window to count as progress,
+// derived from the grid's cell size so it scales with the grid resolution. Pure.
+export function stuckProgressThresholdSq(grid: NavGrid): number{
+    const d = grid.cellSize * STUCK_PROGRESS_FACTOR
+    return d * d
+}
+
+// Decide whether a bot is stuck this tick. Given where it was N ticks ago
+// (prevX/prevY), where it is now (x/y), whether it WANTED to move this tick
+// (wantedToMove) and a running low-progress counter (stuckTicks), returns the
+// updated counter plus a `stuck` flag. The counter rises while the bot wants to
+// move but barely travels, and RESETS to 0 the moment it either makes real
+// progress or stops wanting to move. `stuck` is true once the counter reaches
+// STUCK_TICKS_THRESHOLD. Pure: no game state, just arithmetic, so a test can drive
+// it tick by tick. A bot that is NOT trying to move (wantedToMove false) is never
+// stuck, so a parked / no-target bot behaves exactly as before.
+export function updateStuckTicks(
+    grid: NavGrid,
+    prevX: number, prevY: number,
+    x: number, y: number,
+    wantedToMove: boolean,
+    stuckTicks: number,
+): { stuckTicks: number, stuck: boolean }{
+    if(wantedToMove === false){
+        return { stuckTicks: 0, stuck: false }
+    }
+    const dx = x - prevX
+    const dy = y - prevY
+    const movedSq = dx * dx + dy * dy
+    if(movedSq >= stuckProgressThresholdSq(grid)){
+        // Real travel: it is making progress, so clear the counter.
+        return { stuckTicks: 0, stuck: false }
+    }
+    const next = stuckTicks + 1
+    return { stuckTicks: next, stuck: next >= STUCK_TICKS_THRESHOLD }
+}
+
+// Find the nearest OPEN nav cell to a (possibly wall-wedged) world point and
+// return its world centre. Used to give a stuck/blocked bot a concrete escape
+// target it can actually reach. A small ring (BFS-style expanding square) search
+// outward from the point's own cell; the point's own cell wins immediately when
+// it is already open, so a bot in open space gets its own position back and steers
+// nowhere new. The search ring grows to cover the whole grid in the worst case but
+// returns on the first open cell, so it is cheap in practice and bounded by the
+// grid size. Pure: reads only the grid. Returns undefined only when the ENTIRE
+// grid is blocked (no open cell exists anywhere).
+export function nearestOpenEscape(grid: NavGrid, x: number, y: number): NavPoint | undefined{
+    const start = worldToCell(grid, x, y)
+    if(isCellOpen(grid, start.col, start.row)){
+        return cellCenter(grid, start.col, start.row)
+    }
+
+    // Expand a square ring of radius `r` around the start cell and take the first
+    // open cell found. Scanning ring by ring (cheapest manhattan-ish first) keeps
+    // the returned cell close to the bot, so the escape heading is the shortest
+    // way out of the pocket.
+    const maxRadius = grid.cols + grid.rows
+    for(let r = 1; r <= maxRadius; r++){
+        let best: NavPoint | undefined
+        let bestDistSq = Infinity
+        for(let dc = -r; dc <= r; dc++){
+            for(let dr = -r; dr <= r; dr++){
+                // Only the cells ON the current ring (max-norm === r); inner rings
+                // were already scanned on earlier iterations.
+                if(Math.max(Math.abs(dc), Math.abs(dr)) !== r) continue
+                const col = start.col + dc
+                const row = start.row + dr
+                if(isCellOpen(grid, col, row) === false) continue
+                // Among the open cells on this ring, keep the EUCLIDEAN-nearest so
+                // a diagonal opening does not beat a closer cardinal one.
+                const ddc = col - start.col
+                const ddr = row - start.row
+                const distSq = ddc * ddc + ddr * ddr
+                if(distSq < bestDistSq){
+                    bestDistSq = distSq
+                    best = cellCenter(grid, col, row)
+                }
+            }
+        }
+        if(typeof best !== "undefined") return best
+    }
+    return undefined
+}
+
+// The heading (radians) from a bot toward the nearest open cell, or undefined when
+// the bot is already on an open cell (nothing to escape) or no open cell exists.
+// A thin wrapper over nearestOpenEscape that turns the escape target into an angle
+// the brain can feed straight into movementAngle. Pure.
+export function escapeHeading(grid: NavGrid, x: number, y: number): number | undefined{
+    const escape = nearestOpenEscape(grid, x, y)
+    if(typeof escape === "undefined") return undefined
+    const dx = escape.x - x
+    const dy = escape.y - y
+    // Already centred on the open cell -> no meaningful heading.
+    if(dx === 0 && dy === 0) return undefined
+    return Math.atan2(dy, dx)
+}
+
+// Local wall avoidance: nudge a desired movement heading away from a wall the bot
+// is grinding into. Samples the nav grid in the four cardinal directions one cell
+// out from the bot; each BLOCKED neighbour pushes a small repulsion vector away
+// from that wall. The repulsion is blended with the bot's desired heading so the
+// bot still mostly goes where it wants but skims along a wall instead of pressing
+// into it. With no nearby blocked cells the desired heading is returned unchanged,
+// so an open-field bot is unaffected. Pure: reads only the grid.
+export function avoidWallsHeading(grid: NavGrid, x: number, y: number, desiredAngle: number): number{
+    const cell = worldToCell(grid, x, y)
+    // Repulsion accumulates as a vector pointing AWAY from each blocked neighbour.
+    let repelX = 0
+    let repelY = 0
+    const cardinals = [
+        { dc: 1, dr: 0 },
+        { dc: -1, dr: 0 },
+        { dc: 0, dr: 1 },
+        { dc: 0, dr: -1 },
+    ]
+    for(const c of cardinals){
+        if(isCellOpen(grid, cell.col + c.dc, cell.row + c.dr) === false){
+            // Push opposite the blocked neighbour.
+            repelX -= c.dc
+            repelY -= c.dr
+        }
+    }
+    if(repelX === 0 && repelY === 0) return desiredAngle
+
+    const desiredX = Math.cos(desiredAngle)
+    const desiredY = Math.sin(desiredAngle)
+    const repelLen = Math.sqrt(repelX * repelX + repelY * repelY)
+    const repelNX = repelX / repelLen
+    const repelNY = repelY / repelLen
+
+    // How head-on the desired heading is into the wall: dot of the desired heading
+    // with the repulsion normal. Near -1 means the bot is driving STRAIGHT into the
+    // wall (desired points opposite the push), where a plain blend just decelerates
+    // along the same line and never deflects.
+    const dot = desiredX * repelNX + desiredY * repelNY
+
+    if(dot < -0.9){
+        // Head-on: a blend would cancel to (almost) the same axis and keep grinding.
+        // Instead SLIDE along the wall - steer perpendicular to the repulsion, on
+        // whichever side keeps the bot moving most like it wanted. Perpendiculars to
+        // (repelNX, repelNY) are (-repelNY, repelNX) and (repelNY, -repelNX).
+        const perpX = -repelNY
+        const perpY = repelNX
+        // Pick the perpendicular that best agrees with the desired heading so the
+        // detour is the small one, not a U-turn.
+        const align = desiredX * perpX + desiredY * perpY
+        if(align >= 0) return Math.atan2(perpY, perpX)
+        return Math.atan2(-perpY, -perpX)
+    }
+
+    // Glancing contact: blend the desired heading (unit vector) with the repulsion.
+    // The repulsion weight is modest so the bot keeps pursuing its waypoint while
+    // easing off the wall, rather than fleeing it outright.
+    const repelWeight = 0.6
+    const blendX = desiredX + repelNX * repelWeight
+    const blendY = desiredY + repelNY * repelWeight
+    if(blendX === 0 && blendY === 0) return desiredAngle
+    return Math.atan2(blendY, blendX)
+}
