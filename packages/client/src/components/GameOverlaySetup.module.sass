@@ -114,14 +114,23 @@ $head-bg: transparentize($color-dark-2, 0.15)
 .body
     flex: 1 1 auto
     min-height: 0
-    display: grid
+    display: flex
+    flex-direction: column
     gap: 0.8em
-    grid-template-columns: 1fr
-    // Phone: the whole body scrolls and panels are natural height.
+    // Phone: the body is a single scrolling column and each panel keeps its
+    // natural (content) height, so all of a panel's content is reachable by
+    // scrolling the page. A grid here would stretch the three panels to equal
+    // thirds of the fixed body height and the panels' overflow:hidden would clip
+    // the rest, leaving them unscrollable. The desktop 3-column grid is applied
+    // in the media query below.
     overflow-y: auto
     overflow-x: hidden
 
 .panel
+    // Natural height in the phone column: never let the flex column shrink a
+    // panel below its content. On desktop this is a grid item (flex ignored), so
+    // min-height:0 lets the panel's body scroll inside its own column instead.
+    flex: 0 0 auto
     min-height: 0
     display: flex
     flex-direction: column
@@ -214,6 +223,7 @@ $head-bg: transparentize($color-dark-2, 0.15)
 // ---- Desktop / wide: three columns, each panel scrolls on its own ----
 @media (min-width: 880px)
     .body
+        display: grid
         grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.1fr)
         // Columns own their scroll now, so the body itself does not scroll.
         overflow: hidden

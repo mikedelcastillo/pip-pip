@@ -371,4 +371,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 79 | `10c0944`   | Three new maps: Drift (open BR), Clash (TDM arena), Nexus (symmetric) + generator | `git revert 10c0944`|
 | 80 | `ef1ddcf`   | Game modes: Deathmatch + Kill Frenzy, win conditions, RESULTS screen, objective HUD, host mode picker | `git revert ef1ddcf`|
 | 81 | `89e044b`   | One-page Apex/Krunker lobby overhaul (fix host-covered, SFX into Settings) | `git revert 89e044b`|
-| 82 | (latest)    | Tame harsh audio: default volume 0.8->0.35, master limiter + low-pass, softer SFX | `git revert <sha>` |
+| 82 | `59b9500`   | Tame harsh audio: default volume 0.8->0.35, master limiter + low-pass, softer SFX | `git revert 59b9500`|
+| 83 | (latest)    | Fix mobile lobby panels not scrolling (grid stretch -> flex column on phone) | `git revert <sha>` |
