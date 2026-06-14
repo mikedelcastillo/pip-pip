@@ -61,17 +61,25 @@ export enum BotDifficulty {
 // ranges. computeBotInputs reads these off bot.skill (falling back to the BOT_*
 // constants when absent), so two bots of the same difficulty can still differ.
 export type BotSkill = {
-    // Peak per-tick random aim error (radians). HARD aims tighter (small jitter),
-    // EASY sprays (large jitter). updateBotInputs samples [-aimJitter, +aimJitter].
+    // Peak aim error (radians) the bot's aim WANDERS within. It is a slow random
+    // walk (not per-tick white noise) so the ship actually points off-centre and
+    // the shot misses, rather than the error averaging out. HARD barely wanders,
+    // EASY sprays wide.
     aimJitter: number,
     // The bot only opens fire within this distance of its target.
     fireRange: number,
-    // ...and only when its aim is within this many radians of the target.
+    // ...and only when its ship is aimed within this many radians of its PERCEIVED
+    // target. Larger = fires while less aligned = sprays (EASY); smaller = waits
+    // for a clean shot (HARD).
     fireAimTolerance: number,
     // The range the bot tries to hold (orbit distance), like BOT_DESIRED_RANGE.
     desiredRange: number,
     // Half-width of the strafe band around desiredRange, like BOT_RANGE_BAND.
     rangeBand: number,
+    // Reaction lag in TICKS (20Hz, so ~50ms each). The bot aims at where the
+    // target was this many ticks ago, so it cannot track a strafing target
+    // perfectly. EASY ~2.4 ticks (~120ms), HARD ~1 tick (~50ms).
+    reactionTicks: number,
 }
 
 // Base (pre-variance) skill numbers per difficulty. HARD is accurate + aggressive
@@ -80,25 +88,32 @@ export type BotSkill = {
 // existing BOT_* constants so a MEDIUM bot behaves like today's single profile.
 const BOT_SKILL_BASE: Record<BotDifficulty, BotSkill> = {
     [BotDifficulty.EASY]: {
-        aimJitter: 0.35,
+        // Sloppy + slow: a wide wandering aim, a generous fire tolerance (so it
+        // sprays while badly aligned) and a long ~120ms reaction lag.
+        aimJitter: 0.5,
         fireRange: BOT_FIRE_RANGE * 0.7,
-        fireAimTolerance: BOT_FIRE_AIM_TOLERANCE * 0.7,
+        fireAimTolerance: BOT_FIRE_AIM_TOLERANCE * 1.6,
         desiredRange: BOT_DESIRED_RANGE,
         rangeBand: BOT_RANGE_BAND,
+        reactionTicks: 2.4,
     },
     [BotDifficulty.MEDIUM]: {
-        aimJitter: 0.15,
+        aimJitter: 0.18,
         fireRange: BOT_FIRE_RANGE,
         fireAimTolerance: BOT_FIRE_AIM_TOLERANCE,
         desiredRange: BOT_DESIRED_RANGE,
         rangeBand: BOT_RANGE_BAND,
+        reactionTicks: 1.6,
     },
     [BotDifficulty.HARD]: {
-        aimJitter: 0.04,
+        // Sharp + quick: a barely-wandering aim, a tight fire tolerance (waits
+        // for a clean shot) and a short ~50ms reaction.
+        aimJitter: 0.05,
         fireRange: BOT_FIRE_RANGE * 1.3,
-        fireAimTolerance: BOT_FIRE_AIM_TOLERANCE * 1.4,
+        fireAimTolerance: BOT_FIRE_AIM_TOLERANCE * 0.7,
         desiredRange: BOT_DESIRED_RANGE,
         rangeBand: BOT_RANGE_BAND,
+        reactionTicks: 1.0,
     },
 }
 
@@ -120,6 +135,7 @@ export function makeBotSkill(difficulty: BotDifficulty, rng: () => number = Math
         fireAimTolerance: vary(base.fireAimTolerance),
         desiredRange: vary(base.desiredRange),
         rangeBand: vary(base.rangeBand),
+        reactionTicks: vary(base.reactionTicks),
     }
 }
 
@@ -182,7 +198,7 @@ export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[]): BotTarge
 // steers straight at the target (same movementAngle as before), and only when
 // the lane is BLOCKED does it follow its cached A* path, steering toward the
 // next waypoint. AIM always points at the real target either way.
-export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, aimNoise = 0, nav?: BotNavContext): PlayerInputs{
+export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, aimNoise = 0, nav?: BotNavContext, aimBase?: number): PlayerInputs{
     const inputs: PlayerInputs = {
         movementAngle: bot.inputs.movementAngle,
         movementAmount: 0,
@@ -206,9 +222,13 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
     const fireRange = skill?.fireRange ?? BOT_FIRE_RANGE
     const fireAimTolerance = skill?.fireAimTolerance ?? BOT_FIRE_AIM_TOLERANCE
 
-    // Aim at the target, plus this tick's random error (0 by default). Aim ALWAYS
-    // tracks the real target, even while routing around a wall.
-    inputs.aimRotation = angle + aimNoise
+    // The angle the bot AIMS at. Defaults to the true target angle (so the pure
+    // tests aim exactly), but updateBotInputs passes a PERCEIVED angle that lags
+    // the target by the bot's reaction time, so a bot cannot perfectly track a
+    // moving target. The per-tick wandering aim error (aimNoise, 0 by default) is
+    // added on top so the shot also spreads. MOVEMENT still uses the true angle.
+    const aim = typeof aimBase === "number" ? aimBase : angle
+    inputs.aimRotation = aim + aimNoise
 
     // Decide whether the lane to the target is clear. With no nav context (the
     // wall-free pure tests) the lane is treated as clear, so behaviour is
@@ -258,7 +278,12 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
         inputs.doReload = true
     }
 
-    const aimedWithinTolerance = Math.abs(radianDifference(angle, bot.ship.rotation)) <= fireAimTolerance
+    // Fire when the ship is aimed at the PERCEIVED target (not the true one), so a
+    // laggy/wandering aim genuinely fires off-centre and misses, instead of the
+    // old behaviour where the bot waited to align on the true target and so always
+    // hit. A wider tolerance (EASY) sprays; a tight one (HARD) waits for a clean
+    // shot.
+    const aimedWithinTolerance = Math.abs(radianDifference(aim, bot.ship.rotation)) <= fireAimTolerance
     if(distance <= fireRange && aimedWithinTolerance === true){
         inputs.useWeapon = true
         // Also lob the tactical/grenade when one is ready. The tactical's own
@@ -343,6 +368,59 @@ function maybeRecomputePath(bot: PipPlayer, found: BotTarget, nav: BotNavContext
     bot.pathTargetRow = goalCell.row
 }
 
+// Maximum reaction lag we buffer target positions for (ticks). Bounds the per-bot
+// aim-history ring buffer; a skill's reactionTicks above this is clamped.
+export const MAX_REACTION_TICKS = 5
+
+// The angle from the bot to where its target was ~reactionTicks ago, simulating
+// human reaction lag (bots run on the server with zero latency, so without this
+// they track a target instantly and perfectly). Keeps a small per-bot ring buffer
+// of the target's recent positions, reset when the target changes. With no skill /
+// zero reaction (plain bots + the pure tests) it returns the LIVE angle, so
+// behaviour there is unchanged. Mutates the bot's aim-history buffer only.
+function perceivedAimAngle(bot: PipPlayer, found: BotTarget): number {
+    const reaction = bot.skill?.reactionTicks ?? 0
+    if(reaction <= 0) return found.angle
+
+    const botX = bot.ship.physics.position.x
+    const botY = bot.ship.physics.position.y
+    const targetX = found.target.ship.physics.position.x
+    const targetY = found.target.ship.physics.position.y
+
+    // A new target starts with a clean buffer so the bot never aims at the
+    // previous target's stale position.
+    if(bot.aimTargetId !== found.target.id){
+        bot.aimTargetId = found.target.id
+        bot.aimHistory = []
+    }
+    if(typeof bot.aimHistory === "undefined") bot.aimHistory = []
+    const history = bot.aimHistory
+
+    history.push({ x: targetX, y: targetY })
+    while(history.length > MAX_REACTION_TICKS + 1) history.shift()
+
+    // The buffered position `reaction` ticks back, clamped to what we have so far.
+    const delay = Math.min(Math.round(reaction), MAX_REACTION_TICKS)
+    const index = Math.max(0, history.length - 1 - delay)
+    const past = history[index]
+    return Math.atan2(past.y - botY, past.x - botX)
+}
+
+// Advance the bot's wandering aim error one tick: a slow random walk within
+// [-jitter, jitter], NOT per-tick white noise (white noise averages to zero so
+// the ship stays centred and the shot still lands). The walk keeps the ship
+// pointed off-centre for a while, so the bot genuinely misses. Plain bots
+// (jitter 0) get 0.
+function nextAimBias(bot: PipPlayer, jitter: number, rng: () => number): number {
+    if(jitter <= 0){
+        bot.aimBias = 0
+        return 0
+    }
+    const step = (rng() * 2 - 1) * jitter * 0.5
+    bot.aimBias = Math.max(-jitter, Math.min(jitter, (bot.aimBias ?? 0) + step))
+    return bot.aimBias
+}
+
 // Drive one bot for this tick: pick a target, compute inputs, write them onto
 // the bot. Called by the game loop for every isBot player when calculateAi is
 // on. Copies field-by-field (not a reference swap) so the bot keeps its single
@@ -360,7 +438,7 @@ function maybeRecomputePath(bot: PipPlayer, found: BotTarget, nav: BotNavContext
 // keep the bot loop from doing real work on most ticks.
 export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () => number = Math.random, nav?: BotNavContext){
     const jitter = bot.skill?.aimJitter ?? 0
-    const aimNoise = jitter === 0 ? 0 : (rng() * 2 - 1) * jitter
+    const aimNoise = nextAimBias(bot, jitter, rng)
 
     // The path-recompute cooldown ticks down once per call so its 0.5s cadence is
     // measured in real ticks regardless of the decision cadence.
@@ -375,11 +453,12 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
 
     if(fullDecision === false){
         // Between decisions: keep movement intent, only re-aim at the current
-        // nearest enemy so the bot tracks a moving target smoothly.
+        // nearest enemy (lagged by reaction time + wandering error) so the bot
+        // tracks a moving target imperfectly, like a human would.
         bot.aiDecisionCooldown--
         const quick = findNearestEnemy(bot, players)
         if(typeof quick !== "undefined"){
-            bot.inputs.aimRotation = quick.angle + aimNoise
+            bot.inputs.aimRotation = perceivedAimAngle(bot, quick) + aimNoise
         }
         return
     }
@@ -396,10 +475,11 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
         bot.path = undefined
     }
 
-    // A fresh per-tick aim error sampled from the bot's skill (no profile -> no
-    // jitter), passed as aimNoise so an EASY bot's shots wander and a HARD bot's
-    // stay tight. rng is injected (default Math.random) so this stays testable.
-    const next = computeBotInputs(bot, found, aimNoise, nav)
+    // The reaction-lagged aim base (where the bot THINKS the target is) plus the
+    // wandering error so an EASY bot's shots lag + spread and a HARD bot's stay
+    // tight and current. With no target, computeBotInputs ignores aimBase.
+    const aimBase = typeof found !== "undefined" ? perceivedAimAngle(bot, found) : undefined
+    const next = computeBotInputs(bot, found, aimNoise, nav, aimBase)
     bot.inputs.movementAngle = next.movementAngle
     bot.inputs.movementAmount = next.movementAmount
     bot.inputs.aimRotation = next.aimRotation

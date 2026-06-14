@@ -159,9 +159,14 @@ describe("addBots / removeBots / fillBots", () => {
     it("'mixed' yields a spread of difficulties", () => {
         const game = new PipPipGame()
         // Drive resolveBotDifficulty deterministically: 0.0 -> EASY, 0.4 -> MEDIUM,
-        // 0.9 -> HARD (Math.floor(rng()*3)). The skill draws consume the rest, but
-        // only the FIRST rng() of each bot picks the difficulty.
-        const rng = seqRng([0.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.9, 0.5, 0.5, 0.5, 0.5, 0.5])
+        // 0.9 -> HARD (Math.floor(rng()*3)). Each bot consumes 7 draws: 1 to pick
+        // the difficulty, then 6 for makeBotSkill's varied fields, so the pick
+        // values land at indices 0, 7 and 14.
+        const rng = seqRng([
+            0.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+            0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+            0.9, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        ])
         const bots = game.addBots(3, "mixed", rng)
         const difficulties = bots.map(b => b.difficulty)
         expect(difficulties).toContain(BotDifficulty.EASY)

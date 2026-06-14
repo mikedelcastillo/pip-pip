@@ -406,4 +406,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 114| `123bbb0`   | Chat-command registry: config (/mode /kills /minutes /teams /friendlyfire /map /settotalteams), team (/jointeam /leaveteam /join @player), moderation (/kick /kill @player), @mentions, auto /help, N-team (2-6) support | `git revert 123bbb0`|
 | 115| `da82dfc`   | Bots target the NEAREST enemy with no bot-vs-human priority (was preferring real players) | `git revert da82dfc`|
 | 116| `83c24cb`   | Player names rendered above the health bar (upright, fades with cloak) | `git revert 83c24cb`|
-| 117| (latest)    | Bot A* pathfinding around walls (nav-grid cached per map, path throttled, AI runs on a 3-tick cadence) - net CPU REDUCTION | `git revert <sha>` |
+| 117| `e686064`   | Bot A* pathfinding around walls (nav-grid cached per map, path throttled, AI runs on a 3-tick cadence) - net CPU REDUCTION | `git revert e686064`|
+| 118| (latest)    | Bot reaction time (50-120ms by difficulty) + wandering aim error; fire gate now uses the perceived target so jitter actually misses (EASY no longer laser-accurate) | `git revert <sha>` |

@@ -3,9 +3,11 @@ import { MAX_BOTS, PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import {
     BOT_FIRE_RANGE,
+    BotDifficulty,
     BotNavContext,
     computeBotInputs,
     findNearestEnemy,
+    makeBotSkill,
     updateBotInputs,
 } from "@pip-pip/game/src/logic/ai"
 import { buildNavGrid } from "@pip-pip/game/src/logic/pathfinding"
@@ -190,6 +192,53 @@ describe("AI brain targeting (pure)", () => {
         expect(inputs.movementAmount).toBe(0)
         expect(inputs.useWeapon).toBe(false)
         expect(inputs.useTactical).toBe(false)
+    })
+})
+
+describe("AI reaction lag + difficulty feel", () => {
+    it("a bot aims at where the target WAS, then catches up (reaction lag)", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        // Isolate the lag: no aim wander, a 2-tick reaction. (updateBotInputs only
+        // writes inputs, never moves the ship, so the bot stays at the origin.)
+        bot.skill = {
+            aimJitter: 0,
+            fireRange: BOT_FIRE_RANGE,
+            fireAimTolerance: 0.25,
+            desiredRange: 350,
+            rangeBand: 120,
+            reactionTicks: 2,
+        }
+        const target = game.createPlayer("AA")
+        target.setShip(BLU)
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(target, 0, 400) // straight up -> angle PI/2
+
+        const players = Object.values(game.players)
+        for(let i = 0; i < 4; i++) updateBotInputs(bot, players)
+        expect(Math.abs(radianDifference(bot.inputs.aimRotation, Math.PI / 2))).toBeLessThan(0.05)
+
+        // Jump the target hard to the right. The very next tick the bot still aims
+        // UP, because its perception lags by ~2 ticks.
+        target.ship.physics.position.x = 400
+        target.ship.physics.position.y = 0
+        updateBotInputs(bot, players)
+        expect(Math.abs(radianDifference(bot.inputs.aimRotation, Math.PI / 2))).toBeLessThan(0.2)
+
+        // Once the lag elapses, it tracks the new heading (angle 0).
+        for(let i = 0; i < 5; i++) updateBotInputs(bot, players)
+        expect(Math.abs(radianDifference(bot.inputs.aimRotation, 0))).toBeLessThan(0.05)
+    })
+
+    it("EASY is sloppier + slower-reacting than HARD", () => {
+        const noVariance = () => 0.5
+        const easy = makeBotSkill(BotDifficulty.EASY, noVariance)
+        const hard = makeBotSkill(BotDifficulty.HARD, noVariance)
+        // EASY wanders more, fires while less aligned, and reacts slower.
+        expect(easy.aimJitter).toBeGreaterThan(hard.aimJitter)
+        expect(easy.fireAimTolerance).toBeGreaterThan(hard.fireAimTolerance)
+        expect(easy.reactionTicks).toBeGreaterThan(hard.reactionTicks)
+        expect(hard.reactionTicks).toBeGreaterThan(0)
     })
 })
 

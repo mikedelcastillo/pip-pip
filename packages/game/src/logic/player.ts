@@ -139,6 +139,15 @@ export class PipPlayer{
     // updateBotInputs.
     aiDecisionCooldown = 0
 
+    // Bot-only aim imperfection. aimHistory is a small ring buffer of the current
+    // target's recent positions, so the brain can aim at where the target WAS a
+    // few ticks ago (reaction lag); aimTargetId tracks whose positions are buffered
+    // so a target switch clears it; aimBias is the slow-wandering aim error. All
+    // undefined/0 for real players and bots with no skill profile.
+    aimHistory?: { x: number, y: number }[]
+    aimTargetId?: string
+    aimBias = 0
+
     // TEAM_DEATHMATCH team (0 or 1). -1 marks an unassigned player: the default
     // for every player outside a live TDM match (free-for-all modes never read
     // it, and a TDM player is assigned a real team at startMatch / on join).
