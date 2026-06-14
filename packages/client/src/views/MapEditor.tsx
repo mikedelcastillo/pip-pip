@@ -727,6 +727,15 @@ export default function MapEditor(){
         let painting = false
         // Pinch/pan gesture state while two pointers are down.
         let gesture: { dist: number, midX: number, midY: number } | null = null
+        // Deferred-paint state for the active single-pointer gesture. A TAP paints
+        // on pointer-UP (not down), and a freehand DRAG only starts once the pointer
+        // leaves its start cell. So the first finger of a pinch never drops a
+        // tile/spawn/fill: when a second finger lands, a gesture that has not drawn
+        // anything yet is cancelled (drewThisGesture stays false).
+        let gestureMode: "freehand" | "fill" | null = null
+        let downX = 0
+        let downY = 0
+        let drewThisGesture = false
 
         // Distance + midpoint (canvas-relative) of the two active pointers.
         const pinchState = () => {
@@ -773,6 +782,10 @@ export default function MapEditor(){
                 }
                 painting = true
                 lastCellRef.current = null
+                drewThisGesture = false
+                gestureMode = null
+                downX = e.clientX
+                downY = e.clientY
                 // Open one history step for this whole gesture: snapshot the
                 // pre-gesture canvas now, commit it at pointer-up if anything
                 // changed. A freehand drag, a rect/line shape, or a fill each
@@ -788,31 +801,33 @@ export default function MapEditor(){
                         draw()
                     }
                 } else if(m === "fill"){
-                    // Flood-fill the connected region under the click in one batch,
-                    // bounded by the painted-content bbox + margin and a hard cap so
-                    // an open empty region can never run forever (see model).
-                    const cellPos = cellFromEvent(e.clientX, e.clientY)
-                    if(cellPos !== null){
-                        const map = mapRef.current
-                        const start: Cell = [cellPos.col, cellPos.row]
-                        const cells = boundedFloodFill(start, (col, row) => map.tileAt(col, row), map.fillClamp(start))
-                        applyCells(cells)
-                    }
+                    // DEFER the flood fill to pointer-up (a tap): filling on
+                    // pointer-down would fill under the first finger of a pinch.
+                    gestureMode = "fill"
                 } else{
-                    // Freehand: paint the cell under the pointer immediately, then
-                    // each cell the drag passes over.
-                    paintAt(e.clientX, e.clientY)
+                    // Freehand: DEFER the paint. A tap paints on release; a drag
+                    // starts only once the pointer leaves the start cell (onMove).
+                    // Deferring means the first finger of a pinch never drops a tile
+                    // before the second finger lands.
+                    gestureMode = "freehand"
                 }
             } else if(pointers.size === 2){
-                // A second finger turns the drag into a pinch/pan gesture: abandon
-                // any open shape preview, then commit whatever a freehand/fill
-                // gesture already painted as its own step so the tap that preceded
-                // the pinch is not lost.
+                // A second finger turns the gesture into a pinch/pan: abandon any
+                // open shape preview. For freehand/fill, only commit if a DRAG
+                // already painted cells; a gesture that has not drawn anything
+                // (a tap that turned into a pinch) is cancelled, so pinch-to-zoom
+                // never drops a tile/spawn/fill under the first finger.
                 if(shapeRef.current !== null){
                     abandonGesture()
                 } else{
                     painting = false
-                    if(historyRef.current.commit(mapRef.current)) refreshHistoryFlags()
+                    if(drewThisGesture && historyRef.current.commit(mapRef.current)){
+                        refreshHistoryFlags()
+                    } else{
+                        historyRef.current.cancel()
+                    }
+                    gestureMode = null
+                    drewThisGesture = false
                 }
                 gesture = pinchState()
             }
@@ -843,11 +858,24 @@ export default function MapEditor(){
                             draw()
                         }
                     }
-                } else if(modeRef.current === "freehand"){
-                    // Freehand drag paints each cell the pointer passes over. Fill
-                    // is a single click applied on pointer-down, so a drag after it
-                    // must NOT freehand-paint with the fill brush.
-                    paintAt(e.clientX, e.clientY)
+                } else if(gestureMode === "freehand"){
+                    // Freehand drag. The down-cell paint was DEFERRED (so a pinch
+                    // does not paint), so the stroke only begins once the pointer
+                    // leaves its start cell: a move WITHIN the start cell is still a
+                    // tap/pinch candidate. On the first real move we paint the start
+                    // cell then interpolate to the current cell; after that every
+                    // move continues the stroke.
+                    if(drewThisGesture){
+                        paintAt(e.clientX, e.clientY)
+                    } else{
+                        const cur = cellFromEvent(e.clientX, e.clientY)
+                        const down = cellFromEvent(downX, downY)
+                        if(cur !== null && down !== null && (cur.col !== down.col || cur.row !== down.row)){
+                            paintAt(downX, downY)
+                            paintAt(e.clientX, e.clientY)
+                            drewThisGesture = true
+                        }
+                    }
                 }
             }
             e.preventDefault()
@@ -878,13 +906,34 @@ export default function MapEditor(){
                     } else{
                         historyRef.current.cancel()
                     }
+                } else if(wasPainting && gestureMode === "freehand" && drewThisGesture === false){
+                    // A freehand TAP (pressed and released without dragging out of
+                    // the start cell): apply the single cell now, on RELEASE. This is
+                    // what makes placing a block/spawn happen on touch-up rather than
+                    // touch-down, so a press that turns into a pinch never paints.
+                    paintAt(downX, downY)
+                    if(historyRef.current.commit(mapRef.current)) refreshHistoryFlags()
+                    else historyRef.current.cancel()
+                } else if(wasPainting && gestureMode === "fill" && drewThisGesture === false){
+                    // A fill TAP: flood-fill the connected region on release (deferred
+                    // from pointer-down so a pinch never fills), bounded as in model.
+                    const cellPos = cellFromEvent(downX, downY)
+                    if(cellPos !== null){
+                        const map = mapRef.current
+                        const start: Cell = [cellPos.col, cellPos.row]
+                        const cells = boundedFloodFill(start, (col, row) => map.tileAt(col, row), map.fillClamp(start))
+                        applyCells(cells)
+                    }
+                    if(historyRef.current.commit(mapRef.current)) refreshHistoryFlags()
+                    else historyRef.current.cancel()
                 } else if(wasPainting && historyRef.current.commit(mapRef.current)){
-                    // Close a freehand/fill gesture: commit the single undo step (a
-                    // no-op gesture commits nothing).
+                    // A freehand DRAG already painted its cells: commit the one step.
                     refreshHistoryFlags()
                 } else{
                     historyRef.current.cancel()
                 }
+                gestureMode = null
+                drewThisGesture = false
             }
         }
 
