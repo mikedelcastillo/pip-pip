@@ -6,6 +6,7 @@ import { PIP_SHIPS, ShipType } from "../ships"
 import { PipShip } from "./ship"
 import { tickDown } from "./utils"
 import { SERVER_INPUT_QUEUE_MAX } from "./constants"
+import { BotDifficulty, BotSkill } from "./ai"
 
 export type PlayerInputs = {
     movementAngle: number,
@@ -108,6 +109,14 @@ export class PipPlayer{
     // brain drives a bot's inputs each tick; connection-specific code uses this
     // to tell bots apart from real, connection-backed players.
     isBot = false
+
+    // Bot-only: the difficulty this bot was created with and the per-bot varied
+    // skill profile derived from it (see makeBotSkill). Both are undefined for a
+    // real (connection-backed) player and for a plain bot constructed in a test;
+    // the AI brain reads bot.skill with a fallback to the BOT_* constants, so an
+    // undefined profile leaves the legacy behaviour untouched.
+    difficulty?: BotDifficulty
+    skill?: BotSkill
 
     // TEAM_DEATHMATCH team (0 or 1). -1 marks an unassigned player: the default
     // for every player outside a live TDM match (free-for-all modes never read

@@ -2,7 +2,7 @@ import type { NavigateFunction } from "react-router-dom"
 import { useGameStore } from "./store"
 import { useUiStore } from "../store/ui"
 import { showAlert } from "../store/alert"
-import { PipPipGame, PipPipGamePhase, PipPipGameMode } from "@pip-pip/game/src/logic"
+import { PipPipGame, PipPipGamePhase, PipPipGameMode, BotDifficultyChoice } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { KeyboardListener } from "@pip-pip/core/src/client/keyboard"
 import { MouseListener } from "@pip-pip/core/src/client/mouse"
@@ -10,7 +10,16 @@ import { PipPipRenderer } from "./renderer"
 import { EventCollector, EventMapOf } from "@pip-pip/core/src/common/events"
 import { Client } from "@pip-pip/core/src/networking/client"
 
-import { encode, packetManager, PipPacketSerializerMap } from "@pip-pip/game/src/networking/packets"
+import {
+    encode,
+    packetManager,
+    PipPacketSerializerMap,
+    HOST_BOTS_ACTION_ADD,
+    HOST_BOTS_ACTION_REMOVE,
+    HOST_BOTS_ACTION_CLEAR,
+    HOST_BOTS_ACTION_FILL,
+    HOST_BOTS_DIFFICULTY_MIXED,
+} from "@pip-pip/game/src/networking/packets"
 import { Ticker } from "@pip-pip/core/src/common/ticker"
 import { processPackets, sendPackets } from "./client"
 import { processInputs } from "./ui"
@@ -338,6 +347,33 @@ export class GameContext {
     setGameMode(mode: PipPipGameMode, maxKills: number, matchMinutes: number) {
         const code = encode.gameMode(mode, maxKills, matchMinutes)
         this.sendCode(code)
+    }
+
+    // Host-only bot config. These mirror setGameMode: each just sends the hostBots
+    // packet and lets the authoritative server validate the host and apply the
+    // change; the resulting bots come back through the normal add/remove/name
+    // broadcasts, which the store already mirrors (so the UI stays authoritative).
+    // A BotDifficultyChoice ("mixed" or a concrete BotDifficulty) maps to its wire
+    // value here so the rest of the UI can speak in game-logic terms.
+    private encodeBotDifficulty(difficulty: BotDifficultyChoice): number {
+        return difficulty === "mixed" ? HOST_BOTS_DIFFICULTY_MIXED : difficulty
+    }
+
+    addBots(count: number, difficulty: BotDifficultyChoice) {
+        this.sendCode(encode.hostBots(HOST_BOTS_ACTION_ADD, count, this.encodeBotDifficulty(difficulty)))
+    }
+
+    removeBots(count: number) {
+        // difficulty is irrelevant to a remove, so send "mixed" as a harmless filler.
+        this.sendCode(encode.hostBots(HOST_BOTS_ACTION_REMOVE, count, HOST_BOTS_DIFFICULTY_MIXED))
+    }
+
+    clearBots() {
+        this.sendCode(encode.hostBots(HOST_BOTS_ACTION_CLEAR, 0, HOST_BOTS_DIFFICULTY_MIXED))
+    }
+
+    fillBots(difficulty: BotDifficultyChoice) {
+        this.sendCode(encode.hostBots(HOST_BOTS_ACTION_FILL, 0, this.encodeBotDifficulty(difficulty)))
     }
 
     // Set the local player's display name and remember it. Sanitized the same

@@ -77,17 +77,17 @@ describe("AI bot lifecycle", () => {
         // addBots can never overshoot the cap, even when asked for far more.
         const added = game.addBots(100)
         expect(added.length).toBe(MAX_BOTS)
-        expect(game.botCount()).toBe(MAX_BOTS)
+        expect(game.botCount).toBe(MAX_BOTS)
 
         // addBot at the cap adds nothing and reports it by returning undefined.
         expect(game.addBot()).toBeUndefined()
-        expect(game.botCount()).toBe(MAX_BOTS)
+        expect(game.botCount).toBe(MAX_BOTS)
 
         // Clearing frees the slots so bots can be added again.
         game.clearBots()
-        expect(game.botCount()).toBe(0)
+        expect(game.botCount).toBe(0)
         expect(game.addBot()).not.toBeUndefined()
-        expect(game.botCount()).toBe(1)
+        expect(game.botCount).toBe(1)
     })
 })
 

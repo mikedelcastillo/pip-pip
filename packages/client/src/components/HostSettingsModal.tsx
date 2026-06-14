@@ -8,6 +8,7 @@ import { showAlert } from "../store/alert"
 import Modal from "./Modal"
 import GameButton from "./GameButton"
 import GameInput from "./GameInput"
+import BotsControls from "./BotsControls"
 import styles from "./HostSettingsModal.module.sass"
 
 interface Props {
@@ -183,6 +184,15 @@ export default function HostSettingsModal({ onClose }: Props) {
                     <GameButton accent onClick={() => stepPlayers(-1)}>-</GameButton>
                     <div className={styles.stepperValue}>{maxPlayers}</div>
                     <GameButton accent onClick={() => stepPlayers(1)}>+</GameButton>
+                </div>
+            </div>
+
+            <div className={styles.section}>
+                <div className={styles.sectionTitle}>Bots</div>
+                <BotsControls />
+                <div className={styles.hint}>
+                    Add bots once the lobby is up. Pick a difficulty (or Mixed) and
+                    Add, Fill or Clear them.
                 </div>
             </div>
 

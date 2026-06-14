@@ -1,0 +1,44 @@
+@import "../styles/variables"
+
+// The shared host-only Bots section (lobby Match panel + pre-host dialog). Kept
+// minimal and in flex flow so it slots into either container and stays
+// thumb-reachable on a phone.
+.bots
+    display: flex
+    flex-direction: column
+    gap: 0.5em
+
+.countRow
+    display: flex
+    align-items: center
+    gap: 0.5em
+
+    .countLabel
+        color: $color-accent
+        line-height: 1
+
+    .countValue
+        min-width: 1.6em
+        padding: 0.05em 0.45em
+        text-align: center
+        font-size: 1.2em
+        line-height: 1.2
+        color: $color-dark-3
+        background-color: $color-main
+        border-radius: $border-radius
+
+.difficultyRow
+    display: flex
+    flex-wrap: wrap
+    gap: 0.4em
+
+.actionRow
+    display: flex
+    flex-wrap: wrap
+    gap: 0.4em
+
+.hint
+    padding-top: 0.1em
+    font-size: 0.8em
+    line-height: 1.2
+    color: transparentize($color-text, 0.4)

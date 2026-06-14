@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest"
-import { packetManager, encodeTeam, decodeTeam, TEAM_WIRE_UNASSIGNED } from "@pip-pip/game/src/networking/packets"
+import {
+    packetManager,
+    encodeTeam,
+    decodeTeam,
+    TEAM_WIRE_UNASSIGNED,
+    HOST_BOTS_ACTION_ADD,
+    HOST_BOTS_ACTION_REMOVE,
+    HOST_BOTS_ACTION_CLEAR,
+    HOST_BOTS_ACTION_FILL,
+    HOST_BOTS_DIFFICULTY_MIXED,
+} from "@pip-pip/game/src/networking/packets"
 import { POWERUP_TYPE_TO_CODE, POWERUP_CODE_TO_TYPE } from "@pip-pip/game/src/logic/powerup"
 
 // These guard the wire format shared by client and server. A change to a packet's
@@ -87,6 +97,33 @@ describe("game packetManager wire format", () => {
             packetManager.encode("gameMode", { mode: 1, maxKills: 25, matchMinutes: 7 }),
         )
         expect(kf.gameMode?.[0]).toEqual({ mode: 1, maxKills: 25, matchMinutes: 7 })
+    })
+
+    it("round-trips hostBots for every action + difficulty (host bot config)", () => {
+        // add N HARD bots
+        const add = packetManager.decode(
+            packetManager.encode("hostBots", { action: HOST_BOTS_ACTION_ADD, count: 3, difficulty: 2 }),
+        )
+        expect(add.hostBots?.[0]).toEqual({ action: HOST_BOTS_ACTION_ADD, count: 3, difficulty: 2 })
+
+        // remove 1 (difficulty is irrelevant - the "mixed" filler rides along)
+        const remove = packetManager.decode(
+            packetManager.encode("hostBots", { action: HOST_BOTS_ACTION_REMOVE, count: 1, difficulty: HOST_BOTS_DIFFICULTY_MIXED }),
+        )
+        expect(remove.hostBots?.[0]).toEqual({ action: HOST_BOTS_ACTION_REMOVE, count: 1, difficulty: HOST_BOTS_DIFFICULTY_MIXED })
+
+        // clear (count/difficulty ignored by the server, still round-trip exactly)
+        const clear = packetManager.decode(
+            packetManager.encode("hostBots", { action: HOST_BOTS_ACTION_CLEAR, count: 0, difficulty: HOST_BOTS_DIFFICULTY_MIXED }),
+        )
+        expect(clear.hostBots?.[0]).toEqual({ action: HOST_BOTS_ACTION_CLEAR, count: 0, difficulty: HOST_BOTS_DIFFICULTY_MIXED })
+
+        // fill with mixed difficulty (255 sentinel survives the uint8 wire)
+        const fill = packetManager.decode(
+            packetManager.encode("hostBots", { action: HOST_BOTS_ACTION_FILL, count: 0, difficulty: HOST_BOTS_DIFFICULTY_MIXED }),
+        )
+        expect(fill.hostBots?.[0]).toEqual({ action: HOST_BOTS_ACTION_FILL, count: 0, difficulty: HOST_BOTS_DIFFICULTY_MIXED })
+        expect(fill.hostBots?.[0]?.difficulty).toBe(255)
     })
 
     it("round-trips closeLobby (payloadless host close request)", () => {

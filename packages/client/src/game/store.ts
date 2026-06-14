@@ -335,6 +335,11 @@ export interface GameStoreState {
     // KILL_FRENZY remaining time, in whole seconds (0 outside that mode/MATCH).
     matchTimerSeconds: number
 
+    // How many bots are currently in the lobby (derived each sync from the players
+    // where isBot). Drives the host-only Bots section so it always shows the live
+    // count after an add/remove/clear/fill rides back from the server.
+    botCount: number
+
     // End-of-match result, shown on the RESULTS screen. winnerName is the lone
     // winner's name (empty for a tie or a no-kill "Time!"); winnerCount is the
     // number of winners (0 = none, 1 = clean win, >1 = tie).
@@ -389,6 +394,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     maxKills: 0,
     matchMinutes: 0,
     matchTimerSeconds: 0,
+
+    botCount: 0,
 
     winnerName: "",
     winnerCount: 0,
@@ -497,6 +504,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             maxKills: game.settings.maxKills,
             matchMinutes: game.settings.matchMinutes,
             matchTimerSeconds: Math.ceil(game.matchTimer / game.tps),
+            botCount: Object.values(game.players).filter((p) => p.isBot === true).length,
             winnerName,
             winnerCount: game.winnerIds.length,
             mapIndex: game.mapIndex,

@@ -401,4 +401,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 109| `de27b53`   | FIX infinite reboot loop: Telegram bot skips its backlog on startup, so a stale /reboot is acknowledged (not re-run) instead of redelivered forever | `git revert de27b53`|
 | 110| `8dc077b`   | Ready-up: non-host Ready toggle in the lobby footer + host Start Game shows N/M ready (force-start still unrestricted); player-list ready ticks | `git revert 8dc077b`|
 | 111| `f6168cc`   | FIX aim snapping back on touch/gamepad stick release: latch aim, mouse only re-takes it when it actually moves | `git revert f6168cc`|
-| 112| (latest)    | Hard cap of 8 bots per match (MAX_BOTS), enforced authoritatively in addBot so every add path is bounded (CPU/RAM) | `git revert <sha>` |
+| 112| `af852d2`   | Hard cap of 8 bots per match (MAX_BOTS), enforced authoritatively in addBot so every add path is bounded (CPU/RAM) | `git revert af852d2`|
+| 113| (latest)    | Host bot config (add/remove/fill, all modes) + per-bot difficulty (Easy/Med/Hard/Mixed) with ~20% per-bot skill variance; respects the 8-bot cap | `git revert <sha>` |

@@ -5,7 +5,7 @@ import { distanceBetweenSegments, nearestPointFromSegment, radianDifference } fr
 import { Bullet, BulletPool, BulletType, MAX_BULLET_BOUNCES } from "./bullet"
 import { Powerup, PowerupPool, PowerupType, applyPowerupEffect, HASTE_MULTIPLIER } from "./powerup"
 import { PipPlayer, PlayerInputs } from "./player"
-import { updateBotInputs } from "./ai"
+import { updateBotInputs, BotDifficulty, makeBotSkill } from "./ai"
 import { generateId } from "@pip-pip/core/src/lib/utils"
 import { PipShip } from "./ship"
 import { PipGameMap } from "./map"
@@ -90,9 +90,19 @@ export const TDM_TEAMS = [0, 1] as const
 // Hard cap on the number of bots in a single match. Intentional and
 // load-bearing: every bot is server-simulated each tick (AI brain + physics +
 // collision), so the per-tick cost scales with bot count. Capping it keeps the
-// server CPU/RAM bounded. Enforced authoritatively in addBot, so no path can
-// exceed it.
+// server CPU/RAM bounded. Enforced authoritatively in addBot, so no path
+// (chat commands, host config, fill) can exceed it. The count stays a uint8 on
+// the wire.
 export const MAX_BOTS = 8
+
+// fillBots' target headcount for the free-for-all modes (DEATHMATCH / KILL_FRENZY):
+// it tops the lobby up toward this many TOTAL players (humans + bots) so a solo
+// host gets a lively room without overcrowding it.
+export const FILL_TARGET_PLAYERS = 8
+
+// A host's bot-difficulty choice. A concrete BotDifficulty is stored on the bot;
+// "mixed" is config-only - each added bot rolls its own random difficulty instead.
+export type BotDifficultyChoice = BotDifficulty | "mixed"
 
 export enum PipPipGamePhase {
     SETUP,
@@ -267,41 +277,104 @@ export class PipPipGame{
         return id
     }
 
-    // How many bots are currently in the match.
-    botCount(){
-        let count = 0
-        for(const player of Object.values(this.players)){
-            if(player.isBot === true) count += 1
-        }
-        return count
+    // Every bot currently in the lobby, in INSERTION order (game.players keeps it,
+    // since a bot id like "~0" is not an array-index key). The newest bots are at
+    // the end, which removeBots relies on to drop the most-recently-added first.
+    get bots(){
+        return Object.values(this.players).filter(player => player.isBot === true)
     }
 
-    // Add one training-grounds bot. It self-registers into game.players (like
-    // any PipPlayer) and is broadcast to every real client by the normal
-    // per-player broadcast, since that iterates all players. During a live
-    // MATCH the bot is spawned immediately so it joins the fight at once.
+    // How many bots are in the lobby right now. Mirrored to the client store +
+    // wire as a uint8 (MAX_BOTS keeps it well under 255).
+    get botCount(){
+        return this.bots.length
+    }
+
+    // A short difficulty tag for a bot's display NAME (so the difficulty syncs
+    // through the existing player-name broadcast with no new per-player packet).
+    // Kept tiny + alphanumeric so a full bot name stays inside the name limits.
+    botDifficultyTag(difficulty: BotDifficulty){
+        if(difficulty === BotDifficulty.HARD) return "H"
+        if(difficulty === BotDifficulty.EASY) return "E"
+        return "M"
+    }
+
+    // Turn a host's difficulty choice into a concrete BotDifficulty: "mixed" rolls
+    // a random one PER bot, anything else is used as-is. rng is injected so the
+    // spread is deterministic in tests.
+    resolveBotDifficulty(choice: BotDifficultyChoice, rng: () => number = Math.random): BotDifficulty {
+        if(choice === "mixed"){
+            const all = [BotDifficulty.EASY, BotDifficulty.MEDIUM, BotDifficulty.HARD]
+            return all[Math.floor(rng() * all.length)] ?? BotDifficulty.MEDIUM
+        }
+        return choice
+    }
+
+    // Add one training-grounds bot with a difficulty + a per-bot varied skill
+    // profile. It self-registers into game.players (like any PipPlayer) and is
+    // broadcast to every real client by the normal per-player broadcast, since
+    // that iterates all players. During a live MATCH the bot is spawned
+    // immediately so it joins the fight at once. The difficulty is reflected in
+    // the display name (e.g. "BOT-H-3"), so it rides the existing name broadcast.
+    // rng is injected so the skill variance is deterministic in tests.
     // Returns undefined (and adds nothing) once the match is already at the
-    // MAX_BOTS hard cap, so every path that adds bots (chat commands, host
-    // config, fill) is bounded here at the single authoritative point.
-    addBot(){
-        if(this.botCount() >= MAX_BOTS) return undefined
+    // MAX_BOTS hard cap, so every add path is bounded here at one authoritative
+    // point.
+    addBot(difficulty: BotDifficulty = BotDifficulty.MEDIUM, rng: () => number = Math.random){
+        if(this.botCount >= MAX_BOTS) return undefined
         const bot = this.createPlayer(this.nextBotId())
         bot.isBot = true
-        bot.setName("BOT-" + bot.id.slice(1).toUpperCase())
+        bot.difficulty = difficulty
+        bot.skill = makeBotSkill(difficulty, rng)
+        bot.setName("BOT-" + this.botDifficultyTag(difficulty) + "-" + bot.id.slice(1).toUpperCase())
         this.addPlayerMidGame(bot)
         return bot
     }
 
-    addBots(count: number){
+    // Add `count` bots, never pushing the total bot count past MAX_BOTS. difficulty
+    // may be a concrete BotDifficulty or "mixed" (each bot then rolls its own).
+    // rng is injected so both the difficulty spread and per-bot variance are
+    // deterministic in tests.
+    addBots(count: number, difficulty: BotDifficultyChoice = "mixed", rng: () => number = Math.random){
         const bots: PipPlayer[] = []
         const safeCount = Math.max(0, Math.floor(count))
         for(let i = 0; i < safeCount; i++){
-            const bot = this.addBot()
-            // Stop as soon as the hard cap is reached (addBot returns undefined).
+            const bot = this.addBot(this.resolveBotDifficulty(difficulty, rng), rng)
+            // Stop as soon as the MAX_BOTS hard cap is reached (addBot returns
+            // undefined), so addBots never overshoots the authoritative cap.
             if(typeof bot === "undefined") break
             bots.push(bot)
         }
         return bots
+    }
+
+    // Remove the `count` most-recently-added bots (newest first). Real players are
+    // never touched. Returns the number actually removed.
+    removeBots(count: number){
+        const safeCount = Math.max(0, Math.floor(count))
+        // bots is in insertion order, so the newest are at the end - reverse to
+        // remove them first.
+        const newestFirst = this.bots.reverse()
+        let removed = 0
+        for(const bot of newestFirst){
+            if(removed >= safeCount) break
+            bot.remove()
+            removed++
+        }
+        return removed
+    }
+
+    // Add enough bots to sensibly fill the lobby toward FILL_TARGET_PLAYERS total
+    // players, capped at MAX_BOTS. The target is the same for every mode, but the
+    // way bots land on teams differs: in TEAM_DEATHMATCH a bot added during a live
+    // match lands on the SMALLER team (addPlayerMidGame reuses smallerTeam), and a
+    // bot added in the lobby is split into a balanced team at startMatch
+    // (assignTeams), so a fill keeps the two sides even either way. Free-for-all
+    // modes just top the headcount up. rng is injected so the difficulty spread +
+    // per-bot variance stay deterministic in tests.
+    fillBots(difficulty: BotDifficultyChoice = "mixed", rng: () => number = Math.random){
+        const target = FILL_TARGET_PLAYERS - this.playerCount
+        return this.addBots(Math.max(0, target), difficulty, rng)
     }
 
     clearBots(){

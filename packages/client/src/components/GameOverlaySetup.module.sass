@@ -237,6 +237,12 @@ $head-bg: transparentize($color-dark-2, 0.15)
         line-height: 1.2
         color: transparentize($color-text, 0.4)
 
+    // The host-only Bots section sits under the target stepper, fenced off with a
+    // top divider so it reads as its own group within the Match panel.
+    .botsRow
+        padding-top: 0.6em
+        border-top: $border-size solid $color-border
+
 // ---- Action bar: Spectate + Start Game (always reachable) ----
 .actionBar
     flex: 0 0 auto

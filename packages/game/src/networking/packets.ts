@@ -23,6 +23,17 @@ export function decodeTeam(team: number): number {
     return team === TEAM_WIRE_UNASSIGNED ? -1 : team
 }
 
+// hostBots.action wire values (the verb the host is requesting). Shared so the
+// client encoder and the server handler can never drift on what each code means.
+export const HOST_BOTS_ACTION_ADD = 0
+export const HOST_BOTS_ACTION_REMOVE = 1
+export const HOST_BOTS_ACTION_CLEAR = 2
+export const HOST_BOTS_ACTION_FILL = 3
+
+// hostBots.difficulty wire value for "mixed". A concrete BotDifficulty is 0..2;
+// 255 carries the config-only "mixed" choice (each added bot rolls its own).
+export const HOST_BOTS_DIFFICULTY_MIXED = 255
+
 // Fixed-point world position serializer shared by every position field on the
 // all-to-all broadcast. Every field that decodes a world coordinate MUST use
 // this same instance so they share one quantization lattice.
@@ -249,6 +260,22 @@ export const packetManager = new PacketManager({
         matchMinutes: $uint8,
     }),
 
+    // Host-only request to configure the lobby's bots. action picks the verb:
+    //   0 = add    -> add `count` bots of `difficulty`
+    //   1 = remove -> remove the `count` newest bots
+    //   2 = clear  -> remove every bot (count/difficulty ignored)
+    //   3 = fill   -> fill the lobby with bots of `difficulty`
+    // difficulty is the BotDifficulty wire value (0 EASY / 1 MEDIUM / 2 HARD), or
+    // HOST_BOTS_DIFFICULTY_MIXED (255) for "mixed" (each added bot rolls its own).
+    // The server validates the host (exactly like the /bot chat commands) and
+    // dispatches to addBots/removeBots/clearBots/fillBots; the bot changes ride
+    // back to every client through the normal add/remove/name broadcasts.
+    hostBots: new Packet({
+        action: $uint8,
+        count: $uint8,
+        difficulty: $uint8,
+    }),
+
     // Host-only request to disband the lobby from inside SETUP. Carries no
     // payload: the host identity is decided server-side (the server only honours
     // it when game.host matches the sender), so there is nothing to put on the wire.
@@ -321,6 +348,16 @@ export const encode = {
         mode,
         maxKills,
         matchMinutes,
+    }),
+
+    // Host-only bot config. action is one of the HOST_BOTS_ACTION_* codes; count
+    // is clamped to a uint8 (0..255, well past MAX_BOTS); difficulty is the
+    // BotDifficulty wire value or HOST_BOTS_DIFFICULTY_MIXED. The server re-clamps
+    // and re-validates the host, so these are just hints.
+    hostBots: (action: number, count: number, difficulty: number) => packetManager.serializers.hostBots.encode({
+        action,
+        count: Math.max(0, Math.min(255, Math.floor(count))),
+        difficulty,
     }),
 
     // Both close-lobby packets are payloadless (see their Packet definitions),

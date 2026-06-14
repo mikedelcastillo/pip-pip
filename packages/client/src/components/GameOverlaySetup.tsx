@@ -9,6 +9,7 @@ import GameChat from "./GameChat"
 import ShipSelect from "./ShipSelect"
 import MapSelect from "./MapSelect"
 import LobbyMenu from "./LobbyMenu"
+import BotsControls from "./BotsControls"
 import styles from "./GameOverlaySetup.module.sass"
 
 // Mode-target bounds + steps, mirrored from HostSettingsModal so the lobby and
@@ -158,6 +159,9 @@ export default function GameOverlaySetup() {
                                             </div>
                                             <GameButton accent onClick={() => stepTarget(1)}>+</GameButton>
                                         </div>
+                                    </div>
+                                    <div className={styles.botsRow}>
+                                        <BotsControls />
                                     </div>
                                 </>
                             ) : (

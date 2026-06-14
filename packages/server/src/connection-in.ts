@@ -1,7 +1,15 @@
-import { PipPipGame, PipPipGamePhase, PipPipGameMode } from "@pip-pip/game/src/logic"
+import { PipPipGame, PipPipGamePhase, PipPipGameMode, BotDifficultyChoice } from "@pip-pip/game/src/logic"
+import { BotDifficulty } from "@pip-pip/game/src/logic/ai"
 import { sanitize } from "@pip-pip/game/src/logic/utils"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
-import { encode } from "@pip-pip/game/src/networking/packets"
+import {
+    encode,
+    HOST_BOTS_ACTION_ADD,
+    HOST_BOTS_ACTION_REMOVE,
+    HOST_BOTS_ACTION_CLEAR,
+    HOST_BOTS_ACTION_FILL,
+    HOST_BOTS_DIFFICULTY_MIXED,
+} from "@pip-pip/game/src/networking/packets"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
 import type { GameTickContext } from "."
 import { sanitizePlayerInputs } from "./input-sanitize"
@@ -114,6 +122,44 @@ function runBotCommand(game: PipPipGame, message: string){
         return true
     }
     return false
+}
+
+// Decode a hostBots wire difficulty into the BotDifficultyChoice the game logic
+// wants: 255 -> "mixed", a valid 0..2 -> that BotDifficulty, anything else falls
+// back to "mixed" (the server never trusts the wire). Centralised so the mapping
+// has one home.
+function decodeBotDifficulty(value: number): BotDifficultyChoice {
+    if(value === HOST_BOTS_DIFFICULTY_MIXED) return "mixed"
+    if(value === BotDifficulty.EASY) return BotDifficulty.EASY
+    if(value === BotDifficulty.MEDIUM) return BotDifficulty.MEDIUM
+    if(value === BotDifficulty.HARD) return BotDifficulty.HARD
+    return "mixed"
+}
+
+// Apply one host bot-config request to the game. HOST-GATED by the caller exactly
+// like the /bot chat commands (only game.host may reach here). add/remove clamp
+// their count the same way /bots does; clear/fill ignore count. Mirrors
+// runBotCommand so the chat path and the packet path share one set of game calls.
+function runHostBotsPacket(game: PipPipGame, action: number, count: number, difficulty: number){
+    const difficultyChoice = decodeBotDifficulty(difficulty)
+    if(action === HOST_BOTS_ACTION_ADD){
+        const safe = Number.isFinite(count) ? count : 1
+        game.addBots(Math.min(Math.max(1, safe), MAX_BOTS_PER_COMMAND), difficultyChoice)
+        return
+    }
+    if(action === HOST_BOTS_ACTION_REMOVE){
+        const safe = Number.isFinite(count) ? count : 1
+        game.removeBots(Math.min(Math.max(1, safe), MAX_BOTS_PER_COMMAND))
+        return
+    }
+    if(action === HOST_BOTS_ACTION_CLEAR){
+        game.clearBots()
+        return
+    }
+    if(action === HOST_BOTS_ACTION_FILL){
+        game.fillBots(difficultyChoice)
+        return
+    }
 }
 
 // Execute a host promote-command. No-op (returns false) if the text is not a
@@ -269,6 +315,16 @@ export function processLobbyPackets(context: GameTickContext){
                         matchMinutes: clamp(matchMinutes, MODE_MIN_MINUTES, MODE_MAX_MINUTES),
                     })
                 }
+            }
+        }
+
+        // Host-only: configure the lobby's bots (add/remove/clear/fill). Gated on
+        // the host identity exactly like the /bot chat commands, then dispatched to
+        // the matching game method. The bot changes ride back to every client
+        // through the normal add/remove/name broadcasts, so nothing extra is sent.
+        for(const { action, count, difficulty } of packets.hostBots || []){
+            if(game.host?.id === connection.id){
+                runHostBotsPacket(game, action, count, difficulty)
             }
         }
 
