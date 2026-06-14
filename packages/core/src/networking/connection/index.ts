@@ -104,6 +104,13 @@ export class Connection<
     }
 
     startIdle(){
+        // A destroyed connection must never (re-)arm its idle timer. destroy()
+        // calls removeWebSocket(), which ends in startIdle(); the timer's closure
+        // captures `this` (and via it the server), so without this guard every
+        // disconnect / kick / lobby-close would pin the torn-down connection in
+        // memory for the full idle lifespan (~10 min) and hold a live timer the
+        // whole time.
+        if(this.destroyed) return
         this.stopIdle()
         this.idleTimeout = setTimeout(() => {
             this.destroy()
@@ -129,6 +136,11 @@ export class Connection<
             this.server.removeConnection(this)
 
             this.removeWebSocket()
+            // removeWebSocket() ends in startIdle() (now a no-op once destroyed),
+            // but also clear any idle timer that was already pending so nothing
+            // keeps this torn-down connection alive past teardown.
+            clearTimeout(this.idleTimeout)
+            this.idleTimeout = undefined
 
             this.events.emit("destroy")
             this.emitStatusChange()
