@@ -1253,6 +1253,20 @@ export class PipPipGame{
     dealDamage(dealer: PipPlayer, target: PipPlayer, weaponDamage = dealer.ship.stats.bullet.damage.normal){
         if(this.options.triggerDamage === false) return
 
+        // A target that is already dead (health 0, awaiting respawn) takes no
+        // further damage. Without this, several hits overlapping the SAME target on
+        // ONE tick (a multi-pellet spread fired point-blank, or two players' shots
+        // arriving together) each re-enter the death block below: the lethal hit
+        // drops health to 0 and despawns the target, but for every later hit
+        // `damage` clamps to 0 (so health stays 0) while the `health === 0` kill
+        // guard is still true, re-crediting a kill + a death and firing another
+        // playerKill per extra hit (corrupting the scoreboard, kill feed, and the
+        // kill-based win condition). dealDamage is the single chokepoint for ALL
+        // damage (bullets and grenade AoE both route through here), so one guard
+        // covers every source. (Keyed on health, not spawned: a despawned-but-alive
+        // target, e.g. a freshly added unspawned bot, can still be damaged.)
+        if(target.ship.capacities.health === 0) return
+
         // Anti-farm: award NO damage/kill/score credit for hits against an idle
         // (disconnected) real player. Idle players are already despawned during
         // MATCH, but this is the authoritative backstop so a reload-the-tab
