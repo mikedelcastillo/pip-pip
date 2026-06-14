@@ -1,5 +1,6 @@
 import { PipPipGameMode } from "@pip-pip/game/src/logic"
 import type { GameStorePlayer } from "./store"
+import { COLORS } from "./styles"
 
 // Shared TEAM_DEATHMATCH presentation: a palette of up to 6 distinct team colors +
 // names used by both the objective HUD (the team-score readout / leaderboard) and
@@ -60,4 +61,20 @@ export function teamIndices(numTeams: number): number[] {
 // one predicate instead of each re-checking the enum value.
 export function isTeamMode(mode: PipPipGameMode): boolean {
     return mode === PipPipGameMode.TEAM_DEATHMATCH
+}
+
+// The numeric PIXI fill color for a ship's floating health bar, RELATIVE to the
+// local player. Outside a team mode (or when teams are unassigned) the original
+// rule holds: the local player's own bar is GOOD (green), everyone else's is BAD
+// (red). Inside TEAM_DEATHMATCH it instead colors by TEAM: a teammate's bar is
+// GOOD (green), an enemy's is BAD (red), and the local player (a teammate of
+// itself) naturally stays GOOD. Pure (no store/DOM access) so it is trivially
+// unit-testable. A real team is any index >= 0; an unassigned ship (-1) on either
+// side falls back to the self/other rule so a pre-assignment value never reads as
+// a teammate.
+export function healthBarColor(localTeam: number, playerTeam: number, isClient: boolean, teamMode: boolean): number {
+    if (teamMode && localTeam >= 0 && playerTeam >= 0) {
+        return localTeam === playerTeam ? COLORS.GOOD : COLORS.BAD
+    }
+    return isClient ? COLORS.GOOD : COLORS.BAD
 }

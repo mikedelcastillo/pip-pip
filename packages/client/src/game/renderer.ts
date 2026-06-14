@@ -17,6 +17,10 @@ import { tickDown } from "@pip-pip/game/src/logic/utils"
 import { exceedsSnapDistance } from "./interpolation"
 import { Vector2 } from "@pip-pip/core/src/physics"
 import { EventCallback, EventMapOf } from "@pip-pip/core/src/common/events"
+import { healthBarColor, isTeamMode } from "./teams"
+import { useGameStore } from "./store"
+import { findPath, getNavGrid } from "@pip-pip/game/src/logic/pathfinding"
+import { findNearestEnemy } from "@pip-pip/game/src/logic/ai"
 import {
     ParticleSystem,
     emitExplosion,
@@ -382,6 +386,12 @@ export class PipPipRenderer{
     damagesContainer = new PIXI.Container()
     particlesContainer = new PIXI.Container()
 
+    // In-world debug overlay (bot paths + targets), drawn only while the debug
+    // panel is open. Its own single PIXI.Graphics so a frame either fills it
+    // (debug on) or clears it (debug off) without touching any other layer.
+    debugContainer = new PIXI.Container()
+    botPathsGraphic = new PIXI.Graphics()
+
     mapBackgroundContainer = new PIXI.Container()
     mapForegroundContainer = new PIXI.Container()
 
@@ -448,11 +458,16 @@ export class PipPipRenderer{
         this.viewportContainer.addChild(this.starsContainer)
         this.viewportContainer.addChild(this.bulletsContainer)
         this.viewportContainer.addChild(this.mapBackgroundContainer)
+        this.viewportContainer.addChild(this.debugContainer)
         this.viewportContainer.addChild(this.powerupsContainer)
         this.viewportContainer.addChild(this.playersContainer)
         this.viewportContainer.addChild(this.mapForegroundContainer)
         this.viewportContainer.addChild(this.particlesContainer)
         this.viewportContainer.addChild(this.damagesContainer)
+
+        // The bot-path debug layer lives just above the map floor so routes read
+        // over the tiles but never occlude ships / bullets.
+        this.debugContainer.addChild(this.botPathsGraphic)
 
         this.bullets = new GraphicPool(this.bulletsContainer, BulletGraphic)
         this.powerups = new GraphicPool(this.powerupsContainer, PowerupGraphic)
@@ -693,6 +708,66 @@ export class PipPipRenderer{
         this.container.appendChild(this.app.view)
     }
 
+    // DEBUG: visualise bot pathfinding in-world. Only runs while the debug panel
+    // is open (otherwise the layer is cleared and we bail). The client never
+    // receives the server's bot.path, so for each bot we recompute a DISPLAY path
+    // here, client-side, with the SAME pathfinding the server uses: route from the
+    // bot to its nearest enemy over the map's cached nav grid. We draw the
+    // waypoints as small dots joined by lines, plus a ring on the bot's current
+    // target. Cheap: only the (few) bots, only while debug is on.
+    private drawBotPaths(graphics: PlayerGraphic[]){
+        const g = this.botPathsGraphic
+        g.clear()
+
+        if(useGameStore.getState().debug === false) return
+        if(typeof this.game.map === "undefined") return
+
+        const allPlayers = Object.values(this.game.players)
+        const grid = getNavGrid(this.game.map)
+        const rectWalls = this.game.map.rectWalls
+        const segWalls = this.game.map.segWalls
+
+        for(const graphic of graphics){
+            const bot = graphic.player
+            if(bot.isBot !== true) continue
+            if(bot.spawned !== true) continue
+
+            const found = findNearestEnemy(bot, allPlayers)
+            if(typeof found === "undefined") continue
+
+            const fromX = bot.ship.physics.position.x
+            const fromY = bot.ship.physics.position.y
+            const toX = found.target.ship.physics.position.x
+            const toY = found.target.ship.physics.position.y
+
+            // The routed waypoints (start -> ... -> goal). An empty result means no
+            // route was found; still mark the target so the intent reads.
+            const path = findPath(grid, fromX, fromY, toX, toY, rectWalls, segWalls)
+            const waypoints = path.length > 0
+                ? path
+                : [{ x: fromX, y: fromY }, { x: toX, y: toY }]
+
+            // Connecting lines along the path.
+            g.lineStyle({ width: 2, color: COLORS.ACCENT, alpha: 0.7 })
+            g.moveTo(waypoints[0].x, waypoints[0].y)
+            for(let i = 1; i < waypoints.length; i++){
+                g.lineTo(waypoints[i].x, waypoints[i].y)
+            }
+
+            // A small dot on each waypoint.
+            g.lineStyle(0)
+            g.beginFill(COLORS.ACCENT, 0.9)
+            for(const wp of waypoints){
+                g.drawCircle(wp.x, wp.y, 4)
+            }
+            g.endFill()
+
+            // A ring marker on the bot's CURRENT target.
+            g.lineStyle({ width: 2, color: COLORS.MAIN, alpha: 0.9 })
+            g.drawCircle(toX, toY, SHIP_DAIMETER * 0.75)
+        }
+    }
+
     render(gameContext: GameContext, deltaMs: number){
         const deltaTime = deltaMs / this.game.deltaMs
         const timeDiff = Date.now() - this.game.lastTick
@@ -728,6 +803,15 @@ export class PipPipRenderer{
         const playerRotationSmoothing = deltaTime / SMOOTHING.PLAYER_ROTATION
         const playerMovementSmoothing = deltaTime / SMOOTHING.PLAYER_MOVEMENT
         const clientPlayerMovementSmoothing = deltaTime / SMOOTHING.CLIENT_PLAYER_MOVEMENT
+
+        // Team context for health-bar coloring, resolved once per frame. In
+        // TEAM_DEATHMATCH the bar is colored by TEAM relative to the local player
+        // (teammate green, enemy red); outside TDM the original self/other rule
+        // holds. localTeam is -1 when there is no local player (e.g. spectating
+        // before a target resolves), which healthBarColor falls back from.
+        const teamMode = isTeamMode(useGameStore.getState().mode)
+        const localTeam = typeof clientPlayer !== "undefined" ? clientPlayer.team : -1
+
         for(const graphic of players){
             const isClient = graphic.player === gameContext.getClientPlayer()
             const movementSmoothing = isClient ? clientPlayerMovementSmoothing : playerMovementSmoothing
@@ -771,7 +855,7 @@ export class PipPipRenderer{
 
             graphic.overlayGraphic.lineStyle({
                 width: DIMS.HEALTH_BAR_HEIGHT,
-                color: isClient ? COLORS.GOOD : COLORS.BAD,
+                color: healthBarColor(localTeam, graphic.player.team, isClient, teamMode),
             })
             graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
             const h = graphic.player.ship.capacities.health / graphic.player.ship.maxHealth
@@ -827,6 +911,11 @@ export class PipPipRenderer{
                 this.camera.target.y = ty
             }
         }
+
+        // Debug overlay: when the panel is open, visualise each bot's intended
+        // route + current target so pathfinding is legible in-world. Cheap (only
+        // for bots, only while debug is on); a clear when off.
+        this.drawBotPaths(players)
 
         // Nothing to follow this frame — the local player is briefly dead /
         // respawning, or a spectator has no live target yet. HOLD the camera at

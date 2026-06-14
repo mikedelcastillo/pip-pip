@@ -366,6 +366,12 @@ export interface GameStoreState {
 
     showPlayerList: boolean
 
+    // Debug overlay visibility, toggled by the backquote (`) key. Exposed on the
+    // store (not just local React state) so the Pixi renderer can read it each
+    // frame to draw its in-world debug layer (e.g. bot paths) in lock-step with
+    // the React DebugOverlay panel.
+    debug: boolean
+
     chatMessages: ChatMessage[]
     outgoingMessages: string[]
 
@@ -384,6 +390,7 @@ export interface GameStoreState {
     addPowerupPickup: (playerId: string, playerName: string, type: PowerupType) => void
     addOutgoingMessage: (text: string) => void
     consumeOutgoingMessages: () => string[]
+    setDebug: (debug: boolean) => void
     sync: () => void
 }
 
@@ -432,6 +439,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
     showPlayerList: false,
 
+    debug: false,
+
     chatMessages: [],
     outgoingMessages: [],
 
@@ -477,6 +486,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         set({ outgoingMessages: [] })
         return current
     },
+
+    setDebug: (debug) => set({ debug }),
 
     sync: () => {
         const { game } = GAME_CONTEXT

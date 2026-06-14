@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { GAME_CONTEXT } from "../game"
+import { useGameStore } from "../game/store"
 import styles from "./DebugOverlay.module.sass"
 
 // How often the panel re-reads live game state. A lightweight 4Hz snapshot
@@ -128,7 +129,11 @@ function readSnapshot(): DebugSnapshot {
 }
 
 export default function DebugOverlay() {
-    const [visible, setVisible] = useState(false)
+    // Visibility now lives on the game store (single source of truth) so the Pixi
+    // renderer's in-world debug layer (bot paths) toggles in lock-step with this
+    // React panel. The backquote key flips the store flag below.
+    const visible = useGameStore((s) => s.debug)
+    const setDebug = useGameStore((s) => s.setDebug)
     const [data, setData] = useState<DebugSnapshot | null>(null)
 
     // Toggle on the backquote key. Bound to window directly so it works
@@ -137,12 +142,12 @@ export default function DebugOverlay() {
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.code === TOGGLE_CODE) {
                 e.preventDefault()
-                setVisible((v) => !v)
+                setDebug(!useGameStore.getState().debug)
             }
         }
         window.addEventListener("keydown", onKeyDown)
         return () => window.removeEventListener("keydown", onKeyDown)
-    }, [])
+    }, [setDebug])
 
     // Snapshot live values on a 4Hz interval — only while visible, so a hidden
     // panel costs nothing and the open panel never adds per-frame React churn.
