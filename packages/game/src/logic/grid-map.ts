@@ -292,6 +292,17 @@ export class GridPipGameMap extends PipGameMap{
                         // Match the legacy seg radius so diagonals collide with the
                         // same half-tile thickness the old segment walls used.
                         seg.radius = cellSize / 2
+                        // Diagonals resist along their SPAN only (no rounded
+                        // endcap). The capsule endcap otherwise pokes radius
+                        // (= cellSize/2) past each tip, an invisible bump where a
+                        // diagonal meets a flat wall or another diagonal that
+                        // catches ships and wedges bots. The span itself is still
+                        // a solid barrier, so the slope face stays impassable; in
+                        // the common chamfer case the adjacent full tiles' rect
+                        // walls seal the tip. Only the legacy/explicit straight
+                        // `segments` below keep the default capped behaviour, so
+                        // migrated maps are completely unchanged.
+                        seg.cappedEnds = false
                         this.segWalls.push(seg)
                         compare(ends.startX + ox, ends.startY + oy)
                         compare(ends.endX + ox, ends.endY + oy)

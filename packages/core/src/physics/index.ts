@@ -81,6 +81,17 @@ export class PointPhysicsSegmentWall{
     start: Vector2
     end: Vector2
     radius = 25
+    // When true (default) the wall is a full capsule with ROUNDED ENDCAPS: it
+    // resists everywhere within `radius` of the spine, including the half-circle
+    // beyond each endpoint. This is the original behaviour, so every existing
+    // wall (legacy/migrated straight segments, every current map) is unchanged.
+    //
+    // When false the wall is a FLAT barrier over its SPAN only, with NO endcap:
+    // an object beyond the segment's projected span (t < 0 or t > 1) is not
+    // pushed, removing the invisible "bump" a diagonal capsule otherwise leaves
+    // past its tip where it meets a flat wall or another diagonal. An object
+    // alongside the span is still fully blocked. See resolveWallCollisions.
+    cappedEnds = true
     constructor(id?: string, startX?: number, startY?: number, endX?: number, endY?: number){
         if(typeof id === "string"){
             this.id = id
@@ -622,6 +633,24 @@ export class PointPhysicsWorld{
             if(object.position.x > Math.max(segWall.start.x, segWall.end.x) + minDist) continue
             if(object.position.y < Math.min(segWall.start.y, segWall.end.y) - minDist) continue
             if(object.position.y > Math.max(segWall.start.y, segWall.end.y) + minDist) continue
+
+            // Uncapped (cappedEnds === false) walls resist ONLY along their span:
+            // project the object onto the segment line and, if it lands beyond an
+            // endpoint (t < 0 or t > 1), it sits in the old rounded-endcap region,
+            // so skip it (no push). Alongside the span the push below is unchanged,
+            // so the object still cannot pass through the wall face. A degenerate
+            // zero-length segment falls back to the capped path (no projection, no
+            // divide-by-zero), preserving the original capsule/circle behaviour.
+            if(segWall.cappedEnds === false){
+                const sx = segWall.end.x - segWall.start.x
+                const sy = segWall.end.y - segWall.start.y
+                const segLenSq = sx * sx + sy * sy
+                if(segLenSq > POINT_PHYSICS_MIN_DIST){
+                    const t = ((object.position.x - segWall.start.x) * sx +
+                        (object.position.y - segWall.start.y) * sy) / segLenSq
+                    if(t < 0 || t > 1) continue
+                }
+            }
 
             const near = nearestPointFromSegment(
                 segWall.start.x, segWall.start.y,

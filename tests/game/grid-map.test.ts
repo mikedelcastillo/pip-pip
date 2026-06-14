@@ -238,6 +238,51 @@ describe("diagonal tiles", () => {
         expect(seg.radius).toBe(TILE_SIZE / 2)
         expect(isDiagonalShape("diag_br")).toBe(true)
     })
+
+    it("marks diagonal segWalls UNCAPPED so their endcap bump is removed", () => {
+        // A diagonal tile's segWall resists along its span only (cappedEnds ===
+        // false): the rounded endcap that caught ships / wedged bots at the tip is
+        // gone, while the radius (collision thickness) is unchanged.
+        const data: GridMapData = {
+            name: "diag",
+            cellSize: TILE_SIZE,
+            cols: 1,
+            rows: 1,
+            tiles: [1],
+            spawns: [],
+            palette: [{ key: "slope", shape: "diag_tr" }],
+        }
+        const map = loadGridMap("diag", data)
+
+        expect(map.segWalls.length).toBe(1)
+        const seg = map.segWalls[0]
+        expect(seg.cappedEnds).toBe(false)
+        // Radius unchanged: still the legacy half-tile thickness.
+        expect(seg.radius).toBe(TILE_SIZE / 2)
+    })
+
+    it("keeps legacy/explicit straight segments CAPPED (capsule) with unchanged radius", () => {
+        // Explicit cell-space `segments` (how the migration carries legacy
+        // wall_segments) must stay capped so converted maps are byte-identical.
+        const data: GridMapData = {
+            name: "segs",
+            cellSize: TILE_SIZE,
+            cols: 4,
+            rows: 4,
+            tiles: new Array(16).fill(0),
+            spawns: [],
+            palette: [],
+            segments: [[0, 0, 3, 0]],
+        }
+        const map = loadGridMap("segs", data)
+
+        expect(map.segWalls.length).toBe(1)
+        const seg = map.segWalls[0]
+        // Default capped behaviour (rounded endcaps) is preserved for straight
+        // segments, and the radius is still the legacy half-tile thickness.
+        expect(seg.cappedEnds).toBe(true)
+        expect(seg.radius).toBe(TILE_SIZE / 2)
+    })
 })
 
 describe("nav grid builds from a new-format map", () => {
