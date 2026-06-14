@@ -14,7 +14,12 @@ export type MouseState = {
     right: MouseButtonState,
     position: MousePosition & {
         previous: MousePosition,
-    }
+    },
+    // Accumulated wheel delta since a consumer last drained it. wheelHandler adds
+    // each WheelEvent's deltaX/deltaY here; a reader (e.g. processInputs) checks
+    // the sign to detect a scroll this frame, then zeroes it via consumeWheel().
+    // Kept additive so existing position/button readers are untouched.
+    wheel: MousePosition,
 }
 
 export type MouseListenerEventMap = {
@@ -76,6 +81,10 @@ export class MouseListener extends EventEmitter<MouseListenerEventMap>{
                 y: 0,
             },
         },
+        wheel: {
+            x: 0,
+            y: 0,
+        },
     }
 
     // Bound once so addEventListener and removeEventListener share the identical
@@ -96,12 +105,28 @@ export class MouseListener extends EventEmitter<MouseListenerEventMap>{
     }
 
     wheelHandler(e: WheelEvent){
+        // Accumulate the delta so a per-tick reader can see a scroll that landed
+        // between ticks (the event may fire many times per frame). Drained by
+        // consumeWheel() once read.
+        this.state.wheel.x += e.deltaX
+        this.state.wheel.y += e.deltaY
         this.emit("wheel", {
             state: this.state,
             x: e.deltaX,
             y: e.deltaY,
         })
         this.preventHandler(e)
+    }
+
+    // Read and clear the accumulated wheel delta. Returns the deltas built up
+    // since the last call so a momentary "wheel up/down" trigger is seen exactly
+    // once on the tick the scroll happened.
+    consumeWheel(): MousePosition {
+        const x = this.state.wheel.x
+        const y = this.state.wheel.y
+        this.state.wheel.x = 0
+        this.state.wheel.y = 0
+        return { x, y }
     }
     
     mouseHandler(e: MouseEvent){

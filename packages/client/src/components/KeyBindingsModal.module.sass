@@ -8,27 +8,26 @@
 
 .tableHead
     display: grid
-    grid-template-columns: 1fr auto auto
+    grid-template-columns: 1fr 2fr auto
     gap: 0.6em
     align-items: center
     color: $color-accent
     font-size: 0.7em
     padding-bottom: 0.3em
 
-    > div:nth-child(2),
     > div:nth-child(3)
-        // The two binding columns are fixed-width cells, right-aligned to match
-        // the buttons below them.
+        // The controller column is a fixed-width cell, centred to match the
+        // button below it.
         min-width: 4.5em
         text-align: center
 
 .rows
     display: grid
-    gap: 0.3em
+    gap: 0.4em
 
 .row
     display: grid
-    grid-template-columns: 1fr auto auto
+    grid-template-columns: 1fr 2fr auto
     gap: 0.6em
     align-items: center
 
@@ -37,8 +36,70 @@
         // Long labels wrap rather than push the binding cells off a phone screen.
         min-width: 0
 
-// A clickable binding cell, styled like a small inset chip. Used for both the
-// keyboard and the controller column.
+// The inputs column holds a wrapping list of binding chips plus an Add control.
+.inputs
+    min-width: 0
+
+.chips
+    display: flex
+    flex-wrap: wrap
+    gap: 0.3em
+    align-items: center
+
+// One bound input, shown as a small inset chip with a remove (×) button.
+.chip
+    display: inline-flex
+    align-items: center
+    gap: 0.25em
+    padding: 0.1em 0.1em 0.1em 0.45em
+    font-family: $font-family-game
+    font-size: 0.85em
+    color: $color-main
+    background-color: $color-dark-1
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    line-height: 1.2
+
+    &.duplicate
+        // Flag an input that is bound to more than one action.
+        color: $color-bad
+        border-color: $color-bad
+
+.chipLabel
+    white-space: nowrap
+
+.chipRemove
+    appearance: none
+    cursor: pointer
+    border: none
+    background: transparent
+    color: inherit
+    font-family: $font-family-game
+    font-size: 1em
+    line-height: 1
+    padding: 0 0.25em
+
+    &:hover
+        color: $color-bad
+
+// The "+ Add" affordance, styled like a dashed chip so it reads as an action.
+.addButton
+    appearance: none
+    cursor: pointer
+    padding: 0.15em 0.5em
+    font-family: $font-family-game
+    font-size: 0.8em
+    color: $color-accent
+    background-color: $color-dark-1
+    border: $border-size dashed $color-border
+    border-radius: $border-radius
+    line-height: 1.2
+
+    &:hover
+        border-color: $color-main
+
+// A clickable binding cell, styled like a small inset chip. Used for the
+// controller column.
 .bindButton
     appearance: none
     cursor: pointer
@@ -56,12 +117,14 @@
     &:hover
         border-color: $color-main
 
-    .duplicate
-        // Flag a key that is bound to more than one action.
-        color: $color-bad
+.capturing
+    color: $color-accent
+    font-size: 0.8em
 
-    .capturing
-        color: $color-accent
+.unbound
+    color: $color-text
+    font-size: 0.8em
+    opacity: 0.6
 
 .warning
     color: $color-bad

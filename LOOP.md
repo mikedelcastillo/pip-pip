@@ -361,4 +361,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 69 | `1528cad`   | In-game HUD overhaul: pause menu + floating sticks + declutter | `git revert 1528cad` |
 | 70 | `f95e39c`   | Condense repo docs (CLAUDE/README/deploy), fix stale tests note | `git revert f95e39c` |
 | 71 | `aca4c39`   | Apex-style HUD redesign + "Respawning in N" overlay   | `git revert aca4c39` |
-| 72 | (latest)    | Optional Telegram analytics/control bot (+ deploy commit broadcast) | `git revert <sha>` |
+| 72 | `2fac305`   | Optional Telegram analytics/control bot (+ deploy commit broadcast) | `git revert 2fac305` |
+| 73 | (latest)    | Bindings: mouse buttons + wheel + multiple bindings per action | `git revert <sha>` |

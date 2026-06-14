@@ -6,6 +6,12 @@ import {
     readFirstGamepad,
 } from "./gamepad"
 import { useUiStore } from "../store/ui"
+import { BindingInputState, isActionActive } from "../store/keybindings"
+
+// A scroll past this magnitude (in WheelEvent delta units, accumulated since the
+// last tick) counts as a wheel "tick" in that direction. Small enough to catch a
+// single notch on a mouse wheel, large enough to ignore stray trackpad jitter.
+const WHEEL_THRESHOLD = 1
 
 export function processInputs(context: GameContext){
     const { mouse, keyboard, game } = context
@@ -14,18 +20,38 @@ export function processInputs(context: GameContext){
 
     // Custom bindings live in the UI store (seeded from localStorage). Read them
     // each tick via getState() so this hot path stays outside React and always
-    // reflects the latest remap without a re-render. `keyDown` resolves an action
-    // to whether its bound key code is currently held in the keyboard listener.
+    // reflects the latest remap without a re-render.
     const { keyBindings, gamepadBindings } = useUiStore.getState()
-    const keyDown = (action: keyof typeof keyBindings) =>
-        keyboard.state[keyBindings[action]] === true
+
+    // Drain the wheel delta ONCE per tick (it is momentary: consuming it here
+    // clears the accumulator so a wheel binding triggers on exactly the tick the
+    // scroll landed). Then snapshot keyboard + mouse state for binding resolution.
+    const wheel = mouse.consumeWheel()
+    const inputState: BindingInputState = {
+        keys: keyboard.state,
+        mouse: {
+            left: mouse.state.left.down,
+            middle: mouse.state.middle.down,
+            right: mouse.state.right.down,
+        },
+        wheel: {
+            up: wheel.y <= -WHEEL_THRESHOLD,
+            down: wheel.y >= WHEEL_THRESHOLD,
+        },
+    }
+
+    // An action is active if ANY of its bindings (key, mouse button, or wheel
+    // direction) is active this tick. This is what lets a single action be bound
+    // to several inputs at once (e.g. fire on both Space and left-click).
+    const actionActive = (action: keyof typeof keyBindings) =>
+        isActionActive(keyBindings[action], inputState)
 
     let xInput = 0, yInput = 0
 
-    if(keyDown("moveUp")) yInput -= 1
-    if(keyDown("moveDown")) yInput += 1
-    if(keyDown("moveLeft")) xInput -= 1
-    if(keyDown("moveRight")) xInput += 1
+    if(actionActive("moveUp")) yInput -= 1
+    if(actionActive("moveDown")) yInput += 1
+    if(actionActive("moveLeft")) xInput -= 1
+    if(actionActive("moveRight")) xInput += 1
 
     const hasKeyboardInput = xInput !== 0 || yInput !== 0
 
@@ -46,11 +72,13 @@ export function processInputs(context: GameContext){
 
     clientPlayer.inputs.aimRotation = mouseAngle
 
-    // shooting — the bound keys drive each action; the mouse buttons keep their
-    // fixed roles (left = fire, right = tactical) since aim stays on the mouse.
-    clientPlayer.inputs.useWeapon = (mouse.state.left.down || keyDown("fire")) === true
-    clientPlayer.inputs.useTactical = (mouse.state.right.down || keyDown("tactical")) === true
-    clientPlayer.inputs.doReload = keyDown("reload")
+    // shooting: every action is driven entirely by its bindings now. The
+    // default bindings reproduce the old behavior (left-click + Space fire,
+    // right-click + Q tactical, R reload) without the previously hard-wired mouse
+    // lines, so a player can freely rebind the mouse buttons too.
+    clientPlayer.inputs.useWeapon = actionActive("fire")
+    clientPlayer.inputs.useTactical = actionActive("tactical")
+    clientPlayer.inputs.doReload = actionActive("reload")
 
     // Mobile twin-stick overlay. The TouchControls component mutates `touchState`
     // on each pointer event; here we fold it into the same inputs object that the

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useUiStore } from "../store/ui"
-import { ACTION_LABELS, GAME_ACTIONS, keyCodeLabel } from "../store/keybindings"
+import { ACTION_LABELS, GAME_ACTIONS, bindingListLabel } from "../store/keybindings"
 import Modal from "./Modal"
 import AudioVolumeToggle from "./AudioVolumeToggle"
 import GameButton from "./GameButton"
@@ -63,7 +63,7 @@ export default function SettingsModal({ onClose }: Props) {
                     {GAME_ACTIONS.map((action) => (
                         <div className={styles.controlRow} key={action}>
                             <div className={styles.controlAction}>{ACTION_LABELS[action]}</div>
-                            <div className={styles.controlKeys}>{keyCodeLabel(keyBindings[action])}</div>
+                            <div className={styles.controlKeys}>{bindingListLabel(keyBindings[action])}</div>
                         </div>
                     ))}
                 </div>

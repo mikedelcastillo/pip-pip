@@ -22,7 +22,7 @@ export type GameAction =
     | "reload"
     | "scoreboard"
 
-// Ordered list — the single source of truth for iteration (UI rows, validation,
+// Ordered list - the single source of truth for iteration (UI rows, validation,
 // merge). Keeping it explicit avoids relying on object key order.
 export const GAME_ACTIONS: readonly GameAction[] = [
     "moveUp",
@@ -48,9 +48,30 @@ export const ACTION_LABELS: Record<GameAction, string> = {
     scoreboard: "Scoreboard",
 }
 
-// action -> KeyboardEvent.code (the same `e.code` the core KeyboardListener
-// keys its state by, e.g. "KeyW", "Space", "Tab").
-export type KeyBindings = Record<GameAction, string>
+// A single binding for an action. Three kinds, so one action can be triggered by
+// a keyboard key, a mouse button, or a wheel scroll direction:
+//   - "key":   a KeyboardEvent.code (e.g. "KeyW", "Space", "Tab"), the same code
+//              the core KeyboardListener keys its state by.
+//   - "mouse": a MouseEvent.button index (0 = left, 1 = middle, 2 = right).
+//   - "wheel": a scroll direction. Momentary: active only on the tick the wheel
+//              moved that way (see processInputs).
+export type MouseButton = 0 | 1 | 2
+export type WheelDirection = "up" | "down"
+
+export type Binding =
+    | { kind: "key", code: string }
+    | { kind: "mouse", button: MouseButton }
+    | { kind: "wheel", dir: WheelDirection }
+
+// Convenience constructors so call sites (defaults, capture, tests) read cleanly.
+export const keyBinding = (code: string): Binding => ({ kind: "key", code })
+export const mouseBinding = (button: MouseButton): Binding => ({ kind: "mouse", button })
+export const wheelBinding = (dir: WheelDirection): Binding => ({ kind: "wheel", dir })
+
+// action -> list of bindings. An action is active if ANY of its bindings is
+// active, so a player can bind "fire" to BOTH Space and left-click at once. An
+// empty array means the action is currently unbound (allowed; the UI warns).
+export type KeyBindings = Record<GameAction, Binding[]>
 
 // action -> gamepad button index (the index into Gamepad.buttons from the
 // Gamepad API). Standard mapping: 0=A/cross, 1=B/circle, 2=X/square, 3=Y/triangle,
@@ -63,18 +84,20 @@ export interface ControlBindings {
     gamepad: GamepadBindings
 }
 
-// Current defaults — these mirror the behavior processInputs had before it was
-// made configurable (WASD move, Space fire, Q tactical, R reload, Tab
-// scoreboard). Movement keys default to WASD.
+// Current defaults: these reproduce the behavior processInputs had before it
+// was made configurable, now expressed as the new multi-binding model: WASD
+// move, Space + left-click fire, Q + right-click tactical, R reload, Tab
+// scoreboard. The mouse entries reproduce the old hard-wired mouse-left=fire /
+// mouse-right=tactical lines that processInputs used to carry directly.
 export const DEFAULT_KEYBINDINGS: KeyBindings = {
-    moveUp: "KeyW",
-    moveDown: "KeyS",
-    moveLeft: "KeyA",
-    moveRight: "KeyD",
-    fire: "Space",
-    tactical: "KeyQ",
-    reload: "KeyR",
-    scoreboard: "Tab",
+    moveUp: [keyBinding("KeyW")],
+    moveDown: [keyBinding("KeyS")],
+    moveLeft: [keyBinding("KeyA")],
+    moveRight: [keyBinding("KeyD")],
+    fire: [keyBinding("Space"), mouseBinding(0)],
+    tactical: [keyBinding("KeyQ"), mouseBinding(2)],
+    reload: [keyBinding("KeyR")],
+    scoreboard: [keyBinding("Tab")],
 }
 
 // Sensible gamepad defaults for a standard-mapping controller. Left stick drives
@@ -92,30 +115,89 @@ export const DEFAULT_GAMEPAD_BINDINGS: GamepadBindings = {
     scoreboard: 3, // Y / triangle
 }
 
+// Deep-clone a default binding list so callers never share the module's frozen
+// constants (a setter mutating a shared array would corrupt the defaults).
+const cloneBindingList = (list: Binding[]): Binding[] => list.map((b) => ({ ...b }))
+
+export const cloneDefaultKeys = (): KeyBindings => {
+    const result = {} as KeyBindings
+    for (const action of GAME_ACTIONS) {
+        result[action] = cloneBindingList(DEFAULT_KEYBINDINGS[action])
+    }
+    return result
+}
+
 export const DEFAULT_CONTROL_BINDINGS: ControlBindings = {
-    keys: { ...DEFAULT_KEYBINDINGS },
+    keys: cloneDefaultKeys(),
     gamepad: { ...DEFAULT_GAMEPAD_BINDINGS },
 }
 
 // Build a fresh copy of the defaults (so callers never share the frozen module
 // constants). Used by every parse/read fallback below.
 const defaultBindings = (): ControlBindings => ({
-    keys: { ...DEFAULT_KEYBINDINGS },
+    keys: cloneDefaultKeys(),
     gamepad: { ...DEFAULT_GAMEPAD_BINDINGS },
 })
 
-// Merge a partial, possibly-malformed record of key codes onto the defaults.
-// Any action whose value is not a non-empty string falls back to its default,
-// and unknown actions are dropped — so an old/partial blob upgrades cleanly.
+// Validate + normalise one stored binding value into a Binding, or null if it is
+// malformed. Tolerant of unknown shapes so a corrupt entry is dropped, not fatal.
+const parseBinding = (raw: unknown): Binding | null => {
+    if (typeof raw !== "object" || raw === null) return null
+    const record = raw as Record<string, unknown>
+    if (record.kind === "key") {
+        return typeof record.code === "string" && record.code.length > 0
+            ? keyBinding(record.code)
+            : null
+    }
+    if (record.kind === "mouse") {
+        const button = record.button
+        return button === 0 || button === 1 || button === 2
+            ? mouseBinding(button)
+            : null
+    }
+    if (record.kind === "wheel") {
+        return record.dir === "up" || record.dir === "down"
+            ? wheelBinding(record.dir)
+            : null
+    }
+    return null
+}
+
+// Normalise one action's stored value into a Binding[]. Accepts:
+//   - the new array form: [{kind:"key",code:"Space"}, {kind:"mouse",button:0}]
+//   - the OLD single-string form: "Space" (upgraded to [{kind:"key",...}])
+// Anything malformed yields null so the caller can fall back to the default.
+const parseBindingList = (raw: unknown): Binding[] | null => {
+    // Old persisted blob: action -> a single KeyboardEvent.code string. Upgrade
+    // it to the new array shape so existing users do not lose their remaps.
+    if (typeof raw === "string") {
+        return raw.length > 0 ? [keyBinding(raw)] : null
+    }
+    if (Array.isArray(raw)) {
+        const bindings: Binding[] = []
+        for (const entry of raw) {
+            const binding = parseBinding(entry)
+            if (binding !== null) bindings.push(binding)
+        }
+        // A present-but-empty array is a deliberate "unbound" state; keep it.
+        return bindings
+    }
+    return null
+}
+
+// Merge a partial, possibly-malformed record of key bindings onto the defaults.
+// Each action's value is normalised independently (and old single-string blobs
+// are upgraded), so a partial/old persisted blob upgrades cleanly. Unknown
+// actions are dropped.
 export const mergeKeyBindings = (raw: unknown): KeyBindings => {
-    const result: KeyBindings = { ...DEFAULT_KEYBINDINGS }
+    const result = cloneDefaultKeys()
     if (typeof raw !== "object" || raw === null) return result
 
     const record = raw as Record<string, unknown>
     for (const action of GAME_ACTIONS) {
-        const value = record[action]
-        if (typeof value === "string" && value.length > 0) {
-            result[action] = value
+        const list = parseBindingList(record[action])
+        if (list !== null) {
+            result[action] = list
         }
     }
     return result
@@ -189,19 +271,36 @@ export const writeControlBindings = (b: ControlBindings): void => {
     }
 }
 
-// Find every key code that is bound to more than one action. Returns the set of
-// conflicting codes (empty when all bindings are unique). The UI uses this to
-// warn — duplicates are allowed (a player may genuinely want one key to do two
-// things) but flagged.
+// A stable, comparable identity for a binding. Used to dedupe within an action's
+// list (so "Add" never inserts the same binding twice) and to spot a binding
+// shared across actions (the UI warns on those). Pure, so it is unit-testable.
+export const bindingId = (b: Binding): string => {
+    if (b.kind === "key") return `key:${b.code}`
+    if (b.kind === "mouse") return `mouse:${b.button}`
+    return `wheel:${b.dir}`
+}
+
+export const bindingsEqual = (a: Binding, b: Binding): boolean => bindingId(a) === bindingId(b)
+
+// Find every binding that is shared by more than one action. Returns the set of
+// conflicting binding ids (empty when all bindings are unique). The UI uses this
+// to warn: duplicates are allowed (a player may genuinely want one input to do
+// two things) but flagged. Duplicate ids within a single action's own list are
+// not double-counted (the setters dedupe those away).
 export const findDuplicateKeys = (keys: KeyBindings): Set<string> => {
     const counts = new Map<string, number>()
     for (const action of GAME_ACTIONS) {
-        const code = keys[action]
-        counts.set(code, (counts.get(code) ?? 0) + 1)
+        const seen = new Set<string>()
+        for (const binding of keys[action]) {
+            const id = bindingId(binding)
+            if (seen.has(id)) continue
+            seen.add(id)
+            counts.set(id, (counts.get(id) ?? 0) + 1)
+        }
     }
     const duplicates = new Set<string>()
-    for (const [code, count] of counts) {
-        if (count > 1) duplicates.add(code)
+    for (const [id, count] of counts) {
+        if (count > 1) duplicates.add(id)
     }
     return duplicates
 }
@@ -210,7 +309,7 @@ export const findDuplicateKeys = (keys: KeyBindings): Set<string> => {
 // ("KeyW" -> "W", "ArrowUp" -> "↑", "Space" -> "Space"). Falls back to the raw
 // code for anything unrecognised. Pure, so it is unit-testable.
 export const keyCodeLabel = (code: string): string => {
-    if (code.length === 0) return "—"
+    if (code.length === 0) return "--"
     if (code.startsWith("Key")) return code.slice(3)
     if (code.startsWith("Digit")) return code.slice(5)
     if (code.startsWith("Numpad")) return `Num ${code.slice(6)}`
@@ -233,11 +332,37 @@ export const keyCodeLabel = (code: string): string => {
     return named[code] ?? code
 }
 
+// Friendly label for a mouse button index. Pure, so it is unit-testable.
+export const mouseButtonLabel = (button: number): string => {
+    const named: Record<number, string> = {
+        0: "L-Click",
+        1: "M-Click",
+        2: "R-Click",
+    }
+    return named[button] ?? `Mouse ${button}`
+}
+
+// Friendly label for ANY binding kind, for chip display in the modal. Pure, so
+// it is unit-testable.
+export const bindingLabel = (b: Binding): string => {
+    if (b.kind === "key") return keyCodeLabel(b.code)
+    if (b.kind === "mouse") return mouseButtonLabel(b.button)
+    return b.dir === "up" ? "Wheel Up" : "Wheel Down"
+}
+
+// One-line summary of an action's whole binding list (e.g. "Space / L-Click"),
+// for read-only displays like the settings overview. Shows the empty-binding
+// glyph (matching keyCodeLabel) when unbound. Pure.
+export const bindingListLabel = (bindings: Binding[]): string => {
+    if (bindings.length === 0) return "--"
+    return bindings.map(bindingLabel).join(" / ")
+}
+
 // Friendly label for a gamepad button index under the standard mapping. Falls
-// back to "Button N" for anything outside the well-known set, and "—" when
+// back to "Button N" for anything outside the well-known set, and "--" when
 // unbound (-1). Pure, so it is unit-testable.
 export const gamepadButtonLabel = (index: number): string => {
-    if (index < 0) return "—"
+    if (index < 0) return "--"
     const named: Record<number, string> = {
         0: "A / ✕",
         1: "B / ○",
@@ -257,4 +382,38 @@ export const gamepadButtonLabel = (index: number): string => {
         15: "D-Pad →",
     }
     return named[index] ?? `Button ${index}`
+}
+
+// The per-frame input snapshot a binding is resolved against. Decoupled from the
+// core listeners (which carry far more) so this stays import-free and testable:
+//   - keys:  the keyboard listener's state map (code -> held?).
+//   - mouse: which buttons are currently down.
+//   - wheel: which wheel directions fired THIS tick (momentary). Empty unless the
+//            wheel moved since the last drain.
+export type BindingInputState = {
+    keys: Record<string, boolean>,
+    mouse: { left: boolean, middle: boolean, right: boolean },
+    wheel: { up: boolean, down: boolean },
+}
+
+// Is this single binding active given the current input snapshot? Key + mouse
+// bindings are level (held); wheel bindings are momentary (true only on the tick
+// the wheel moved that way). Pure, so it is unit-testable.
+export const isBindingActive = (b: Binding, state: BindingInputState): boolean => {
+    if (b.kind === "key") return state.keys[b.code] === true
+    if (b.kind === "mouse") {
+        if (b.button === 0) return state.mouse.left
+        if (b.button === 1) return state.mouse.middle
+        return state.mouse.right
+    }
+    return b.dir === "up" ? state.wheel.up : state.wheel.down
+}
+
+// Is an ACTION active? True if ANY of its bindings is active. This is what lets
+// "fire" be bound to both Space and left-click at once. Pure + testable.
+export const isActionActive = (bindings: Binding[], state: BindingInputState): boolean => {
+    for (const binding of bindings) {
+        if (isBindingActive(binding, state)) return true
+    }
+    return false
 }
