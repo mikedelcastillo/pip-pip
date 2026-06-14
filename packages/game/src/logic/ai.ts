@@ -100,17 +100,15 @@ export type BotTarget = {
     angle: number,
 }
 
-// Find the nearest spawned enemy of `bot` (a different, spawned player). By
-// default bots target non-bot players (real clients) so a room full of bots
-// does not just shoot each other; if no human target exists it falls back to
-// any other spawned player so two bots will still fight. Pure + testable: no
-// mutation, returns the target plus the geometry the brain needs.
+// Find the nearest spawned enemy of `bot` (a different, spawned player). Targets
+// the NEAREST one with NO bot-vs-human priority: a bot fights whoever is closest,
+// real player or bot alike, so a mixed room behaves consistently. Pure +
+// testable: no mutation, returns the target plus the geometry the brain needs.
 export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[]): BotTarget | undefined{
     const botX = bot.ship.physics.position.x
     const botY = bot.ship.physics.position.y
 
     let best: BotTarget | undefined
-    let bestFallback: BotTarget | undefined
 
     for(const other of players){
         if(other === bot) continue
@@ -120,17 +118,13 @@ export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[]): BotTarge
         const dy = other.ship.physics.position.y - botY
         const distance = Math.sqrt(dx * dx + dy * dy)
         const angle = Math.atan2(dy, dx)
-        const candidate: BotTarget = { target: other, distance, angle }
 
-        if(other.isBot === false){
-            if(typeof best === "undefined" || distance < best.distance) best = candidate
-        }
-        if(typeof bestFallback === "undefined" || distance < bestFallback.distance){
-            bestFallback = candidate
+        if(typeof best === "undefined" || distance < best.distance){
+            best = { target: other, distance, angle }
         }
     }
 
-    return best ?? bestFallback
+    return best
 }
 
 // Compute the inputs a bot should hold this tick, given its current target (or

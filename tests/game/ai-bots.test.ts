@@ -157,7 +157,7 @@ describe("AI brain targeting (pure)", () => {
         expect(inputs.useWeapon).toBe(false)
     })
 
-    it("prefers a human target over another bot", () => {
+    it("targets the nearest enemy regardless of bot vs human", () => {
         const game = makeArena()
         const bot = game.addBot()
         const otherBot = game.addBot()
@@ -165,12 +165,13 @@ describe("AI brain targeting (pure)", () => {
         human.setShip(BLU)
 
         game.spawnPlayer(bot, 0, 0)
-        // Put the other bot CLOSER than the human to prove the human wins.
+        // The other bot is CLOSER than the human; with no human priority, the
+        // nearest target (the bot) wins.
         game.spawnPlayer(otherBot, 50, 0)
         game.spawnPlayer(human, 500, 0)
 
         const found = findNearestEnemy(bot, Object.values(game.players))
-        expect(found?.target).toBe(human)
+        expect(found?.target).toBe(otherBot)
     })
 
     it("holds still and does not fire with no target", () => {
