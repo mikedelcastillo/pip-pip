@@ -300,23 +300,18 @@ export default function MapEditor(){
         ctx.fillStyle = "#0D090B"
         ctx.fillRect(0, 0, cssW, cssH)
 
-        // The canvas is UNBOUNDED, so we only draw the cells that fall inside the
-        // viewport (plus the painted-content extent), padded a little so there is
-        // visible room to paint into. Screen (0,0) maps to cell (-ox/cell,
-        // -oy/cell); the far corner maps to the cell under (cssW, cssH). We union
-        // that visible window with the painted bounding box so a Fit that zooms
-        // out still draws the whole map's checkerboard + grid.
-        const box = map.bounds()
-        let startCol = Math.floor(-ox / cell) - VIEWPORT_PADDING_CELLS
-        let startRow = Math.floor(-oy / cell) - VIEWPORT_PADDING_CELLS
-        let endCol = Math.ceil((cssW - ox) / cell) + VIEWPORT_PADDING_CELLS
-        let endRow = Math.ceil((cssH - oy) / cell) + VIEWPORT_PADDING_CELLS
-        if(box.empty === false){
-            startCol = Math.min(startCol, box.minCol - VIEWPORT_PADDING_CELLS)
-            startRow = Math.min(startRow, box.minRow - VIEWPORT_PADDING_CELLS)
-            endCol = Math.max(endCol, box.maxCol + 1 + VIEWPORT_PADDING_CELLS)
-            endRow = Math.max(endRow, box.maxRow + 1 + VIEWPORT_PADDING_CELLS)
-        }
+        // The canvas is UNBOUNDED, so we draw only the cells inside the VISIBLE
+        // viewport, padded a little so there is room to paint into. Screen (0,0)
+        // maps to cell (-ox/cell, -oy/cell); the far corner maps to the cell under
+        // (cssW, cssH). This window is intentionally viewport-only (not unioned
+        // with the painted bounding box): painted tiles are culled to it below, so
+        // the grid lines + checkerboard cost stays O(viewport) no matter how far
+        // apart cells are painted. A Fit zooms so all content lands inside the
+        // viewport, so the whole map is still drawn after fitting.
+        const startCol = Math.floor(-ox / cell) - VIEWPORT_PADDING_CELLS
+        const startRow = Math.floor(-oy / cell) - VIEWPORT_PADDING_CELLS
+        const endCol = Math.ceil((cssW - ox) / cell) + VIEWPORT_PADDING_CELLS
+        const endRow = Math.ceil((cssH - oy) / cell) + VIEWPORT_PADDING_CELLS
         const gridX = ox + startCol * cell
         const gridY = oy + startRow * cell
         const gridW = (endCol - startCol) * cell
