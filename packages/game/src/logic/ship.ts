@@ -5,6 +5,7 @@ import { PipPipGame } from "."
 import { SHIP_DAIMETER } from "./constants"
 import { MOVEMENT_CONFIG, MOVEMENT_ACCEL_RANGE, MOVEMENT_SPEED_RANGE } from "./physics-config"
 import { PipPlayer } from "./player"
+import { RAPIDFIRE_MULTIPLIER } from "./powerup"
 import { tickDown } from "./utils"
 
 export type StatRange = {
@@ -188,16 +189,17 @@ export type ShipTimings = {
     invincibility: number,
     // Timed buffs from powerups. While > 0 the ship is hasted (faster
     // acceleration) / shielded (takes no damage) / invisible (cloaked, hard for
-    // enemies to see) / ricochet (its bullets bounce off walls). `invisibility`
-    // is a DISTINCT timer from the `invincibility` no-damage timer above - they
-    // are unrelated. Set by applyPowerupEffect, ticked down each tick in
-    // update(). haste/shield/invisibility are networked via playerShipTimings;
-    // `ricochet` is NOT on that wire (the bounce is resolved server-side on the
-    // networked bullets, so the buff itself never needs to be broadcast).
+    // enemies to see) / ricochet (its bullets bounce off walls) / rapidfire (its
+    // weapon-rate cooldown is shortened so it fires faster). `invisibility` is a
+    // DISTINCT timer from the `invincibility` no-damage timer above - they are
+    // unrelated. Set by applyPowerupEffect, ticked down each tick in update().
+    // haste/shield/invisibility/ricochet/rapidfire are all networked via
+    // playerShipTimings so remote ships and the tactical feed see the windows.
     haste: number,
     shield: number,
     invisibility: number,
     ricochet: number,
+    rapidfire: number,
 }
 
 export type ShipCapacities = {
@@ -239,6 +241,7 @@ export class PipShip{
         shield: 0,
         invisibility: 0,
         ricochet: 0,
+        rapidfire: 0,
     }
 
     capacities: ShipCapacities = {
@@ -261,12 +264,13 @@ export class PipShip{
         this.capacities.weapon = this.stats.weapon.capacity
 
         // Clear timed buffs on (re)spawn so a fresh ship starts un-hasted,
-        // unshielded, un-cloaked and without ricochet; everything else respawns
-        // clean already.
+        // unshielded, un-cloaked, without ricochet and without rapidfire;
+        // everything else respawns clean already.
         this.timings.haste = 0
         this.timings.shield = 0
         this.timings.invisibility = 0
         this.timings.ricochet = 0
+        this.timings.rapidfire = 0
     }
 
     setPlayer(player: PipPlayer){
@@ -321,6 +325,13 @@ export class PipShip{
         return this.timings.ricochet > 0
     }
 
+    // While the "rapidfire" buff is running, this ship's weapon fires faster: the
+    // per-shot weapon-rate cooldown is scaled by RAPIDFIRE_MULTIPLIER (see shoot).
+    // Mirrors hasRicochet/isHasted - a gated boolean read off the buff timer.
+    get hasRapidfire(){
+        return this.timings.rapidfire > 0
+    }
+
     get isReloading(){
         if(this.timings.weaponReload !== 0) return true
         return false
@@ -350,7 +361,13 @@ export class PipShip{
     shoot(){
         if(this.canUseWeapon){
             this.capacities.weapon = tickDown(this.capacities.weapon, 1)
-            this.timings.weaponRate = this.stats.weapon.rate
+            // Rapidfire shortens the cooldown between shots: scale the weapon-rate
+            // by RAPIDFIRE_MULTIPLIER (< 1) while the buff is up, the same gated-
+            // multiplier shape haste uses on movement. ceil keeps it an integer
+            // tick count and never drops it to 0 (so the trigger can't fire every
+            // tick); normal firing is unchanged when the buff is inactive.
+            const rapidfireFactor = this.hasRapidfire ? RAPIDFIRE_MULTIPLIER : 1
+            this.timings.weaponRate = Math.ceil(this.stats.weapon.rate * rapidfireFactor)
             return true
         } else if(this.weaponEmpty){
             this.reload()
@@ -427,6 +444,7 @@ export class PipShip{
         this.timings.shield = tickDown(this.timings.shield)
         this.timings.invisibility = tickDown(this.timings.invisibility)
         this.timings.ricochet = tickDown(this.timings.ricochet)
+        this.timings.rapidfire = tickDown(this.timings.rapidfire)
 
         // take input from player
         if(typeof this.player !== "undefined"){

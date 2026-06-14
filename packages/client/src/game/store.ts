@@ -1,7 +1,7 @@
 import { PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer, PlayerScores } from "@pip-pip/game/src/logic/player"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, PowerupType } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, PowerupType } from "@pip-pip/game/src/logic/powerup"
 import { PIP_SHIPS, ShipType } from "@pip-pip/game/src/ships"
 import { create } from "zustand"
 import { GAME_CONTEXT, getClientPlayer } from "."
@@ -113,6 +113,10 @@ export interface ClientPlayerStats {
     // players. Read from ship.timings.ricochet, same as the others.
     ricochetTicks: number
     ricochetMaxTicks: number
+    // rapidfire rides playerShipTimings like the others (networked); read from
+    // ship.timings.rapidfire so it shows on the buff bar + tactical feed too.
+    rapidfireTicks: number
+    rapidfireMaxTicks: number
 
     // Secondary/tactical cannon state: reload countdown (ticks) vs its full
     // reload duration, plus remaining ammo. Drives the tactical cooldown
@@ -166,7 +170,7 @@ export interface PowerupEntry {
 // are instant (no timer) and are deliberately absent. Kept as a const set + a
 // pure predicate so callers (and tests) share one source of truth.
 const TIMED_BUFF_TYPES: ReadonlySet<PowerupType> = new Set<PowerupType>([
-    "haste", "shield", "invis", "ricochet",
+    "haste", "shield", "invis", "ricochet", "rapidfire",
 ])
 
 export function isTimedBuff(type: PowerupType): boolean {
@@ -195,6 +199,7 @@ const POWERUP_LABELS: Record<PowerupType, string> = {
     shield: "SHIELD",
     invis: "CLOAK",
     ricochet: "RICOCHET",
+    rapidfire: "RAPIDFIRE",
 }
 
 export function powerupLabel(type: PowerupType): string {
@@ -210,6 +215,7 @@ const POWERUP_COLORS: Record<PowerupType, string> = {
     shield: "#AA66FF",
     invis: "#CCE6FF",
     ricochet: "#FF66AA",
+    rapidfire: "#FFE14D",
 }
 
 export function powerupColor(type: PowerupType): string {
@@ -295,6 +301,7 @@ export function activeBuffs(stats: ClientPlayerStats): ActiveBuff[] {
         { type: "shield", label: powerupLabel("shield"), color: powerupColor("shield"), ticks: stats.shieldTicks, maxTicks: stats.shieldMaxTicks },
         { type: "invis", label: powerupLabel("invis"), color: powerupColor("invis"), ticks: stats.invisTicks, maxTicks: stats.invisMaxTicks },
         { type: "ricochet", label: powerupLabel("ricochet"), color: powerupColor("ricochet"), ticks: stats.ricochetTicks, maxTicks: stats.ricochetMaxTicks },
+        { type: "rapidfire", label: powerupLabel("rapidfire"), color: powerupColor("rapidfire"), ticks: stats.rapidfireTicks, maxTicks: stats.rapidfireMaxTicks },
     ]
     return all
         .filter((buff) => buff.ticks > 0)
@@ -393,6 +400,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         hasteTicks: 0, hasteMaxTicks: HASTE_TICKS,
         invisTicks: 0, invisMaxTicks: INVIS_TICKS,
         ricochetTicks: 0, ricochetMaxTicks: RICOCHET_TICKS,
+        rapidfireTicks: 0, rapidfireMaxTicks: RAPIDFIRE_TICKS,
         tacticalReloadTicks: 0, tacticalReloadMaxTicks: 0,
         tacticalAmmo: 0, tacticalAmmoMax: 0,
     },
@@ -470,6 +478,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             if (t.shield > 0) buffRemaining[buffRemainingKey(player.id, "shield")] = t.shield
             if (t.invisibility > 0) buffRemaining[buffRemainingKey(player.id, "invis")] = t.invisibility
             if (t.ricochet > 0) buffRemaining[buffRemainingKey(player.id, "ricochet")] = t.ricochet
+            if (t.rapidfire > 0) buffRemaining[buffRemainingKey(player.id, "rapidfire")] = t.rapidfire
         }
 
         const next: Partial<GameStoreState> = {
@@ -510,6 +519,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
                 invisMaxTicks: INVIS_TICKS,
                 ricochetTicks: ship.timings.ricochet,
                 ricochetMaxTicks: RICOCHET_TICKS,
+                rapidfireTicks: ship.timings.rapidfire,
+                rapidfireMaxTicks: RAPIDFIRE_TICKS,
                 tacticalReloadTicks: ship.timings.tacticalReload,
                 tacticalReloadMaxTicks: ship.stats.tactical.reload.ticks,
                 tacticalAmmo: ship.capacities.tactical,

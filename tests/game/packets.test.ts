@@ -96,7 +96,7 @@ describe("game packetManager wire format", () => {
         expect(decoded.powerupPickup?.[0]).toEqual({ id: "wxyz", playerId: "ab" })
     })
 
-    it("round-trips playerShipTimings including haste/shield/invisibility/ricochet (uint8)", () => {
+    it("round-trips playerShipTimings including haste/shield/invisibility/ricochet/rapidfire (uint8)", () => {
         const timings = {
             playerId: "ab",
             weaponReload: 12,
@@ -110,6 +110,7 @@ describe("game packetManager wire format", () => {
             shield: 170,
             invisibility: 180,
             ricochet: 200,
+            rapidfire: 200,
         }
         const out = packetManager.decode(packetManager.encode("playerShipTimings", timings)).playerShipTimings?.[0]
         expect(out).toEqual(timings)
@@ -122,6 +123,9 @@ describe("game packetManager wire format", () => {
         // ricochet now rides the wire too (part 3b) so the tactical feed + remote
         // ships know its remaining window.
         expect(out?.ricochet).toBe(200)
+        // rapidfire rides the wire alongside the others so remote ships + the
+        // tactical feed see its window; the rate scaling is applied locally.
+        expect(out?.rapidfire).toBe(200)
     })
 
     it("round-trips the invis powerup wire code through powerupSpawn", () => {

@@ -83,6 +83,7 @@ describe("powerupLabel", () => {
         // "invis" reads better as "CLOAK" on screen.
         expect(powerupLabel("invis")).toBe("CLOAK")
         expect(powerupLabel("ricochet")).toBe("RICOCHET")
+        expect(powerupLabel("rapidfire")).toBe("RAPIDFIRE")
     })
 })
 
@@ -94,15 +95,17 @@ describe("powerupColor", () => {
         expect(powerupColor("shield")).toBe("#AA66FF")
         expect(powerupColor("invis")).toBe("#CCE6FF")
         expect(powerupColor("ricochet")).toBe("#FF66AA")
+        expect(powerupColor("rapidfire")).toBe("#FFE14D")
     })
 })
 
 describe("isTimedBuff", () => {
-    it("treats the four buff powerups as timed", () => {
+    it("treats the timed buff powerups as timed", () => {
         expect(isTimedBuff("haste")).toBe(true)
         expect(isTimedBuff("shield")).toBe(true)
         expect(isTimedBuff("invis")).toBe(true)
         expect(isTimedBuff("ricochet")).toBe(true)
+        expect(isTimedBuff("rapidfire")).toBe(true)
     })
 
     it("treats health and ammo as instant (not timed)", () => {

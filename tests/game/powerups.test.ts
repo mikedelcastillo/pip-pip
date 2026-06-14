@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { Vector2 } from "@pip-pip/core/src/physics"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, applyPowerupEffect } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RAPIDFIRE_TICKS, RAPIDFIRE_MULTIPLIER, applyPowerupEffect } from "@pip-pip/game/src/logic/powerup"
 
 // Ship index 3 ("Blu") uses pure default stats, so its numbers are predictable.
 const BLU = 3
@@ -366,5 +366,136 @@ describe("invisibility (cloak) buff", () => {
 
         expect(player.ship.timings.invisibility).toBe(0)
         expect(player.ship.isInvisible).toBe(false)
+    })
+})
+
+describe("rapidfire buff", () => {
+    it("applyPowerupEffect sets the rapidfire timer to RAPIDFIRE_TICKS", () => {
+        const { player } = makeArena()
+        expect(player.ship.timings.rapidfire).toBe(0)
+
+        applyPowerupEffect("rapidfire", player)
+
+        expect(player.ship.timings.rapidfire).toBe(RAPIDFIRE_TICKS)
+        expect(player.ship.hasRapidfire).toBe(true)
+    })
+
+    it("RAPIDFIRE_TICKS fits in a uint8 so it survives the playerShipTimings wire", () => {
+        expect(RAPIDFIRE_TICKS).toBeLessThanOrEqual(255)
+    })
+
+    it("hasRapidfire reflects the rapidfire timer", () => {
+        const { player } = makeArena()
+        expect(player.ship.hasRapidfire).toBe(false)
+
+        player.ship.timings.rapidfire = 1
+        expect(player.ship.hasRapidfire).toBe(true)
+
+        player.ship.timings.rapidfire = 0
+        expect(player.ship.hasRapidfire).toBe(false)
+    })
+
+    it("the rapidfire timer ticks down to 0 over its duration", () => {
+        const { game, player } = makeArena()
+        player.ship.timings.rapidfire = RAPIDFIRE_TICKS
+        expect(player.ship.timings.rapidfire).toBeGreaterThan(0)
+
+        for(let i = 0; i < RAPIDFIRE_TICKS + 5; i++) game.update()
+
+        expect(player.ship.timings.rapidfire).toBe(0)
+        expect(player.ship.hasRapidfire).toBe(false)
+    })
+
+    it("reset() clears the rapidfire timer", () => {
+        const { player } = makeArena()
+        player.ship.timings.rapidfire = RAPIDFIRE_TICKS
+
+        player.ship.reset()
+
+        expect(player.ship.timings.rapidfire).toBe(0)
+        expect(player.ship.hasRapidfire).toBe(false)
+    })
+
+    it("rapidfires a player that overlaps a rapidfire powerup", () => {
+        const { game, player } = makeArena()
+        expect(player.ship.timings.rapidfire).toBe(0)
+
+        game.powerups.new({
+            position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
+            type: "rapidfire",
+        })
+
+        game.update()
+
+        expect(player.ship.timings.rapidfire).toBeGreaterThan(0)
+    })
+
+    it("shoot sets a shorter weaponRate cooldown while rapidfire is active", () => {
+        const { player } = makeArena()
+        const ship = player.ship
+        const rate = ship.stats.weapon.rate
+
+        // No buff: shoot stamps the full weapon-rate cooldown.
+        ship.timings.weaponRate = 0
+        ship.shoot()
+        const plainCooldown = ship.timings.weaponRate
+        expect(plainCooldown).toBe(rate)
+
+        // Buffed: the same shot stamps the scaled (shorter) cooldown.
+        ship.timings.weaponRate = 0
+        ship.timings.rapidfire = RAPIDFIRE_TICKS
+        ship.shoot()
+        const fastCooldown = ship.timings.weaponRate
+        expect(fastCooldown).toBe(Math.ceil(rate * RAPIDFIRE_MULTIPLIER))
+        expect(fastCooldown).toBeLessThan(plainCooldown)
+    })
+
+    it("rapidfire shortens the effective fire interval, restored once it expires", () => {
+        // Measure the gap (in ticks) between two successive successful shots by
+        // pulling the trigger every tick. canUseWeapon requires weaponRate === 0,
+        // so the gap is the cooldown the previous shot stamped plus the tick it
+        // takes to reach the next ready frame.
+        function intervalBetweenShots(rapidfire: boolean): number {
+            const { game, player } = makeArena()
+            const ship = player.ship
+            // Plenty of ammo so a reload never interrupts the cadence under test.
+            ship.capacities.weapon = ship.stats.weapon.capacity
+            if(rapidfire) ship.timings.rapidfire = RAPIDFIRE_TICKS
+
+            // Fire the first shot now (trigger is ready on a fresh ship).
+            expect(ship.shoot()).toBe(true)
+
+            // Advance ticks, pulling the trigger each tick, until the next shot lands.
+            let ticks = 0
+            for(let i = 0; i < 50; i++){
+                game.update()
+                ticks += 1
+                // Keep rapidfire pinned for the duration of the measurement so the
+                // buff does not lapse mid-interval and skew the count.
+                if(rapidfire) ship.timings.rapidfire = RAPIDFIRE_TICKS
+                if(ship.shoot()){
+                    return ticks
+                }
+            }
+            throw new Error("never fired a second shot within the window")
+        }
+
+        const plainInterval = intervalBetweenShots(false)
+        const fastInterval = intervalBetweenShots(true)
+        expect(fastInterval).toBeLessThan(plainInterval)
+
+        // And once the buff lapses, the interval returns to the un-buffed cadence.
+        const { game, player } = makeArena()
+        const ship = player.ship
+        ship.capacities.weapon = ship.stats.weapon.capacity
+        ship.timings.rapidfire = 0 // expired
+        expect(ship.shoot()).toBe(true)
+        let restoredTicks = 0
+        for(let i = 0; i < 50; i++){
+            game.update()
+            restoredTicks += 1
+            if(ship.shoot()) break
+        }
+        expect(restoredTicks).toBe(plainInterval)
     })
 })

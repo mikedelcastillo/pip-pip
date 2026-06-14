@@ -712,9 +712,9 @@ export class PipPipGame{
 
         // Weighted pool: each entry is one "ticket", so a type listed more often
         // is more likely. health/ammo/haste/shield each get 2 tickets; the strong
-        // "invis" cloak and "ricochet" each get a single ticket so they show up
-        // roughly half as often. Extend this pool (adjust the repeats to tune
-        // rarity) as types are added.
+        // "invis" cloak, "ricochet" and "rapidfire" each get a single ticket so
+        // they show up roughly half as often. Extend this pool (adjust the repeats
+        // to tune rarity) as types are added.
         const types: PowerupType[] = [
             "health", "health",
             "ammo", "ammo",
@@ -722,6 +722,7 @@ export class PipPipGame{
             "shield", "shield",
             "invis",
             "ricochet",
+            "rapidfire",
         ]
         const type = types[Math.floor(Math.random() * types.length)]
 

@@ -3,7 +3,7 @@ import {
     ClientPlayerStats,
     activeBuffs,
 } from "../../packages/client/src/game/store"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS } from "@pip-pip/game/src/logic/powerup"
 
 // A zeroed stats object; tests flip on only the buff fields they care about.
 function makeStats(overrides: Partial<ClientPlayerStats> = {}): ClientPlayerStats {
@@ -16,6 +16,7 @@ function makeStats(overrides: Partial<ClientPlayerStats> = {}): ClientPlayerStat
         hasteTicks: 0, hasteMaxTicks: HASTE_TICKS,
         invisTicks: 0, invisMaxTicks: INVIS_TICKS,
         ricochetTicks: 0, ricochetMaxTicks: RICOCHET_TICKS,
+        rapidfireTicks: 0, rapidfireMaxTicks: RAPIDFIRE_TICKS,
         tacticalReloadTicks: 0, tacticalReloadMaxTicks: 0,
         tacticalAmmo: 0, tacticalAmmoMax: 0,
         ...overrides,
@@ -40,6 +41,15 @@ describe("activeBuffs", () => {
         const stats = makeStats({ ricochetTicks: RICOCHET_TICKS })
         const types = activeBuffs(stats).map((b) => b.type)
         expect(types).toEqual(["ricochet"])
+    })
+
+    it("includes rapidfire as a listed buff when active", () => {
+        const stats = makeStats({ rapidfireTicks: RAPIDFIRE_TICKS })
+        const buff = activeBuffs(stats)[0]
+        expect(buff.type).toBe("rapidfire")
+        expect(buff.label).toBe("RAPIDFIRE")
+        expect(buff.ticks).toBe(RAPIDFIRE_TICKS)
+        expect(buff.maxTicks).toBe(RAPIDFIRE_TICKS)
     })
 
     it("carries each buff's label, color and tick counts through", () => {

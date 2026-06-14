@@ -390,4 +390,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 98 | `59c8553`   | Prompt for a name (modal) on entering a lobby/match when none is saved | `git revert 59c8553`|
 | 99 | `1838461`   | Lobby hamburger menu (Settings/Leave/Close Lobby) + Close Lobby confirm modal (ConfirmModal, Modal hideClose) | `git revert 1838461`|
 | 100| `fdccbbb`   | Multi-kill banners (Double/Triple/Multi/Monster Kill) for the local player | `git revert fdccbbb`|
-| 101| (latest)    | End-of-match top-3 podium + MVP on the results screen | `git revert <sha>` |
+| 101| `635b86b`   | End-of-match top-3 podium + MVP on the results screen | `git revert 635b86b`|
+| 102| (latest)    | Rapid Fire powerup: timed buff that speeds up weapon fire (networked) | `git revert <sha>` |
