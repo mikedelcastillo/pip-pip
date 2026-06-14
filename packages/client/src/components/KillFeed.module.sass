@@ -28,6 +28,15 @@
         // Opacity is driven inline by entry age; this only smooths it.
         transition: opacity 200ms linear
 
+        // The killer's ship glyph, leading the line. Sized to the text so it
+        // stays compact on a phone; pixelated to match the rest of the HUD art.
+        .shipIcon
+            width: 1.1em
+            height: 1.1em
+            object-fit: contain
+            image-rendering: pixelated
+            align-self: center
+
         // Mirrors GameChatMessage's player-name styling.
         .player
             color: $color-main

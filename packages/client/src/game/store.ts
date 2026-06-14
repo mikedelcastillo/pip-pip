@@ -174,10 +174,15 @@ export interface ClientPlayerStats {
 
 // One transient line in the in-match kill feed. `time` is the Date.now() the
 // kill was recorded at, used to fade and expire the entry (see visibleKills).
+// `killerShipIndex` is the killer's ship at the moment of the kill (read from the
+// live game.players at the addKill call site) so the feed can show their ship
+// glyph; it is undefined when the killer's ship is unknown (e.g. they left), in
+// which case the feed simply renders without an icon.
 export interface KillEntry {
     id: number
     killerName: string
     killedName: string
+    killerShipIndex?: number
     time: number
 }
 
@@ -355,6 +360,33 @@ export function activeBuffs(stats: ClientPlayerStats): ActiveBuff[] {
         .sort((a, b) => (b.maxTicks - a.maxTicks) || (b.ticks - a.ticks))
 }
 
+// A single compact active-buff badge for ANY player, used by the scoreboard to
+// dot a row when that player currently holds a timed buff. Carries only what a
+// tiny chip needs: the buff type (for a stable React key), its shared label
+// (tooltip) and color (the dot fill).
+export interface PlayerBuffBadge {
+    type: PowerupType
+    label: string
+    color: string
+}
+
+// The fixed badge order, longest-window buffs first, so a player's chips always
+// read in the same order no matter the insertion order of the BuffRemaining map.
+const BUFF_BADGE_ORDER: readonly PowerupType[] = [
+    "haste", "ricochet", "rapidfire", "invis", "shield",
+]
+
+// Pure selector: the timed buffs a given player CURRENTLY holds, derived from the
+// per-player live remaining-ticks map (BuffRemaining, keyed "<id>:<type>") that
+// the store mirrors each sync off the networked ship.timings. A buff shows while
+// its remaining ticks are > 0. Returned in a stable badge order. Reads only the
+// already-mirrored map (no store/DOM access) so it is trivially unit-testable.
+export function playerActiveBuffs(remaining: BuffRemaining, playerId: string): PlayerBuffBadge[] {
+    return BUFF_BADGE_ORDER
+        .filter((type) => (remaining[buffRemainingKey(playerId, type)] ?? 0) > 0)
+        .map((type) => ({ type, label: powerupLabel(type), color: powerupColor(type) }))
+}
+
 export interface GameStoreState {
     loading: boolean
 
@@ -432,7 +464,7 @@ export interface GameStoreState {
 
     addChatMessage: (msg: ChatMessage) => void
     clearChatMessages: () => void
-    addKill: (killerName: string, killedName: string) => void
+    addKill: (killerName: string, killedName: string, killerShipIndex?: number) => void
     addPowerupPickup: (playerId: string, playerName: string, type: PowerupType) => void
     addOutgoingMessage: (text: string) => void
     consumeOutgoingMessages: () => string[]
@@ -502,13 +534,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     // Clearing chat also clears the kill + powerup feeds: they share the same
     // lifecycle (e.g. the local player (re)joining) and the /clear command.
     clearChatMessages: () => set({ chatMessages: [], killFeed: [], powerupFeed: [] }),
-    addKill: (killerName, killedName) => set((s) => {
+    addKill: (killerName, killedName, killerShipIndex) => set((s) => {
         const entry: KillEntry = {
             // Date.now() can collide within a tick, so disambiguate the React
             // key with the current feed length.
             id: Date.now() + s.killFeed.length,
             killerName,
             killedName,
+            killerShipIndex,
             time: Date.now(),
         }
         return { killFeed: [...s.killFeed, entry].slice(-KILL_FEED_MAX) }

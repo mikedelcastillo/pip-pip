@@ -129,6 +129,17 @@ $podium-skew: -6deg
             line-height: 1
             color: $color-main
 
+        // Secondary stat under the kills: total damage dealt this match. Quieter
+        // + smaller than the kills so the podium still reads kills-first; clamped
+        // on one line so it never wraps or overflows a narrow phone block.
+        .damage
+            font-size: 0.75em
+            line-height: 1.2
+            color: $color-text
+            opacity: 0.7
+            white-space: nowrap
+            font-variant-numeric: tabular-nums
+
         // The pedestal is the visible "step" each rank stands on; its height is
         // what makes 1st tallest. Skew-inherited from the block above.
         .pedestal

@@ -388,7 +388,10 @@ export function processChat(gameContext: GameContext) {
                 text: killed.name,
             }],
         })
-        useGameStore.getState().addKill(killer.name, killed.name)
+        // Read the killer's live ship straight off the game players so the kill
+        // feed can show their ship glyph. The killer carried on the event already
+        // has shipIndex, so this is purely surfacing client-side data.
+        useGameStore.getState().addKill(killer.name, killed.name, killer.shipIndex)
     }
 
     // send phase change

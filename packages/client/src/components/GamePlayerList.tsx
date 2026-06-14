@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
-import { useGameStore, ticksToSeconds } from "../game/store"
-import type { GameStorePlayer } from "../game/store"
+import { useGameStore, ticksToSeconds, playerActiveBuffs } from "../game/store"
+import type { GameStorePlayer, BuffRemaining } from "../game/store"
 import { shipAssets } from "../game/assets"
 import { isTeamMode, teamColor } from "../game/teams"
 import { GAME_CONTEXT } from "../game"
@@ -48,10 +48,37 @@ function getRowClass(player: GameStorePlayer): string {
     return classes.join(" ")
 }
 
+// Compact active-buff dots next to a player's name. Reads the same per-player
+// live buff-remaining map the buff HUD + tactical feed use (mirrored each sync
+// off the networked ship.timings), via the pure playerActiveBuffs selector. Each
+// active timed buff is a tiny colored dot tinted with the shared buff color;
+// the buff label rides the title so it stays readable at 393px without bars.
+// Renders nothing when the player holds no buffs.
+function BuffBadges({ playerId, buffRemaining }: { playerId: string, buffRemaining: BuffRemaining }) {
+    const buffs = playerActiveBuffs(buffRemaining, playerId)
+    if (buffs.length === 0) return null
+    return (
+        <span className={styles.buffDots}>
+            {buffs.map((buff) => (
+                <span
+                    key={buff.type}
+                    className={styles.buffDot}
+                    style={{ backgroundColor: buff.color }}
+                    title={buff.label}
+                />
+            ))}
+        </span>
+    )
+}
+
 export default function GamePlayerList() {
     const playersRaw = useGameStore((s) => s.players)
     const phase = useGameStore((s) => s.phase)
     const mode = useGameStore((s) => s.mode)
+    // Per-player live buff-remaining map, mirrored each sync off the networked
+    // ship.timings. Reused (not recomputed) to dot scoreboard rows with the
+    // buffs a player currently holds - the same data the buff HUD reads.
+    const buffRemaining = useGameStore((s) => s.buffRemaining)
     // In a team mode, group the scoreboard by team first (team 0, then team 1,
     // then any unassigned), keeping the normal score ordering inside each team.
     const teamMode = isTeamMode(mode)
@@ -108,6 +135,7 @@ export default function GamePlayerList() {
                                 >
                                     {player.name}
                                 </span>
+                                <BuffBadges playerId={player.id} buffRemaining={buffRemaining} />
                                 {player.isClient && (
                                     <span className={`${styles.tag} ${styles.you}`}>You</span>
                                 )}

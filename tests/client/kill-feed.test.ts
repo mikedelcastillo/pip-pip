@@ -3,6 +3,7 @@ import {
     KillEntry,
     KILL_FEED_DURATION_MS,
     visibleKills,
+    useGameStore,
 } from "../../packages/client/src/game/store"
 
 function makeEntry(overrides: Partial<KillEntry> = {}): KillEntry {
@@ -63,5 +64,25 @@ describe("visibleKills", () => {
 
     it("returns an empty array for an empty feed", () => {
         expect(visibleKills([], 10_000)).toEqual([])
+    })
+})
+
+describe("addKill", () => {
+    it("records the killer's shipIndex on the entry so the feed can show their glyph", () => {
+        useGameStore.setState({ killFeed: [] })
+        useGameStore.getState().addKill("killer", "killed", 3)
+        const feed = useGameStore.getState().killFeed
+        expect(feed).toHaveLength(1)
+        expect(feed[0].killerName).toBe("killer")
+        expect(feed[0].killedName).toBe("killed")
+        expect(feed[0].killerShipIndex).toBe(3)
+    })
+
+    it("leaves killerShipIndex undefined when the killer's ship is unknown", () => {
+        useGameStore.setState({ killFeed: [] })
+        useGameStore.getState().addKill("ghost", "victim")
+        const feed = useGameStore.getState().killFeed
+        expect(feed).toHaveLength(1)
+        expect(feed[0].killerShipIndex).toBeUndefined()
     })
 })

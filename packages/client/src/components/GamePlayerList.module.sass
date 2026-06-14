@@ -75,6 +75,21 @@
             .text
                 vertical-align: middle
                 display: inline-block
+            // Compact active-buff indicator dots beside the name. Small chips,
+            // not bars, so a player's live buffs read at a glance even at 393px.
+            .buffDots
+                vertical-align: middle
+                display: inline-flex
+                align-items: center
+                gap: 0.25em
+                margin-left: 0.4em
+            .buffDot
+                width: 0.55em
+                height: 0.55em
+                border-radius: 9999px
+                // A thin dark ring lifts the small colored dot off the row
+                // background so faint buff colors stay legible at 393px.
+                border: 1px solid transparentize($color-dark-1, 0.3)
             .tag
                 vertical-align: middle
                 display: inline-block

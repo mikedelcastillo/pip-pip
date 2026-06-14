@@ -56,6 +56,7 @@ function PodiumBlock({ player, place }: { player: GameStorePlayer, place: number
             />
             <div className={styles.name}>{player.name}</div>
             <div className={styles.kills}>{player.score.kills}</div>
+            <div className={styles.damage}>DMG: {Math.round(player.score.damage)}</div>
             <div className={styles.pedestal} />
         </div>
     )
