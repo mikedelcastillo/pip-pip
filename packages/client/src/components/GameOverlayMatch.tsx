@@ -52,7 +52,7 @@ export default function GameOverlayMatch() {
     const alive = !spectating && stats.spawned
 
     return (
-        <div className="game-overlay">
+        <div className={`game-overlay ${styles.matchOverlay}`}>
             <Minimap />
 
             {/* Single pause/options button, top-right corner. */}

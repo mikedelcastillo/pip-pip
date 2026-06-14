@@ -4,6 +4,11 @@
     position: fixed
     inset: 0
     z-index: 100
+    // Always interactive, even when the modal is rendered inside a
+    // pointer-events:none overlay (e.g. the in-match PauseMenu under the
+    // click-through match HUD). Without this the backdrop + card would inherit
+    // none and the modal could not be tapped or dismissed.
+    pointer-events: auto
     background-color: transparentize($color-dark-1, 0.2)
     padding: $screen-margin-dynamic
     // Respect notch / home-indicator insets so the card is never clipped on a

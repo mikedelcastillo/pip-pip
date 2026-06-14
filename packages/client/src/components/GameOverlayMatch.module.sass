@@ -15,12 +15,23 @@ $shield-color: #5FD0FF
 $health-color: #ECECEC
 $health-low: $color-bad
 
+// CRITICAL: the match overlay must be click-through. The shared .game-overlay is
+// a full-screen z-index:100 layer; without this it captured every touch and the
+// floating touch sticks (TouchControls, z-index:30, underneath) never received a
+// pointerdown, so they never worked on mobile. With pointer-events:none here,
+// every child is non-interactive by default (the HUD bars/feeds are display-only
+// anyway) and touches fall through to the stick zones; the genuinely interactive
+// bits below re-enable themselves with pointer-events:auto.
+.matchOverlay
+    pointer-events: none
+
 // ---- Menu button (top-right corner) ----
 .menuButton
     position: absolute
     top: $screen-margin-dynamic
     right: $screen-margin-dynamic
     z-index: 20
+    pointer-events: auto
     width: 2.2em
     height: 2.2em
     display: flex
@@ -277,6 +288,7 @@ $health-low: $color-bad
     left: $screen-margin-dynamic
     top: calc(#{$screen-margin-dynamic} + 9em)
     z-index: 10
+    pointer-events: auto
     width: clamp(14em, 44vw, 28em)
     max-width: calc(100% - #{$screen-margin-dynamic} * 2)
     display: flex
