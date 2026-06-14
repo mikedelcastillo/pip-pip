@@ -369,6 +369,15 @@ export function getPartialGameState(context: ConnectionContext, sharedCache?: Sh
         playerUpdates.track(killed.id, "playerTimings")
     }
 
+    // Any score change broadcasts that player's scores the SAME tick. This is
+    // what reliably syncs a bystander ASSIST: the assister is not the killer, the
+    // victim, or a player who dealt damage / spawned this tick, so none of the
+    // loops above would queue their scores - without this their +1 assist would
+    // only reach clients opportunistically (next time they damage/die/respawn).
+    for(const event of gameEvents.filter("playerScoreChanged")){
+        playerUpdates.track(event.playerScoreChanged.player.id, "playerScores")
+    }
+
     // Broadcast chat. connection-in already validated, rate-limited and
     // de-commanded every sender's messages ONCE this tick; here we just re-emit
     // the approved text to this recipient. Iterating the approved entries (one

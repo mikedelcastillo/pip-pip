@@ -4,7 +4,7 @@ import { distanceBetweenSegments, distanceSegmentToRect, nearestPointFromSegment
 
 import { Bullet, BulletPool, BulletType, MAX_BULLET_BOUNCES } from "./bullet"
 import { Powerup, PowerupPool, PowerupType, applyPowerupEffect, HASTE_MULTIPLIER } from "./powerup"
-import { PipPlayer, PlayerInputs } from "./player"
+import { PipPlayer, PlayerInputs, ASSIST_WINDOW_TICKS } from "./player"
 import { updateBotInputs, BotDifficulty, makeBotSkill, BotNavContext } from "./ai"
 import { getNavGrid } from "./pathfinding"
 import { generateId } from "@pip-pip/core/src/lib/utils"
@@ -1292,6 +1292,14 @@ export class PipPipGame{
         // still happen.
         if(dealer.id !== target.id){
             dealer.score.damage += damage
+            // Assist bookkeeping (server-authoritative, same triggerDamage gate as
+            // the rest of scoring): remember the tick at which this attacker last
+            // hit this victim, keyed by attacker id, on the VICTIM. If the victim
+            // dies soon after to SOMEONE ELSE, every recent attacker (not the
+            // killer) earns one assist. Self-damage is excluded by the dealer !==
+            // target guard, so a suicide is never an assist source. Tick-based, so
+            // it stays deterministic and never depends on wall-clock time.
+            target.recentAttackerTicks[dealer.id] = this.tickNumber
         }
 
         // log damage (drives the hit visuals; fires for self-damage too)
@@ -1315,7 +1323,27 @@ export class PipPipGame{
             // (and no damage-dealt credit, gated above).
             if(dealer.id !== target.id){
                 dealer.score.kills += 1
+                // ASSISTS: credit every OTHER player who damaged this victim
+                // within ASSIST_WINDOW_TICKS before death. The KILLER is excluded
+                // (they get the kill, not an assist) and the victim is excluded by
+                // construction (self-damage is never recorded). Each attacker is
+                // tracked at most once (last-hit tick keyed by id), so a player
+                // earns ONE assist no matter how many times they hit. Stale hits
+                // older than the window are skipped. Additive only: this never
+                // touches kills, so it cannot affect any win condition.
+                for(const attackerId in target.recentAttackerTicks){
+                    if(attackerId === dealer.id) continue
+                    const lastTick = target.recentAttackerTicks[attackerId]
+                    if(this.tickNumber - lastTick > ASSIST_WINDOW_TICKS) continue
+                    const attacker = this.players[attackerId]
+                    if(typeof attacker === "undefined") continue
+                    attacker.score.assists += 1
+                    this.events.emit("playerScoreChanged", { player: attacker })
+                }
             }
+            // The victim's assist record is consumed by this death; clear it so a
+            // stale attacker can never carry an assist into the victim's NEXT life.
+            target.recentAttackerTicks = {}
             // Always announce the death so it shows in the kill feed - including a
             // suicide, where killer === killed and the client renders it as
             // "killed themselves". The multi-kill streak ignores self-kills.

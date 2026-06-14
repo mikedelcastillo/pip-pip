@@ -85,6 +85,7 @@ export default function GamePlayerList() {
                         <th className={styles.ping}>Ping</th>
                         <th className={styles.kills}>K</th>
                         <th className={styles.deaths}>D</th>
+                        <th className={styles.assists} title="Assists">A</th>
                         <th className={styles.kd}>K/D</th>
                         <th className={styles.damage}>DMG</th>
                     </tr>
@@ -130,6 +131,7 @@ export default function GamePlayerList() {
                             </td>
                             <td className={styles.kills}>{player.score.kills}</td>
                             <td className={styles.deaths}>{player.score.deaths}</td>
+                            <td className={styles.assists}>{player.score.assists}</td>
                             <td className={styles.kd}>{getKD(player.score)}</td>
                             <td className={styles.damage}>{Math.round(player.score.damage)}</td>
                         </tr>

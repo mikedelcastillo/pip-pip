@@ -78,6 +78,12 @@ export type PlayerScores = {
     damage: number,
 }
 
+// Assist credit window, in ticks. A player who damaged the victim within this
+// many ticks BEFORE someone else landed the killing blow earns one assist. 100
+// ticks is 5s at 20Hz, a conventional assist window. Tick-based (not wall-clock)
+// so the server and any replaying side stay deterministic and in lockstep.
+export const ASSIST_WINDOW_TICKS = 100
+
 export const MAX_PLAYER_POSITION_STATES = 8
 
 // Client (local player): max unacknowledged predicted frames kept for
@@ -195,6 +201,15 @@ export class PipPlayer{
         damage: 0,
     }
 
+    // Server-authoritative assist tracking: for THIS player as a VICTIM, the
+    // game tick at which each OTHER player most recently damaged them, keyed by
+    // attacker id. Recorded under the same scoring gate as kills (see
+    // dealDamage) and read when this player dies to credit recent attackers an
+    // assist. Self-damage is never recorded here. Cleared on death so a stale
+    // record can never leak across lives. Empty on the non-authoritative client,
+    // which mirrors assists purely from the playerScores packet.
+    recentAttackerTicks: Record<string, number> = {}
+
     inputs: PlayerInputs = {
         movementAngle: 0,
         movementAmount: 0,
@@ -288,6 +303,9 @@ export class PipPlayer{
         this.setAssists(0)
         this.setDeaths(0)
         this.setDamage(0)
+        // Drop any pending assist credit so a hit landed in a previous round can
+        // never carry an assist into the fresh match.
+        this.recentAttackerTicks = {}
     }
 
     setIdle(idle: boolean){
