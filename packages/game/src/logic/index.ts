@@ -1,8 +1,8 @@
 import { EventEmitter } from "@pip-pip/core/src/common/events"
 import { PointPhysicsWorld, Vector2, airResistanceMultiplier, limitSpeed, WALL_RESOLVE_ITERATIONS } from "@pip-pip/core/src/physics"
-import { distanceBetweenSegments, radianDifference } from "@pip-pip/core/src/math"
+import { distanceBetweenSegments, nearestPointFromSegment, radianDifference } from "@pip-pip/core/src/math"
 
-import { Bullet, BulletPool, BulletType } from "./bullet"
+import { Bullet, BulletPool, BulletType, MAX_BULLET_BOUNCES } from "./bullet"
 import { Powerup, PowerupPool, PowerupType, applyPowerupEffect, HASTE_MULTIPLIER } from "./powerup"
 import { PipPlayer, PlayerInputs } from "./player"
 import { updateBotInputs } from "./ai"
@@ -712,14 +712,16 @@ export class PipPipGame{
 
         // Weighted pool: each entry is one "ticket", so a type listed more often
         // is more likely. health/ammo/haste/shield each get 2 tickets; the strong
-        // "invis" cloak gets a single ticket so it shows up roughly half as often.
-        // Extend this pool (adjust the repeats to tune rarity) as types are added.
+        // "invis" cloak and "ricochet" each get a single ticket so they show up
+        // roughly half as often. Extend this pool (adjust the repeats to tune
+        // rarity) as types are added.
         const types: PowerupType[] = [
             "health", "health",
             "ammo", "ammo",
             "haste", "haste",
             "shield", "shield",
             "invis",
+            "ricochet",
         ]
         const type = types[Math.floor(Math.random() * types.length)]
 
@@ -1010,6 +1012,60 @@ export class PipPipGame{
                 )
 
                 if(dist <= hitRadius + segWall.radius){
+                    // Ricochet: while the bullet's SHOOTER has the buff, a
+                    // non-grenade bullet bounces off the wall instead of dying,
+                    // up to MAX_BULLET_BOUNCES. Reflect the velocity across the
+                    // wall normal (v' = v - 2(v.n)n) and nudge the bullet back
+                    // outside the surface so it does not immediately re-collide.
+                    // Only one bounce per tick (break after) keeps it simple and
+                    // avoids re-resolving the same contact. Grenades never
+                    // ricochet - they detonate on any wall contact. Gated on the
+                    // owner being a player with an active ricochet timer; this is
+                    // server-authoritative because the bounced bullet's new
+                    // velocity/position is broadcast like any other bullet state.
+                    const owner = bullet.owner
+                    const canRicochet = bullet.type !== "grenade" &&
+                        owner instanceof PipPlayer &&
+                        owner.ship.hasRicochet === true &&
+                        bullet.bounces < MAX_BULLET_BOUNCES
+
+                    if(canRicochet){
+                        const near = nearestPointFromSegment(
+                            segWall.start.x, segWall.start.y,
+                            segWall.end.x, segWall.end.y,
+                            bullet.physics.position.x, bullet.physics.position.y,
+                        )
+                        let nx = bullet.physics.position.x - near.x
+                        let ny = bullet.physics.position.y - near.y
+                        let nLen = Math.sqrt(nx * nx + ny * ny)
+                        if(nLen < 0.0001){
+                            // Bullet centre sits on the wall: fall back to the
+                            // segment's perpendicular so the normal is defined.
+                            const sx = segWall.end.x - segWall.start.x
+                            const sy = segWall.end.y - segWall.start.y
+                            const sLen = Math.max(0.0001, Math.sqrt(sx * sx + sy * sy))
+                            nx = -sy / sLen
+                            ny = sx / sLen
+                            nLen = 1
+                        } else{
+                            nx /= nLen
+                            ny /= nLen
+                        }
+
+                        const vDotN = bullet.physics.velocity.x * nx + bullet.physics.velocity.y * ny
+                        bullet.physics.velocity.x -= 2 * vDotN * nx
+                        bullet.physics.velocity.y -= 2 * vDotN * ny
+
+                        // Push the bullet just clear of the surface along the
+                        // normal so the next tick starts outside the wall.
+                        const clearDist = hitRadius + segWall.radius + 0.5
+                        bullet.physics.position.x = near.x + nx * clearDist
+                        bullet.physics.position.y = near.y + ny * clearDist
+
+                        bullet.bounces += 1
+                        break
+                    }
+
                     // A grenade that hits a wall detonates on contact (AoE).
                     this.detonateGrenade(bullet)
                     this.bullets.unset(bullet)

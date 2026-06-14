@@ -217,8 +217,8 @@ export class DamageGraphic extends PoolableGraphic {
 
 // On-brand procedural powerup pickup: a small glowing diamond (rotated square)
 // with a soft outer halo, colour per type (green = health, amber = ammo, cyan =
-// haste, purple = shield, pale ghost-white = invis cloak). No art assets — drawn
-// with Pixi Graphics and pulsed/spun in render().
+// haste, purple = shield, pale ghost-white = invis cloak, pink = ricochet). No
+// art assets - drawn with Pixi Graphics and pulsed/spun in render().
 export class PowerupGraphic extends PoolableGraphic {
     static COLORS: Record<string, number> = {
         health: 0x33DD55,
@@ -226,6 +226,7 @@ export class PowerupGraphic extends PoolableGraphic {
         haste: 0x33CCFF,
         shield: 0xAA66FF,
         invis: 0xCCE6FF,
+        ricochet: 0xFF66AA,
     }
 
     powerup?: Powerup

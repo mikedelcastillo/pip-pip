@@ -31,6 +31,12 @@ export type BulletParams = {
 
 export const BULLET_DEFAULT_LIFESPAN = 20 * 8 // eight seconds
 
+// Cap on how many times a "ricochet"-buffed bullet may bounce off walls before
+// it is destroyed like a normal bullet. Without a cap a bullet trapped between
+// two close walls would bounce forever (short of its lifespan). Read by
+// updateBulletPhysics (see "check wall collisions").
+export const MAX_BULLET_BOUNCES = 3
+
 export class Bullet{
     dead = true
 
@@ -51,6 +57,11 @@ export class Bullet{
     // frozen at the position the shooter saw when firing, for the bullet's whole
     // flight (see updateBulletPhysics). -1 until the bullet is set/fired.
     spawnTick = -1
+
+    // How many times this bullet has already bounced off a wall (ricochet buff
+    // only). Counts up to MAX_BULLET_BOUNCES, after which a further wall contact
+    // destroys it like a normal bullet. Always 0 for non-ricochet shots.
+    bounces = 0
 
     owner?: PipPlayer
 
@@ -85,6 +96,7 @@ export class Bullet{
         this.type = params.type ?? "primary"
         this.explosionRadius = params.explosionRadius ?? 0
         this.spawnTick = this.pool.game.tickNumber
+        this.bounces = 0
 
         this.dead = false
         this.pool.game.physics.addObject(this.physics)
@@ -99,6 +111,7 @@ export class Bullet{
         this.type = "primary"
         this.explosionRadius = 0
         this.spawnTick = -1
+        this.bounces = 0
         this.owner = undefined
         this.physics.position.x = 0
         this.physics.position.y = 0

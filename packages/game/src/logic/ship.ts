@@ -188,12 +188,16 @@ export type ShipTimings = {
     invincibility: number,
     // Timed buffs from powerups. While > 0 the ship is hasted (faster
     // acceleration) / shielded (takes no damage) / invisible (cloaked, hard for
-    // enemies to see). `invisibility` is a DISTINCT timer from the `invincibility`
-    // no-damage timer above — they are unrelated. Set by applyPowerupEffect,
-    // ticked down each tick in update(), networked via playerShipTimings.
+    // enemies to see) / ricochet (its bullets bounce off walls). `invisibility`
+    // is a DISTINCT timer from the `invincibility` no-damage timer above - they
+    // are unrelated. Set by applyPowerupEffect, ticked down each tick in
+    // update(). haste/shield/invisibility are networked via playerShipTimings;
+    // `ricochet` is NOT on that wire (the bounce is resolved server-side on the
+    // networked bullets, so the buff itself never needs to be broadcast).
     haste: number,
     shield: number,
     invisibility: number,
+    ricochet: number,
 }
 
 export type ShipCapacities = {
@@ -234,6 +238,7 @@ export class PipShip{
         haste: 0,
         shield: 0,
         invisibility: 0,
+        ricochet: 0,
     }
 
     capacities: ShipCapacities = {
@@ -256,10 +261,12 @@ export class PipShip{
         this.capacities.weapon = this.stats.weapon.capacity
 
         // Clear timed buffs on (re)spawn so a fresh ship starts un-hasted,
-        // unshielded and un-cloaked; everything else respawns clean already.
+        // unshielded, un-cloaked and without ricochet; everything else respawns
+        // clean already.
         this.timings.haste = 0
         this.timings.shield = 0
         this.timings.invisibility = 0
+        this.timings.ricochet = 0
     }
 
     setPlayer(player: PipPlayer){
@@ -304,6 +311,14 @@ export class PipShip{
     // for enemies (and dims, but keeps, the local player's own ship) while true.
     get isInvisible(){
         return this.timings.invisibility > 0
+    }
+
+    // While the "ricochet" buff is running, this ship's bullets bounce off walls
+    // instead of being destroyed on contact (up to a max bounce count). Read by
+    // updateBulletPhysics against the bullet's OWNER so the buff travels with
+    // every shot the player fires.
+    get hasRicochet(){
+        return this.timings.ricochet > 0
     }
 
     get isReloading(){
@@ -411,6 +426,7 @@ export class PipShip{
         this.timings.haste = tickDown(this.timings.haste)
         this.timings.shield = tickDown(this.timings.shield)
         this.timings.invisibility = tickDown(this.timings.invisibility)
+        this.timings.ricochet = tickDown(this.timings.ricochet)
 
         // take input from player
         if(typeof this.player !== "undefined"){

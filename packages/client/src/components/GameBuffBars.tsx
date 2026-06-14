@@ -3,11 +3,12 @@ import styles from "./GameOverlayMatch.module.sass"
 
 // Powerup buff colors, mirrored from PowerupGraphic.COLORS in renderer.ts so the
 // HUD chips read the same hue as the pickup that granted them:
-//   haste  0x33CCFF, shield 0xAA66FF, invis 0xCCE6FF
+//   haste  0x33CCFF, shield 0xAA66FF, invis 0xCCE6FF, ricochet 0xFF66AA
 const BUFF_COLORS = {
     haste: "#33CCFF",
     shield: "#AA66FF",
     invis: "#CCE6FF",
+    ricochet: "#FF66AA",
 }
 
 // Describes one active-buff row. `ticks`/`maxTicks` drive the depleting bar
@@ -21,10 +22,10 @@ interface Buff {
 }
 
 // Bottom-right active-buff stack. Renders one compact labelled chip per active
-// timed buff the local player has (haste / shield / invis), each with a colored
-// bar that depletes as the buff runs out. Pinned above the combat HUD so the two
-// never overlap; renders nothing when no buff is active (and never while
-// spectating — the parent gates that branch).
+// timed buff the local player has (haste / shield / invis / ricochet), each with
+// a colored bar that depletes as the buff runs out. Pinned above the combat HUD
+// so the two never overlap; renders nothing when no buff is active (and never
+// while spectating - the parent gates that branch).
 export default function GameBuffBars() {
     const stats = useGameStore((s) => s.clientPlayerStats)
 
@@ -49,6 +50,13 @@ export default function GameBuffBars() {
             color: BUFF_COLORS.invis,
             ticks: stats.invisTicks,
             maxTicks: stats.invisMaxTicks,
+        },
+        {
+            key: "ricochet",
+            label: "Ricochet",
+            color: BUFF_COLORS.ricochet,
+            ticks: stats.ricochetTicks,
+            maxTicks: stats.ricochetMaxTicks,
         },
     ].filter((buff) => buff.ticks > 0)
 

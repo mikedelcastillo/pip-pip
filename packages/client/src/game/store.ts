@@ -1,7 +1,7 @@
 import { PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer, PlayerScores } from "@pip-pip/game/src/logic/player"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, PowerupType } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, PowerupType } from "@pip-pip/game/src/logic/powerup"
 import { PIP_SHIPS, ShipType } from "@pip-pip/game/src/ships"
 import { create } from "zustand"
 import { GAME_CONTEXT, getClientPlayer } from "."
@@ -108,6 +108,11 @@ export interface ClientPlayerStats {
     hasteMaxTicks: number
     invisTicks: number
     invisMaxTicks: number
+    // ricochet is NOT carried by playerShipTimings (see ship.ts), so for a remote
+    // view this stays 0; the local player's bar lights up only while its own
+    // ship.timings.ricochet is set. Wired here so the buff reads like the rest.
+    ricochetTicks: number
+    ricochetMaxTicks: number
 
     // Secondary/tactical cannon state: reload countdown (ticks) vs its full
     // reload duration, plus remaining ammo. Drives the tactical cooldown
@@ -162,6 +167,7 @@ const POWERUP_LABELS: Record<PowerupType, string> = {
     haste: "HASTE",
     shield: "SHIELD",
     invis: "CLOAK",
+    ricochet: "RICOCHET",
 }
 
 export function powerupLabel(type: PowerupType): string {
@@ -176,6 +182,7 @@ const POWERUP_COLORS: Record<PowerupType, string> = {
     haste: "#33CCFF",
     shield: "#AA66FF",
     invis: "#CCE6FF",
+    ricochet: "#FF66AA",
 }
 
 export function powerupColor(type: PowerupType): string {
@@ -279,6 +286,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         shieldTicks: 0, shieldMaxTicks: SHIELD_TICKS,
         hasteTicks: 0, hasteMaxTicks: HASTE_TICKS,
         invisTicks: 0, invisMaxTicks: INVIS_TICKS,
+        ricochetTicks: 0, ricochetMaxTicks: RICOCHET_TICKS,
         tacticalReloadTicks: 0, tacticalReloadMaxTicks: 0,
         tacticalAmmo: 0, tacticalAmmoMax: 0,
     },
@@ -376,6 +384,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
                 hasteMaxTicks: HASTE_TICKS,
                 invisTicks: ship.timings.invisibility,
                 invisMaxTicks: INVIS_TICKS,
+                ricochetTicks: ship.timings.ricochet,
+                ricochetMaxTicks: RICOCHET_TICKS,
                 tacticalReloadTicks: ship.timings.tacticalReload,
                 tacticalReloadMaxTicks: ship.stats.tactical.reload.ticks,
                 tacticalAmmo: ship.capacities.tactical,

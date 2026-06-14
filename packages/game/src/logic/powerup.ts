@@ -4,20 +4,24 @@ import { generateId } from "@pip-pip/core/src/lib/utils"
 import { PipPlayer } from "./player"
 import { PipPipGame } from "."
 
-// Map pickups. "health"/"ammo" are instant-effect; "haste"/"shield"/"invis" are
-// timed buffs applied to the ship's timings (ticked down in ship.update). Extend
-// this union plus the effect switch in applyPowerupEffect to add more.
-export type PowerupType = "health" | "ammo" | "haste" | "shield" | "invis"
+// Map pickups. "health"/"ammo" are instant-effect; "haste"/"shield"/"invis"/
+// "ricochet" are timed buffs applied to the ship's timings (ticked down in
+// ship.update). Extend this union plus the effect switch in applyPowerupEffect
+// to add more.
+export type PowerupType = "health" | "ammo" | "haste" | "shield" | "invis" | "ricochet"
 
 // Wire mapping for PowerupType. The powerupSpawn packet carries the type as a
 // uint8; this is the single source of truth both sides share so a client can
-// reverse it. Append new types here (server + client read the same table).
+// reverse it. Append new types here (server + client read the same table). Codes
+// stay <= 255 so they keep fitting the $uint8 the packet already uses, so adding
+// a type never changes the wire shape.
 export const POWERUP_TYPE_TO_CODE: Record<PowerupType, number> = {
     health: 0,
     ammo: 1,
     haste: 2,
     shield: 3,
     invis: 4,
+    ricochet: 5,
 }
 
 export const POWERUP_CODE_TO_TYPE: Record<number, PowerupType> = {
@@ -26,6 +30,7 @@ export const POWERUP_CODE_TO_TYPE: Record<number, PowerupType> = {
     2: "haste",
     3: "shield",
     4: "invis",
+    5: "ricochet",
 }
 
 // Powerup ids are exactly POWERUP_ID_LENGTH chars from generateId so they
@@ -41,12 +46,17 @@ export const POWERUP_RADIUS = 24
 // How much health a "health" pickup restores (capped at the ship's max).
 export const POWERUP_HEALTH_AMOUNT = 50
 
-// Timed-buff durations, in ticks (game runs at 20 tps). All are networked as
-// $uint8 in playerShipTimings, so they MUST stay <= 255. HASTE ~6s, SHIELD ~5s,
-// INVIS ~6s (a little rarer to find — see the spawn pool weighting in index.ts).
+// Timed-buff durations, in ticks (game runs at 20 tps). HASTE/SHIELD/INVIS are
+// networked as $uint8 in playerShipTimings, so they MUST stay <= 255. HASTE ~6s,
+// SHIELD ~5s, INVIS ~6s (a little rarer to find - see the spawn pool weighting in
+// index.ts). RICOCHET ~8s of bouncing bullets; it is NOT carried by
+// playerShipTimings (the bounce itself is resolved server-side on the bullets,
+// which are networked), but keep it <= 255 anyway so it stays uint8-safe if it is
+// ever added to the wire.
 export const HASTE_TICKS = 20 * 6 // 120 ticks (~6s)
 export const SHIELD_TICKS = 20 * 5 // 100 ticks (~5s)
 export const INVIS_TICKS = 20 * 6 // 120 ticks (~6s)
+export const RICOCHET_TICKS = 20 * 8 // 160 ticks (~8s)
 
 // While hasted, movement acceleration (and the speed cap that derives from it)
 // is multiplied by this factor. Applied in computeMovementAcceleration so the
@@ -55,8 +65,8 @@ export const HASTE_MULTIPLIER = 1.5
 
 // Apply a powerup's effect to a player's ship. Single decision point so new
 // types slot in here. Instant types ("health"/"ammo") mutate capacities; timed
-// types ("haste"/"shield"/"invis") set a ship timing that ticks down in
-// ship.update. Server-authoritative callers gate this (see
+// types ("haste"/"shield"/"invis"/"ricochet") set a ship timing that ticks down
+// in ship.update. Server-authoritative callers gate this (see
 // PipPipGame.pickupPowerup); this function itself only mutates the ship.
 export function applyPowerupEffect(type: PowerupType, player: PipPlayer){
     const ship = player.ship
@@ -71,6 +81,8 @@ export function applyPowerupEffect(type: PowerupType, player: PipPlayer){
         ship.timings.shield = SHIELD_TICKS
     } else if(type === "invis"){
         ship.timings.invisibility = INVIS_TICKS
+    } else if(type === "ricochet"){
+        ship.timings.ricochet = RICOCHET_TICKS
     }
 }
 
