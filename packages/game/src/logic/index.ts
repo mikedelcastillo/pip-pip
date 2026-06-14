@@ -104,6 +104,35 @@ export const FILL_TARGET_PLAYERS = 8
 // "mixed" is config-only - each added bot rolls its own random difficulty instead.
 export type BotDifficultyChoice = BotDifficulty | "mixed"
 
+// N-team support: teams generalize from the original hard-coded 2 to any count in
+// [MIN_TEAMS, MAX_TEAMS]. settings.numTeams defaults to 2 (the classic split), so
+// nothing changes for an existing 2-team match. The cap is 6 because the client
+// team palette has exactly 6 distinct colors + names. Kept here so the logic, the
+// networking clamp and the host commands all share one source of truth.
+export const MIN_TEAMS = 2
+export const MAX_TEAMS = 6
+
+// Clamp a requested team count into the supported range and to a whole number,
+// so a hostile/garbled wire value (or a typo'd /settotalteams) can never produce
+// fewer than 2 or more than the palette supports. Shared by setSettings (logic),
+// the gameState wire decode and the host command path.
+export function clampNumTeams(numTeams: number): number {
+    if(!Number.isFinite(numTeams)) return MIN_TEAMS
+    return Math.max(MIN_TEAMS, Math.min(MAX_TEAMS, Math.floor(numTeams)))
+}
+
+// The team indices for a given team count: [0, 1, ..., numTeams-1]. Replaces the
+// old fixed TDM_TEAMS in every place that needs to iterate "every team", so team
+// scoring, the win condition and balancing all generalize to N teams.
+export function teamIndices(numTeams: number): number[] {
+    const count = clampNumTeams(numTeams)
+    const out: number[] = []
+    for(let team = 0; team < count; team++){
+        out.push(team)
+    }
+    return out
+}
+
 export enum PipPipGamePhase {
     SETUP,
     COUNTDOWN,
@@ -119,6 +148,11 @@ export type PipPipGameSettings = {
     // KILL_FRENZY match length in whole minutes. Ignored by DEATHMATCH.
     matchMinutes: number,
     friendlyFire: boolean,
+    // TEAM_DEATHMATCH team count, in [MIN_TEAMS, MAX_TEAMS]. Defaults to 2 (the
+    // classic split) so existing 2-team matches are unchanged. assignTeams splits
+    // players round-robin into this many teams and the win condition checks all of
+    // them. Carried on the gameState wire as a uint8.
+    numTeams: number,
 }
 
 export class PipPipGame{
@@ -196,6 +230,7 @@ export class PipPipGame{
         maxKills: 25,
         matchMinutes: 3,
         friendlyFire: false,
+        numTeams: MIN_TEAMS,
     }
 
     constructor(options: Partial<PipPipGameOptions> = {}){
@@ -253,6 +288,15 @@ export class PipPipGame{
                 const s = this.settings as any // TODO: Fix type
                 if(key in s) s[key] = settings[key]
             }
+        }
+        // numTeams must always land in [MIN_TEAMS, MAX_TEAMS] and be whole, no
+        // matter how it arrived (wire, host command, lobby creation), so a bad
+        // value can never reach assignTeams or the win condition. Re-clamp after
+        // the copy and re-flag a change if the clamp moved it.
+        const clampedTeams = clampNumTeams(this.settings.numTeams)
+        if(this.settings.numTeams !== clampedTeams){
+            this.settings.numTeams = clampedTeams
+            changed = true
         }
         if(changed){
             this.events.emit("settingsChange")
@@ -587,9 +631,11 @@ export class PipPipGame{
             // maxKills === 0 means "no kill cap", so the match never ends on its
             // own (same as DEATHMATCH).
             if(target <= 0) return
-            // The first team whose combined kills reach the cap wins; its members
-            // become the winners (reusing the RESULTS / winnerIds machinery).
-            const winningTeam = TDM_TEAMS.find(team => this.teamScore(team) >= target)
+            // The first of the N teams whose combined kills reach the cap wins; its
+            // members become the winners (reusing the RESULTS / winnerIds
+            // machinery). Generalizes the original 2-team check to numTeams.
+            const winningTeam = teamIndices(this.settings.numTeams)
+                .find(team => this.teamScore(team) >= target)
             if(typeof winningTeam === "undefined") return
             this.endMatch(this.teamPlayers(winningTeam))
         }
@@ -611,18 +657,27 @@ export class PipPipGame{
         return total
     }
 
-    // Pick the team a NEW (or rebalancing) player should join: the smaller of the
-    // two teams, breaking a tie toward team 0. Counts only non-spectator players
-    // so spectators never skew the balance. Used by assignTeams (match start) and
-    // when a player joins/deploys mid-TDM.
+    // Pick the team a NEW (or rebalancing) player should join: the SMALLEST of the
+    // N teams, breaking a tie toward the lower index. Counts only non-spectator
+    // players so spectators never skew the balance. Used by assignTeams (match
+    // start) and when a player joins/deploys mid-TDM. Generalizes the original
+    // two-team pick to numTeams.
     smallerTeam(): number {
-        const sizes = TDM_TEAMS.map(team =>
-            this.teamPlayers(team).filter(player => player.spectator === false).length)
-        return sizes[0] <= sizes[1] ? TDM_TEAMS[0] : TDM_TEAMS[1]
+        const teams = teamIndices(this.settings.numTeams)
+        let bestTeam = teams[0]
+        let bestSize = Infinity
+        for(const team of teams){
+            const size = this.teamPlayers(team).filter(player => player.spectator === false).length
+            if(size < bestSize){
+                bestSize = size
+                bestTeam = team
+            }
+        }
+        return bestTeam
     }
 
-    // Split every non-spectator player into two BALANCED teams, alternating so
-    // the teams differ by at most one. Spectators are left unassigned (-1) so they
+    // Split every non-spectator player into N BALANCED teams, round-robin so the
+    // teams differ by at most one. Spectators are left unassigned (-1) so they
     // never count toward a team or its score. Called from startMatch on the
     // authoritative side; setTeam emits playerTeamChange so each assignment rides
     // the wire. Bots are players too, so they are assigned here like anyone else.
@@ -634,9 +689,10 @@ export class PipPipGame{
                 player.setTeam(TEAM_UNASSIGNED)
             }
         }
+        const teams = teamIndices(this.settings.numTeams)
         const active = Object.values(this.players).filter(player => player.spectator === false)
         active.forEach((player, index) => {
-            player.setTeam(TDM_TEAMS[index % TDM_TEAMS.length])
+            player.setTeam(teams[index % teams.length])
         })
     }
 

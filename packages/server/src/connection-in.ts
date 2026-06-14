@@ -1,5 +1,6 @@
 import { PipPipGame, PipPipGamePhase, PipPipGameMode, BotDifficultyChoice } from "@pip-pip/game/src/logic"
 import { BotDifficulty } from "@pip-pip/game/src/logic/ai"
+import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { sanitize } from "@pip-pip/game/src/logic/utils"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import {
@@ -13,6 +14,7 @@ import {
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
 import type { GameTickContext } from "."
 import { sanitizePlayerInputs } from "./input-sanitize"
+import { dispatchCommand, isCommandMessage, parseCommand, type CommandContext } from "./commands"
 
 // In-lobby mode-target bounds, mirrored from the host UI (HostSettingsModal /
 // the lobby Match panel). The client clamps too, but the server never trusts
@@ -24,10 +26,6 @@ const MODE_MAX_MINUTES = 10
 
 const clamp = (value: number, min: number, max: number) =>
     Math.max(min, Math.min(max, value))
-
-// Max bots a single command may add, to bound server work. The default lobby
-// caps at 16 connections; this keeps a bot flood from blowing past that idea.
-const MAX_BOTS_PER_COMMAND = 16
 
 // Chat rate limit: a token bucket per connection. Capacity is the burst a peer
 // may send back-to-back; tokens refill at CHAT_RATE_PER_SECOND/sec. ~3 msg/sec
@@ -84,107 +82,36 @@ export function getApprovedChatEntries(): [string, string[]][]{
     return Array.from(approvedChat.entries())
 }
 
-// True if `message` is a recognized host bot-command. Used by both the
-// command processor (to act on it) and the outgoing chat broadcast (to avoid
-// echoing the raw command back into the chat log). Only the lobby host's
-// commands are honoured; everyone else's "/bot" is treated as plain chat.
+// True if `message` is a recognized bot-command word. Thin wrapper over the
+// command registry (the registry is the single source of truth for command
+// names), kept exported because existing tests + the chat-suppression path import
+// it. Recognition only: host gating happens at dispatch time. "/botanist" and
+// "nice /bot" are NOT commands (they do not parse to a bare command word).
 export function isBotCommand(message: string){
-    const word = message.trim().toLowerCase().split(/\s+/)[0]
-    return word === "/bot" || word === "/bots" || word === "/clearbots"
+    const parsed = parseCommand(message)
+    if(typeof parsed === "undefined") return false
+    return parsed.name === "/bot" || parsed.name === "/bots" || parsed.name === "/clearbots"
 }
 
-// True if `message` is a recognized host promote-command. Mirrors isBotCommand:
-// used by the command processor (to act on it) and the outgoing chat broadcast
-// (to suppress echoing the raw command). Only honoured for the lobby host.
+// True if `message` is a recognized host promote-command word. Mirrors
+// isBotCommand: a thin wrapper over the registry kept for the tests + the chat
+// path. The legacy "/makehost" alias is still recognized here; the registry
+// canonical command is "/op", and dispatchCommand routes "/makehost" to it below.
 export function isHostPromoteCommand(message: string){
-    const word = message.trim().toLowerCase().split(/\s+/)[0]
-    return word === "/op" || word === "/makehost"
+    const parsed = parseCommand(message)
+    if(typeof parsed === "undefined") return false
+    return parsed.name === "/op" || parsed.name === "/makehost"
 }
 
-// Execute a host bot-command. No-op (returns false) if the text is not a
-// recognized command. Centralised here so the chat path stays declarative.
-function runBotCommand(game: PipPipGame, message: string){
-    const parts = message.trim().split(/\s+/)
-    const command = parts[0].toLowerCase()
-
-    if(command === "/bot"){
-        game.addBot()
-        return true
+// "/makehost" is a legacy alias for the registry's "/op" command. The registry
+// keys on "/op", so normalize the alias before dispatch so both still promote.
+function normalizeCommandAliases(message: string){
+    const parsed = parseCommand(message)
+    if(typeof parsed === "undefined") return message
+    if(parsed.name === "/makehost"){
+        return message.trim().replace(/^\S+/, "/op")
     }
-    if(command === "/bots"){
-        const requested = Number.parseInt(parts[1] ?? "1", 10)
-        const count = Number.isFinite(requested) ? requested : 1
-        game.addBots(Math.min(Math.max(1, count), MAX_BOTS_PER_COMMAND))
-        return true
-    }
-    if(command === "/clearbots"){
-        game.clearBots()
-        return true
-    }
-    return false
-}
-
-// Decode a hostBots wire difficulty into the BotDifficultyChoice the game logic
-// wants: 255 -> "mixed", a valid 0..2 -> that BotDifficulty, anything else falls
-// back to "mixed" (the server never trusts the wire). Centralised so the mapping
-// has one home.
-function decodeBotDifficulty(value: number): BotDifficultyChoice {
-    if(value === HOST_BOTS_DIFFICULTY_MIXED) return "mixed"
-    if(value === BotDifficulty.EASY) return BotDifficulty.EASY
-    if(value === BotDifficulty.MEDIUM) return BotDifficulty.MEDIUM
-    if(value === BotDifficulty.HARD) return BotDifficulty.HARD
-    return "mixed"
-}
-
-// Apply one host bot-config request to the game. HOST-GATED by the caller exactly
-// like the /bot chat commands (only game.host may reach here). add/remove clamp
-// their count the same way /bots does; clear/fill ignore count. Mirrors
-// runBotCommand so the chat path and the packet path share one set of game calls.
-function runHostBotsPacket(game: PipPipGame, action: number, count: number, difficulty: number){
-    const difficultyChoice = decodeBotDifficulty(difficulty)
-    if(action === HOST_BOTS_ACTION_ADD){
-        const safe = Number.isFinite(count) ? count : 1
-        game.addBots(Math.min(Math.max(1, safe), MAX_BOTS_PER_COMMAND), difficultyChoice)
-        return
-    }
-    if(action === HOST_BOTS_ACTION_REMOVE){
-        const safe = Number.isFinite(count) ? count : 1
-        game.removeBots(Math.min(Math.max(1, safe), MAX_BOTS_PER_COMMAND))
-        return
-    }
-    if(action === HOST_BOTS_ACTION_CLEAR){
-        game.clearBots()
-        return
-    }
-    if(action === HOST_BOTS_ACTION_FILL){
-        game.fillBots(difficultyChoice)
-        return
-    }
-}
-
-// Execute a host promote-command. No-op (returns false) if the text is not a
-// recognized command or no matching target player exists. The target is named
-// by player name (case-insensitive, trimmed) or by its 2-char id; on a match
-// game.setHost overrides setHostIfNeeded's players[0] default and sticks.
-function runHostPromoteCommand(game: PipPipGame, message: string){
-    const parts = message.trim().split(/\s+/)
-    const command = parts[0].toLowerCase()
-
-    if(command !== "/op" && command !== "/makehost") return false
-
-    const target = parts.slice(1).join(" ").trim()
-    if(target.length === 0) return false
-
-    const wanted = target.toLowerCase()
-    const players = Object.values(game.players)
-    const match = players.find(player =>
-        player.id.toLowerCase() === wanted ||
-        player.name.trim().toLowerCase() === wanted)
-
-    if(typeof match === "undefined") return false
-
-    game.setHost(match)
-    return true
+    return message
 }
 
 // Drop rate-limit state for connections that have left the lobby so the map
@@ -211,9 +138,12 @@ export function processChatMessages(context: GameTickContext){
         if(typeof player === "undefined") continue
 
         for(const { message } of packets.sendChat || []){
-            // Suppress recognized host commands from the chat log entirely; they
-            // are acted on in processLobbyPackets, not broadcast.
-            if(game.host?.id === connection.id && (isBotCommand(message) || isHostPromoteCommand(message))) continue
+            // Suppress ANY recognized command from the chat log entirely; commands
+            // are acted on in processLobbyPackets (with their replies sent only to
+            // the requester), never broadcast. This covers a non-host's host-only
+            // command too: it is suppressed here and answered with a denial reply
+            // at dispatch rather than leaking the raw "/kick ..." into chat.
+            if(isCommandMessage(message)) continue
 
             const clean = sanitizeChatMessage(message)
             if(typeof clean === "undefined") continue
@@ -254,6 +184,46 @@ function closeLobbyForHost(context: GameTickContext){
     // lobby and the server entry's "destroy" handler stops the ticks + game.
     lobby.server.removeLobby(lobby)
     return true
+}
+
+// Upper bound on the bots a single host packet may add/remove. The game also
+// hard-caps the TOTAL at MAX_BOTS, so this is just a per-request sanity clamp.
+const MAX_BOTS_PER_COMMAND = 16
+
+// Decode a hostBots wire difficulty into the BotDifficultyChoice the game logic
+// wants: the mixed sentinel -> "mixed", a valid 0..2 -> that BotDifficulty,
+// anything else falls back to "mixed" (the server never trusts the wire).
+function decodeBotDifficulty(value: number): BotDifficultyChoice {
+    if(value === HOST_BOTS_DIFFICULTY_MIXED) return "mixed"
+    if(value === BotDifficulty.EASY) return BotDifficulty.EASY
+    if(value === BotDifficulty.MEDIUM) return BotDifficulty.MEDIUM
+    if(value === BotDifficulty.HARD) return BotDifficulty.HARD
+    return "mixed"
+}
+
+// Apply one host bot-config request to the game. HOST-GATED by the caller exactly
+// like the /bot chat commands. add/remove clamp their count; clear/fill ignore it.
+// All paths go through the game methods, which enforce the MAX_BOTS hard cap.
+function runHostBotsPacket(game: PipPipGame, action: number, count: number, difficulty: number){
+    const difficultyChoice = decodeBotDifficulty(difficulty)
+    if(action === HOST_BOTS_ACTION_ADD){
+        const safe = Number.isFinite(count) ? count : 1
+        game.addBots(Math.min(Math.max(1, safe), MAX_BOTS_PER_COMMAND), difficultyChoice)
+        return
+    }
+    if(action === HOST_BOTS_ACTION_REMOVE){
+        const safe = Number.isFinite(count) ? count : 1
+        game.removeBots(Math.min(Math.max(1, safe), MAX_BOTS_PER_COMMAND))
+        return
+    }
+    if(action === HOST_BOTS_ACTION_CLEAR){
+        game.clearBots()
+        return
+    }
+    if(action === HOST_BOTS_ACTION_FILL){
+        game.fillBots(difficultyChoice)
+        return
+    }
 }
 
 export function processLobbyPackets(context: GameTickContext){
@@ -318,16 +288,6 @@ export function processLobbyPackets(context: GameTickContext){
             }
         }
 
-        // Host-only: configure the lobby's bots (add/remove/clear/fill). Gated on
-        // the host identity exactly like the /bot chat commands, then dispatched to
-        // the matching game method. The bot changes ride back to every client
-        // through the normal add/remove/name broadcasts, so nothing extra is sent.
-        for(const { action, count, difficulty } of packets.hostBots || []){
-            if(game.host?.id === connection.id){
-                runHostBotsPacket(game, action, count, difficulty)
-            }
-        }
-
         // Host-only: close the lobby. Server-authoritative - ONLY the host may
         // disband it, so a non-host's closeLobby is ignored. The handler notifies
         // every connection then removes the lobby; because that teardown drops all
@@ -357,11 +317,20 @@ export function processLobbyPackets(context: GameTickContext){
             }
         }
 
+        // Host-only: configure the lobby's bots (add/remove/clear/fill). Gated on
+        // the host identity exactly like the /bot chat commands, then dispatched to
+        // the matching game method. The bot changes ride back to every client
+        // through the normal add/remove/name broadcasts, so nothing extra is sent.
+        for(const { action, count, difficulty } of packets.hostBots || []){
+            if(game.host?.id === connection.id){
+                runHostBotsPacket(game, action, count, difficulty)
+            }
+        }
+
         // Set player "ready up" state. A player may only set their OWN ready, so
-        // authority comes from connection.id and the packet's playerId is ignored
-        // for authority. setReady emits playerReadyChange, which connection-out
-        // re-broadcasts so every client's lobby footer + player list agree on the
-        // ready tally. Ready is purely social; it never gates the host's start.
+        // authority comes from connection.id and the packet's playerId is ignored.
+        // setReady emits playerReadyChange, which connection-out re-broadcasts so
+        // every client's lobby footer + player list agree on the ready tally.
         for(const { ready } of packets.playerReady || []){
             game.players[connection.id]?.setReady(ready === 1)
         }
@@ -411,20 +380,17 @@ export function processLobbyPackets(context: GameTickContext){
             }
         }
 
-        // Host-only commands sent through the chat channel:
-        //   /bot        add one training-grounds bot
-        //   /bots N     add N bots (clamped to MAX_BOTS_PER_COMMAND)
-        //   /clearbots  remove all bots
-        //   /op <name|id> (alias /makehost) promote a player to host
-        // Recognized commands are NOT echoed back to chat (connection-out skips
-        // them via isBotCommand / isHostPromoteCommand). Only the host may run them.
-        if(game.host?.id === connection.id){
+        // Chat-channel commands. EVERY sender's messages run through the registry
+        // dispatcher (per-command host gating lives inside dispatchCommand, not
+        // here). Recognized commands are NOT echoed to chat - processChatMessages
+        // suppresses them via isCommandMessage; their replies go ONLY to the
+        // requester. "/makehost" is normalized to the registry's "/op" first.
+        const requester = game.players[connection.id]
+        if(typeof requester !== "undefined"){
             for(const { message } of packets.sendChat || []){
-                if(isBotCommand(message)){
-                    runBotCommand(game, message)
-                } else if(isHostPromoteCommand(message)){
-                    runHostPromoteCommand(game, message)
-                }
+                if(!isCommandMessage(normalizeCommandAliases(message))) continue
+                const ctx = buildCommandContext(context, connection, requester)
+                dispatchCommand(normalizeCommandAliases(message), ctx)
             }
         }
     }
@@ -432,4 +398,39 @@ export function processLobbyPackets(context: GameTickContext){
     // Validate + rate-limit chat ONCE this tick; connection-out broadcasts from
     // the approved store this builds (not the raw packets).
     processChatMessages(context)
+}
+
+// Build the CommandContext for one requester. Keeps connection-in declarative and
+// the registry pure: the side-effect hooks (reply, kick) are constructed here,
+// where the connection + lobby are in scope.
+//
+// reply: send a short line back to ONLY the requester over the existing chat wire
+// (no new packet), using the requester as the sender so it renders as a normal
+// chat line in their own log. Best-effort - a stub/socketless connection (unit
+// tests) simply has no send and the reply is a no-op.
+//
+// kick: disconnect a target player's connection. Found by player id in the
+// lobby's connections and dropped via the core Connection.destroy() API (the same
+// teardown a normal disconnect uses: it leaves the lobby + game and frees the
+// slot). No-op if the lobby or the target's connection is absent.
+//
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildCommandContext(context: GameTickContext, connection: any, requester: PipPlayer): CommandContext{
+    const { game, lobby } = context
+    return {
+        game,
+        player: requester,
+        isHost: game.host?.id === requester.id,
+        reply: (message: string) => {
+            if(typeof connection?.send !== "function") return
+            const encoded = encode.receiveChat(requester, message)
+            connection.send(new Uint8Array(encoded).buffer)
+        },
+        kick: (target: PipPlayer) => {
+            if(typeof lobby === "undefined") return
+            const targetConnection = lobby.connections[target.id]
+            if(typeof targetConnection === "undefined") return
+            targetConnection.destroy()
+        },
+    }
 }

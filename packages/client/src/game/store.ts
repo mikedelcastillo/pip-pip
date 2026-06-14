@@ -329,6 +329,9 @@ export interface GameStoreState {
     // "First to N" (DEATHMATCH) or the match clock (KILL_FRENZY).
     mode: PipPipGameMode
     maxKills: number
+    // TEAM_DEATHMATCH team count, mirrored from game.settings so the HUD + the
+    // scoreboard render exactly the active number of teams (2..6).
+    numTeams: number
     // KILL_FRENZY match length in whole minutes (the host-set target, mirrored so
     // the lobby Match panel can show + step it).
     matchMinutes: number
@@ -392,6 +395,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
     mode: PipPipGameMode.DEATHMATCH,
     maxKills: 0,
+    numTeams: 2,
     matchMinutes: 0,
     matchTimerSeconds: 0,
 
@@ -502,6 +506,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             countdownMs: game.countdown / game.tps * 1000,
             mode: game.settings.mode,
             maxKills: game.settings.maxKills,
+            numTeams: game.settings.numTeams,
             matchMinutes: game.settings.matchMinutes,
             matchTimerSeconds: Math.ceil(game.matchTimer / game.tps),
             botCount: Object.values(game.players).filter((p) => p.isBot === true).length,

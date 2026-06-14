@@ -223,6 +223,9 @@ export const packetManager = new PacketManager({
         // KILL_FRENZY match length in whole minutes (see settings.matchMinutes).
         matchMinutes: $uint8,
         friendlyFire: $bool,
+        // TEAM_DEATHMATCH team count, in [MIN_TEAMS, MAX_TEAMS]. uint8 covers the
+        // whole range; the client re-clamps on apply via setSettings.
+        numTeams: $uint8,
     }),
     gamePhase: new Packet({
         phase: $uint8,
@@ -322,6 +325,7 @@ export const encode = {
         maxKills: game.settings.maxKills,
         matchMinutes: game.settings.matchMinutes,
         friendlyFire: game.settings.friendlyFire,
+        numTeams: game.settings.numTeams,
     }),
     gamePhase: (gameOrPhase: PipPipGame | PipPipGamePhase) => packetManager.serializers.gamePhase.encode({
         phase: gameOrPhase instanceof PipPipGame ? gameOrPhase.phase : gameOrPhase,

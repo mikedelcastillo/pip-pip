@@ -126,6 +126,23 @@ describe("game packetManager wire format", () => {
         expect(fill.hostBots?.[0]?.difficulty).toBe(255)
     })
 
+    it("round-trips gameState including numTeams (N-team support, uint8)", () => {
+        // numTeams rides the settings wire so every client renders the active
+        // number of teams. The whole settings object must survive a round-trip.
+        const settings = {
+            mode: 2,
+            useTeams: true,
+            maxDeaths: 0,
+            maxKills: 30,
+            matchMinutes: 5,
+            friendlyFire: false,
+            numTeams: 4,
+        }
+        const out = packetManager.decode(packetManager.encode("gameState", settings)).gameState?.[0]
+        expect(out).toEqual(settings)
+        expect(out?.numTeams).toBe(4)
+    })
+
     it("round-trips closeLobby (payloadless host close request)", () => {
         // The host sends this to disband the lobby; it carries no fields, so a
         // round-trip yields a single empty object. The presence of the packet is

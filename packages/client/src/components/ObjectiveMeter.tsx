@@ -1,6 +1,6 @@
 import { PipPipGameMode } from "@pip-pip/game/src/logic"
 import { useGameStore, matchLeader, fraction } from "../game/store"
-import { teamColor, teamName, teamScore as sumTeamScore } from "../game/teams"
+import { teamColor, teamName, teamScore as sumTeamScore, teamIndices } from "../game/teams"
 import styles from "./ObjectiveMeter.module.sass"
 
 // Format a remaining-seconds count as M:SS for the KILL_FRENZY clock. Clamped at
@@ -24,40 +24,60 @@ export function formatMatchClock(totalSeconds: number): string {
 export default function ObjectiveMeter() {
     const mode = useGameStore((s) => s.mode)
     const maxKills = useGameStore((s) => s.maxKills)
+    const numTeams = useGameStore((s) => s.numTeams)
     const matchTimerSeconds = useGameStore((s) => s.matchTimerSeconds)
     const players = useGameStore((s) => s.players)
 
     if (mode === PipPipGameMode.TEAM_DEATHMATCH) {
-        // Two team totals, summed from the per-player kills + teams already on the
-        // store. Shown as a compact team-colored "Team 1  X  -  Y  Team 2" readout
-        // with a center-split progress bar growing toward maxKills from each side.
-        const score0 = sumTeamScore(players, 0)
-        const score1 = sumTeamScore(players, 1)
-        const progress0 = fraction(score0, maxKills) * 100
-        const progress1 = fraction(score1, maxKills) * 100
+        // Exactly two teams: keep the original center-split bar (unchanged), so an
+        // existing 2-team TDM looks + behaves exactly as before.
+        if (numTeams === 2) {
+            const score0 = sumTeamScore(players, 0)
+            const score1 = sumTeamScore(players, 1)
+            const progress0 = fraction(score0, maxKills) * 100
+            const progress1 = fraction(score1, maxKills) * 100
+            return (
+                <div className={`${styles.meter} ${styles.teams}`}>
+                    <div className={styles.teamScores}>
+                        <span className={styles.teamName} style={{ color: teamColor(0) }}>{teamName(0)}</span>
+                        <span className={styles.teamScore} style={{ color: teamColor(0) }}>{score0}</span>
+                        <span className={styles.teamSep}>-</span>
+                        <span className={styles.teamScore} style={{ color: teamColor(1) }}>{score1}</span>
+                        <span className={styles.teamName} style={{ color: teamColor(1) }}>{teamName(1)}</span>
+                    </div>
+                    <div className={styles.teamBars}>
+                        <div className={styles.teamBarLeft}>
+                            <div
+                                className={styles.teamBarFill}
+                                style={{ width: `${progress0}%`, backgroundColor: teamColor(0) }}
+                            />
+                        </div>
+                        <div className={styles.teamBarRight}>
+                            <div
+                                className={styles.teamBarFill}
+                                style={{ width: `${progress1}%`, backgroundColor: teamColor(1) }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )
+        }
+
+        // Three or more teams: a single split bar can no longer carry every team,
+        // so render a compact team leaderboard (team name + score, team-colored),
+        // highest score first. Scores are summed from the per-player kills + teams
+        // already on the store - no extra packet needed.
+        const board = teamIndices(numTeams)
+            .map((team) => ({ team, score: sumTeamScore(players, team) }))
+            .sort((a, b) => b.score - a.score)
         return (
-            <div className={`${styles.meter} ${styles.teams}`}>
-                <div className={styles.teamScores}>
-                    <span className={styles.teamName} style={{ color: teamColor(0) }}>{teamName(0)}</span>
-                    <span className={styles.teamScore} style={{ color: teamColor(0) }}>{score0}</span>
-                    <span className={styles.teamSep}>-</span>
-                    <span className={styles.teamScore} style={{ color: teamColor(1) }}>{score1}</span>
-                    <span className={styles.teamName} style={{ color: teamColor(1) }}>{teamName(1)}</span>
-                </div>
-                <div className={styles.teamBars}>
-                    <div className={styles.teamBarLeft}>
-                        <div
-                            className={styles.teamBarFill}
-                            style={{ width: `${progress0}%`, backgroundColor: teamColor(0) }}
-                        />
+            <div className={`${styles.meter} ${styles.teamBoard}`}>
+                {board.map(({ team, score }) => (
+                    <div key={team} className={styles.teamBoardRow} style={{ color: teamColor(team) }}>
+                        <span className={styles.teamBoardName}>{teamName(team)}</span>
+                        <span className={styles.teamBoardScore}>{score}{maxKills > 0 ? ` / ${maxKills}` : ""}</span>
                     </div>
-                    <div className={styles.teamBarRight}>
-                        <div
-                            className={styles.teamBarFill}
-                            style={{ width: `${progress1}%`, backgroundColor: teamColor(1) }}
-                        />
-                    </div>
-                </div>
+                ))}
             </div>
         )
     }

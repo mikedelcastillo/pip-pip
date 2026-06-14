@@ -109,6 +109,34 @@ $hud-skew: -14deg
         bottom: 0
         transition: width 200ms linear
 
+// ---- TEAM_DEATHMATCH face (N > 2 teams): a compact colored leaderboard ----
+// A vertical list of "Team N .... score", ordered highest score first, each row
+// colored by its team. Replaces the center-split bar when there are more than two
+// teams, where a single split bar can no longer carry every team's progress.
+.teamBoard
+    display: flex
+    flex-direction: column
+    gap: 0.15em
+    min-width: clamp(8em, 34vw, 11em)
+    font-size: clamp(13px, 3.6vw, 18px)
+    white-space: nowrap
+
+    .teamBoardRow
+        display: flex
+        align-items: baseline
+        justify-content: space-between
+        gap: 0.6em
+
+        .teamBoardName
+            text-transform: uppercase
+            letter-spacing: 0.05em
+            font-size: 0.8em
+            overflow: hidden
+            text-overflow: ellipsis
+
+        .teamBoardScore
+            font-variant-numeric: tabular-nums
+
 // ---- DEATHMATCH face: the king line over a progress bar ----
 .deathmatch
     min-width: clamp(9em, 40vw, 13em)
