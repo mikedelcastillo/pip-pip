@@ -372,4 +372,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 80 | `ef1ddcf`   | Game modes: Deathmatch + Kill Frenzy, win conditions, RESULTS screen, objective HUD, host mode picker | `git revert ef1ddcf`|
 | 81 | `89e044b`   | One-page Apex/Krunker lobby overhaul (fix host-covered, SFX into Settings) | `git revert 89e044b`|
 | 82 | `59b9500`   | Tame harsh audio: default volume 0.8->0.35, master limiter + low-pass, softer SFX | `git revert 59b9500`|
-| 83 | (latest)    | Fix mobile lobby panels not scrolling (grid stretch -> flex column on phone) | `git revert <sha>` |
+| 83 | `907faf1`   | Fix mobile lobby panels not scrolling (grid stretch -> flex column on phone) | `git revert 907faf1`|
+| 84 | (latest)    | Credits: drop the false "ships named after birds" line (Meg's correction) | `git revert <sha>` |

@@ -18,8 +18,7 @@ export default function CreditsModal({ onClose }: Props) {
             </div>
             <div className={styles.lore}>
                 The game is named "Pip-Pip" after a lovebird that mimicked an
-                infrared thermometer's "pip pip" beep, and every ship is named
-                after one of the developer's birds.
+                infrared thermometer's "pip pip" beep.
             </div>
         </Modal>
     )
