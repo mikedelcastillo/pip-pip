@@ -1,10 +1,26 @@
 @import "../styles/variables"
 
 .button
+    // Reset the native <button> so it inherits the page styling and the layered
+    // 3D look below renders exactly as it did on the old <div>.
+    background: none
+    border: 0
+    font: inherit
+    padding: 0
+    width: auto
+    color: inherit
+    text-align: inherit
+    -webkit-appearance: none
+    appearance: none
+
     cursor: pointer
     font-size: $font-size-input
     padding-bottom: $button-total-drop
     width: fit-content
+    // Native buttons clip their tap target without a min touch area; 44px keeps
+    // touch users above the platform minimum.
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
     *
         white-space: nowrap
     .top
@@ -12,6 +28,11 @@
         top: $button-hover-lift
         z-index: 1
         transition: top 100ms
+        // Center the label within a comfortable touch target.
+        min-height: 44px
+        display: flex
+        align-items: center
+        justify-content: center
         .text
             text-align: center
             padding: $text-padding-y $text-padding-x
@@ -25,9 +46,12 @@
         border-radius: $border-radius
         border: $border-size solid
 
-    &:hover
-        .top
-            top: 0
+    // Pointer devices get the hover lift; touch devices fall through to :active
+    // below so they still get press feedback without a sticky hover state.
+    @media (hover: hover)
+        &:hover
+            .top
+                top: 0
     &:active
         .top
             top: $button-total-drop

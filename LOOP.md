@@ -349,4 +349,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 57 | `d84027c`   | Map preview thumbnails in the map selector             | `git revert d84027c` |
 | 58 | `131826c`   | Host hand-off to active player + disconnect anti-farm  | `git revert 131826c` |
 | 59 | `d0d1134`   | Graceful "Lobby Not Found" modal (replaces alert)      | `git revert d0d1134` |
-| 60 | (latest)    | Buff/shield/tactical HUD (bars w/ duration, bottom-right) | `git revert <sha>` |
+| 60 | `f20dfd3`   | Buff/shield/tactical HUD (bars w/ duration, bottom-right) | `git revert f20dfd3` |
+| 61 | (latest)    | Mobile UI/UX overhaul (tap targets, a11y button, modal fit) | `git revert <sha>` |

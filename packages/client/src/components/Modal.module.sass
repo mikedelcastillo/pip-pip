@@ -6,11 +6,20 @@
     z-index: 100
     background-color: transparentize($color-dark-1, 0.2)
     padding: $screen-margin-dynamic
+    // Respect notch / home-indicator insets so the card is never clipped on a
+    // notched phone (the backdrop carries `center-container`, which scrolls).
+    padding-top: max(#{$screen-margin-dynamic}, env(safe-area-inset-top))
+    padding-bottom: max(#{$screen-margin-dynamic}, env(safe-area-inset-bottom))
+    padding-left: max(#{$screen-margin-dynamic}, env(safe-area-inset-left))
+    padding-right: max(#{$screen-margin-dynamic}, env(safe-area-inset-right))
 
 .card
+    // Never exceed the viewport (minus the backdrop padding) so the whole modal
+    // fits a small phone; the body scrolls internally if the content is taller.
     max-width: 100%
     max-height: 100%
-    overflow: auto
+    display: flex
+    flex-direction: column
     padding: 1em 1.2em
     background-color: $color-dark-2
     border: $border-size solid $color-border
@@ -19,6 +28,7 @@
     color: $color-text
 
     .title
+        flex-shrink: 0
         font-size: 2em
         line-height: 1
         color: $color-main
@@ -26,10 +36,17 @@
         padding-bottom: 0.4em
 
     .body
+        // Only the body scrolls; the title and the footer (Close / actions) stay
+        // pinned and reachable even when the content overflows vertically.
+        flex: 1 1 auto
+        min-height: 0
+        overflow-y: auto
+        overflow-x: hidden
         font-size: $font-size-input
         line-height: 1.2
 
     .footer
+        flex-shrink: 0
         display: grid
         justify-items: center
         padding-top: 0.8em

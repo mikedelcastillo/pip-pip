@@ -30,6 +30,15 @@
 
 .buttons
     display: grid
-    align-items: center
-    justify-items: center
-    gap: 0.2em
+    // One uniform full-width column so every control is the same easy-to-tap
+    // width on phones. Capped so the stack never gets comically wide on desktop.
+    grid-template-columns: 1fr
+    width: min(320px, 100%)
+    margin: 0 auto
+    justify-items: stretch
+    gap: 0.5em
+
+    // The shared controls default to fit-content widths (ragged on a phone);
+    // stretch every direct child to fill the column so the stack scans cleanly.
+    > *
+        width: 100%

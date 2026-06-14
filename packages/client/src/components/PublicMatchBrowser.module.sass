@@ -14,7 +14,9 @@
 .list
     display: grid
     gap: 0.4em
-    min-width: 18em
+    // Prefer a roomy 18em on desktop, but never force the modal wider than the
+    // phone screen — the rows truncate their text instead of overflowing.
+    width: min(18em, 100%)
 
 .row
     cursor: pointer
@@ -32,6 +34,9 @@
 
     .info
         overflow: hidden
+        // Allow the flex item to shrink below its content width so the name/meta
+        // ellipsis actually kicks in on a narrow phone instead of overflowing.
+        min-width: 0
 
         .name
             color: $color-main

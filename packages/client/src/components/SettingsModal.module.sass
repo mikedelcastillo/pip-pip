@@ -38,7 +38,11 @@
 
         .controlAction
             color: $color-text
+            flex-shrink: 0
 
         .controlKeys
             color: $color-main
             text-align: right
+            // Long key hints (e.g. "Right click / Shift / Q / E") wrap instead
+            // of pushing the row wider than a narrow phone screen.
+            min-width: 0

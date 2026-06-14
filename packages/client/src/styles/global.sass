@@ -55,15 +55,26 @@ body, html
 
 .center-container
     width: 100%
-    height: 100%
-    
+    // Fill the viewport but allow growth: when the content is taller than the
+    // screen (e.g. landscape ~700x360, or a notched phone) the container scrolls
+    // instead of clipping the menu/modal.
+    min-height: 100%
+    max-height: 100%
+    overflow-y: auto
+    overflow-x: hidden
+    // Honour notch / home-indicator insets so the menu never hides under them.
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)
+
     display: grid
-    align-items: center
+    // Centre when there is room; `safe` keeps the top reachable (and scrollable)
+    // when the content is taller than the viewport instead of overflowing above.
+    align-content: safe center
     justify-items: center
 
     .content-container
         width: fit-content
         height: fit-content
+        max-width: 100%
 
 @keyframes wobble
     $deg: 3deg
