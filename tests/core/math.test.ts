@@ -7,6 +7,7 @@ import {
     distanceSegmentToRect,
     forgivingEqual,
     intersectionOfTwoLines,
+    normalizeToPositiveRadians,
     pointInRect,
     radianDifference,
     radiansToDegree,
@@ -41,6 +42,32 @@ describe("degreeDifference", () => {
         expect(degreeDifference(0, 270)).toBeCloseTo(-90, 10)
         expect(degreeDifference(350, 10)).toBeCloseTo(20, 10)
         expect(degreeDifference(10, 350)).toBeCloseTo(-20, 10)
+    })
+})
+
+describe("normalizeToPositiveRadians", () => {
+    const TAU = Math.PI * 2
+    const samples = [0, 1, 3, 5, Math.PI, TAU, TAU + 0.5, 100, -0.0001, -1, -TAU, -TAU - 0.5, -100]
+
+    it("maps any angle into the canonical [0, 2π)", () => {
+        for(const x of samples){
+            const r = normalizeToPositiveRadians(x)
+            expect(r).toBeGreaterThanOrEqual(0)
+            expect(r).toBeLessThan(TAU)
+        }
+    })
+
+    it("preserves the angle modulo 2π", () => {
+        for(const x of samples){
+            const r = normalizeToPositiveRadians(x)
+            // r and x must differ by a whole number of turns.
+            const turns = (x - r) / TAU
+            expect(turns).toBeCloseTo(Math.round(turns), 9)
+        }
+    })
+
+    it("returns 0 for 0 (regression: the old code returned 2π)", () => {
+        expect(normalizeToPositiveRadians(0)).toBe(0)
     })
 })
 

@@ -21,7 +21,10 @@ export function forgivingEqual(a: number, b: number, amount = 5){
 }
 
 export function normalizeToPositiveRadians(radians: number){
-    return radians % (Math.PI * 2) + Math.PI * 2
+    // Map any angle into the canonical [0, 2π). The first `% 2π` lands in
+    // (-2π, 2π); adding 2π then taking `% 2π` again folds negatives up without
+    // pushing positives past the turn (the old `% 2π + 2π` returned [2π, 4π)).
+    return ((radians % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
 }
 
 export function nearestPointFromSegment(
