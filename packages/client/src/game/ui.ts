@@ -34,8 +34,8 @@ export function processInputs(context: GameContext){
 
     // shooting
     clientPlayer.inputs.useWeapon = (mouse.state.left.down || keyboard.state.Space) === true
-    // secondary / tactical cannon: right mouse button or left shift
-    clientPlayer.inputs.useTactical = (mouse.state.right.down || keyboard.state.ShiftLeft) === true
+    // secondary / tactical cannon: right mouse button, left shift, or Q / E
+    clientPlayer.inputs.useTactical = (mouse.state.right.down || keyboard.state.ShiftLeft || keyboard.state.KeyQ || keyboard.state.KeyE) === true
     clientPlayer.inputs.doReload = keyboard.state.KeyR === true
 
     // Mobile twin-stick overlay. The TouchControls component mutates `touchState`

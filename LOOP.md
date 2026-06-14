@@ -343,4 +343,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 51 | `b65e461`   | HOTFIX reconcile runaway (ship flew corner-to-corner)   | `git revert b65e461` |
 | 52 | `79bc833`   | Tunable movement/physics config (friction/accel/agility) | `git revert 79bc833` |
 | 53 | `4d5dc7d`   | Homepage parallax star field (slow upward drift)        | `git revert 4d5dc7d` |
-| 54 | (latest)    | Leave Lobby button (return to home, mobile + desktop)   | `git revert <sha>` |
+| 54 | `a12bb6f`   | Leave Lobby button (return to home, mobile + desktop)   | `git revert a12bb6f` |
+| 55 | (latest)    | Tactical keybind Q/E (+ controls help)                  | `git revert <sha>` |

@@ -12,7 +12,7 @@ const CONTROLS: [string, string][] = [
     ["Move", "WASD"],
     ["Aim", "Mouse"],
     ["Primary fire", "Left click / Space"],
-    ["Secondary cannon", "Right click / Left Shift"],
+    ["Secondary cannon", "Right click / Shift / Q / E"],
     ["Reload", "R"],
     ["Scoreboard", "Tab"],
 ]
