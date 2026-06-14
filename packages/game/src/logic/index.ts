@@ -1,6 +1,6 @@
 import { EventEmitter } from "@pip-pip/core/src/common/events"
 import { PointPhysicsWorld, Vector2, airResistanceMultiplier, limitSpeed, WALL_RESOLVE_ITERATIONS } from "@pip-pip/core/src/physics"
-import { distanceBetweenSegments, nearestPointFromSegment, radianDifference } from "@pip-pip/core/src/math"
+import { distanceBetweenSegments, distanceSegmentToRect, nearestPointFromSegment, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool, BulletType, MAX_BULLET_BOUNCES } from "./bullet"
 import { Powerup, PowerupPool, PowerupType, applyPowerupEffect, HASTE_MULTIPLIER } from "./powerup"
@@ -1346,14 +1346,71 @@ export class PipPipGame{
         }
     }
 
+    // Resolve a single wall contact for one bullet given the OUTWARD unit
+    // normal of the contact surface (nx, ny) and the nearest surface point
+    // (contactX, contactY). Shared by the segment-wall and rect-wall paths so
+    // their ricochet / grenade / destroy behaviour stays identical.
+    //
+    // Ricochet: while the bullet's SHOOTER has the buff, a non-grenade bullet
+    // bounces off the wall instead of dying, up to MAX_BULLET_BOUNCES. Reflect
+    // the velocity across the wall normal (v' = v - 2(v.n)n) and nudge the
+    // bullet back outside the surface so it does not immediately re-collide.
+    // Grenades never ricochet - they detonate on any wall contact. Gated on the
+    // owner being a player with an active ricochet timer; this is
+    // server-authoritative because the bounced bullet's new velocity/position
+    // is broadcast like any other bullet state. Returns nothing; the caller
+    // treats any contact as "resolved" so a bullet only ever resolves one wall
+    // contact per tick across BOTH wall types.
+    resolveBulletWallContact(
+        bullet: Bullet,
+        nx: number, ny: number,
+        contactX: number, contactY: number,
+        clearDist: number,
+    ){
+        const owner = bullet.owner
+        const canRicochet = bullet.type !== "grenade" &&
+            owner instanceof PipPlayer &&
+            owner.ship.hasRicochet === true &&
+            bullet.bounces < MAX_BULLET_BOUNCES
+
+        if(canRicochet){
+            const vDotN = bullet.physics.velocity.x * nx + bullet.physics.velocity.y * ny
+            bullet.physics.velocity.x -= 2 * vDotN * nx
+            bullet.physics.velocity.y -= 2 * vDotN * ny
+
+            // Push the bullet just clear of the surface along the normal so the
+            // next tick starts outside the wall.
+            bullet.physics.position.x = contactX + nx * clearDist
+            bullet.physics.position.y = contactY + ny * clearDist
+
+            bullet.bounces += 1
+            return
+        }
+
+        // A grenade that hits a wall detonates on contact (AoE).
+        this.detonateGrenade(bullet)
+        this.bullets.unset(bullet)
+    }
+
     updateBulletPhysics(){
         // check wall collisions: swept circle (the bullet's motion segment,
-        // inflated by both radii) vs each wall segment. The previous test used
-        // a zero-width line intersection that missed corner grazes and skims
-        // for fast bullets (velocity is 100/tick, larger than the bullet).
+        // inflated by both radii) vs each wall. The previous test used a
+        // zero-width line intersection that missed corner grazes and skims for
+        // fast bullets (velocity is 100/tick, larger than the bullet).
+        //
+        // Both segment walls (capsules) AND rectangle walls (axis-aligned
+        // boxes, produced by the map editor's greedy-meshed full tiles) are
+        // tested in ONE per-bullet pass. A `resolved` guard ensures a bullet
+        // resolves AT MOST ONE wall contact per tick across both wall types:
+        // once a contact bounces or destroys the bullet we stop checking it, so
+        // a later wall cannot double-resolve a bullet that already bounced or
+        // was unset this tick.
         const segWalls = Object.values(this.physics.segWalls)
+        const rectWalls = Object.values(this.physics.rectWalls)
         for(const bullet of this.bullets.getActive()){
             const hitRadius = bullet.physics.radius
+            let resolved = false
+
             for(const segWall of segWalls){
                 const dist = distanceBetweenSegments(
                     bullet.physics.position.x,
@@ -1367,63 +1424,104 @@ export class PipPipGame{
                 )
 
                 if(dist <= hitRadius + segWall.radius){
-                    // Ricochet: while the bullet's SHOOTER has the buff, a
-                    // non-grenade bullet bounces off the wall instead of dying,
-                    // up to MAX_BULLET_BOUNCES. Reflect the velocity across the
-                    // wall normal (v' = v - 2(v.n)n) and nudge the bullet back
-                    // outside the surface so it does not immediately re-collide.
-                    // Only one bounce per tick (break after) keeps it simple and
-                    // avoids re-resolving the same contact. Grenades never
-                    // ricochet - they detonate on any wall contact. Gated on the
-                    // owner being a player with an active ricochet timer; this is
-                    // server-authoritative because the bounced bullet's new
-                    // velocity/position is broadcast like any other bullet state.
-                    const owner = bullet.owner
-                    const canRicochet = bullet.type !== "grenade" &&
-                        owner instanceof PipPlayer &&
-                        owner.ship.hasRicochet === true &&
-                        bullet.bounces < MAX_BULLET_BOUNCES
-
-                    if(canRicochet){
-                        const near = nearestPointFromSegment(
-                            segWall.start.x, segWall.start.y,
-                            segWall.end.x, segWall.end.y,
-                            bullet.physics.position.x, bullet.physics.position.y,
-                        )
-                        let nx = bullet.physics.position.x - near.x
-                        let ny = bullet.physics.position.y - near.y
-                        let nLen = Math.sqrt(nx * nx + ny * ny)
-                        if(nLen < 0.0001){
-                            // Bullet centre sits on the wall: fall back to the
-                            // segment's perpendicular so the normal is defined.
-                            const sx = segWall.end.x - segWall.start.x
-                            const sy = segWall.end.y - segWall.start.y
-                            const sLen = Math.max(0.0001, Math.sqrt(sx * sx + sy * sy))
-                            nx = -sy / sLen
-                            ny = sx / sLen
-                            nLen = 1
-                        } else{
-                            nx /= nLen
-                            ny /= nLen
-                        }
-
-                        const vDotN = bullet.physics.velocity.x * nx + bullet.physics.velocity.y * ny
-                        bullet.physics.velocity.x -= 2 * vDotN * nx
-                        bullet.physics.velocity.y -= 2 * vDotN * ny
-
-                        // Push the bullet just clear of the surface along the
-                        // normal so the next tick starts outside the wall.
-                        const clearDist = hitRadius + segWall.radius + 0.5
-                        bullet.physics.position.x = near.x + nx * clearDist
-                        bullet.physics.position.y = near.y + ny * clearDist
-
-                        bullet.bounces += 1
-                        break
+                    const near = nearestPointFromSegment(
+                        segWall.start.x, segWall.start.y,
+                        segWall.end.x, segWall.end.y,
+                        bullet.physics.position.x, bullet.physics.position.y,
+                    )
+                    let nx = bullet.physics.position.x - near.x
+                    let ny = bullet.physics.position.y - near.y
+                    let nLen = Math.sqrt(nx * nx + ny * ny)
+                    if(nLen < 0.0001){
+                        // Bullet centre sits on the wall: fall back to the
+                        // segment's perpendicular so the normal is defined.
+                        const sx = segWall.end.x - segWall.start.x
+                        const sy = segWall.end.y - segWall.start.y
+                        const sLen = Math.max(0.0001, Math.sqrt(sx * sx + sy * sy))
+                        nx = -sy / sLen
+                        ny = sx / sLen
+                        nLen = 1
+                    } else{
+                        nx /= nLen
+                        ny /= nLen
                     }
 
-                    // A grenade that hits a wall detonates on contact (AoE).
-                    this.detonateGrenade(bullet)
-                    this.bullets.unset(bullet)
+                    this.resolveBulletWallContact(
+                        bullet, nx, ny, near.x, near.y,
+                        hitRadius + segWall.radius + 0.5,
+                    )
+                    resolved = true
+                    break
+                }
+            }
+
+            if(resolved) continue
+
+            // Rectangle (axis-aligned box) walls. Inflate the box by hitRadius
+            // (Minkowski): a contact occurs when the bullet's motion segment
+            // comes within hitRadius of the box. distanceSegmentToRect returns
+            // 0 when the segment enters/crosses the box, so this catches a fast
+            // bullet tunnelling clean through a thin rect in a single tick even
+            // when neither endpoint lands inside it. The contact normal is the
+            // outward normal of the nearest axis-aligned FACE.
+            for(const rectWall of rectWalls){
+                const halfW = rectWall.width / 2
+                const halfH = rectWall.height / 2
+
+                const dist = distanceSegmentToRect(
+                    bullet.physics.position.x,
+                    bullet.physics.position.y,
+                    bullet.physics.position.x + bullet.physics.velocity.x,
+                    bullet.physics.position.y + bullet.physics.velocity.y,
+                    rectWall.center.x, rectWall.center.y,
+                    rectWall.width, rectWall.height,
+                )
+
+                if(dist <= hitRadius){
+                    const dxC = bullet.physics.position.x - rectWall.center.x
+                    const dyC = bullet.physics.position.y - rectWall.center.y
+
+                    let nx = 0
+                    let ny = 0
+                    let faceX: number
+                    let faceY: number
+
+                    if(Math.abs(dxC) <= halfW && Math.abs(dyC) <= halfH){
+                        // Bullet centre inside the box: eject along the
+                        // minimum-penetration face, like the ship resolver.
+                        const penX = halfW - Math.abs(dxC)
+                        const penY = halfH - Math.abs(dyC)
+                        if(penX < penY){
+                            nx = dxC >= 0 ? 1 : -1
+                        } else{
+                            ny = dyC >= 0 ? 1 : -1
+                        }
+                        // Nearest point on the chosen face, in world space.
+                        faceX = nx !== 0 ? rectWall.center.x + nx * halfW : bullet.physics.position.x
+                        faceY = ny !== 0 ? rectWall.center.y + ny * halfH : bullet.physics.position.y
+                    } else{
+                        // Outside (or grazing) the box: the normal is the
+                        // direction from the nearest point on the box surface
+                        // (centre clamped to the box) to the bullet, snapped to
+                        // the dominant axis so the face is axis-aligned.
+                        const nearestX = rectWall.center.x + Math.max(-halfW, Math.min(halfW, dxC))
+                        const nearestY = rectWall.center.y + Math.max(-halfH, Math.min(halfH, dyC))
+                        const ox = bullet.physics.position.x - nearestX
+                        const oy = bullet.physics.position.y - nearestY
+                        if(Math.abs(ox) >= Math.abs(oy)){
+                            nx = ox >= 0 ? 1 : -1
+                        } else{
+                            ny = oy >= 0 ? 1 : -1
+                        }
+                        faceX = nx !== 0 ? rectWall.center.x + nx * halfW : nearestX
+                        faceY = ny !== 0 ? rectWall.center.y + ny * halfH : nearestY
+                    }
+
+                    this.resolveBulletWallContact(
+                        bullet, nx, ny, faceX, faceY,
+                        hitRadius + 0.5,
+                    )
+                    resolved = true
                     break
                 }
             }

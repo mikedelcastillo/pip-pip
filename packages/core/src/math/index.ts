@@ -125,8 +125,57 @@ export function distanceBetweenSegments(
     )
 }
 
+/**
+ * True when a point lies inside (or on the edge of) an axis-aligned box given
+ * by its centre, full width and full height.
+ */
+export function pointInRect(
+    pointX: number, pointY: number,
+    centerX: number, centerY: number,
+    width: number, height: number){
+    const halfW = width / 2
+    const halfH = height / 2
+    return Math.abs(pointX - centerX) <= halfW && Math.abs(pointY - centerY) <= halfH
+}
+
+/**
+ * Minimum distance between a line segment and an axis-aligned box (given by its
+ * centre, full width and full height). Returns 0 when the segment touches or
+ * enters the box. Used to sweep a moving circle (the segment being the circle
+ * centre's motion) against a rectangular wall by comparing the result against
+ * the circle radius. This catches the tunnelling case where a fast segment
+ * passes clean through a thin box without either endpoint landing inside it.
+ */
+export function distanceSegmentToRect(
+    segStartX: number, segStartY: number,
+    segEndX: number, segEndY: number,
+    centerX: number, centerY: number,
+    width: number, height: number){
+    const halfW = width / 2
+    const halfH = height / 2
+    const minX = centerX - halfW
+    const minY = centerY - halfH
+    const maxX = centerX + halfW
+    const maxY = centerY + halfH
+
+    // Either endpoint inside the box (also covers a fully contained segment) is
+    // a zero-distance contact.
+    if(pointInRect(segStartX, segStartY, centerX, centerY, width, height)) return 0
+    if(pointInRect(segEndX, segEndY, centerX, centerY, width, height)) return 0
+
+    // Otherwise the closest approach is to one of the four box edges. If the
+    // segment crosses any edge the distance is 0; otherwise it is the smallest
+    // segment-to-edge distance.
+    return Math.min(
+        distanceBetweenSegments(segStartX, segStartY, segEndX, segEndY, minX, minY, maxX, minY),
+        distanceBetweenSegments(segStartX, segStartY, segEndX, segEndY, maxX, minY, maxX, maxY),
+        distanceBetweenSegments(segStartX, segStartY, segEndX, segEndY, maxX, maxY, minX, maxY),
+        distanceBetweenSegments(segStartX, segStartY, segEndX, segEndY, minX, maxY, minX, minY),
+    )
+}
+
 export function intersectionOfTwoLines(
-    L1x1: number, L1y1: number, 
+    L1x1: number, L1y1: number,
     L1x2: number, L1y2: number, 
     L2x1: number, L2y1: number, 
     L2x2: number, L2y2: number,

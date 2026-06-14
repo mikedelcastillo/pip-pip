@@ -4,8 +4,10 @@ import {
     degreeToRadians,
     distanceBetweenSegments,
     distancePointToSegment,
+    distanceSegmentToRect,
     forgivingEqual,
     intersectionOfTwoLines,
+    pointInRect,
     radianDifference,
     radiansToDegree,
     segmentsIntersect,
@@ -84,5 +86,42 @@ describe("intersectionOfTwoLines", () => {
 
     it("returns null for parallel lines", () => {
         expect(intersectionOfTwoLines(0, 0, 1, 0, 0, 1, 1, 1)).toBeNull()
+    })
+})
+
+describe("pointInRect", () => {
+    it("is true inside and on the edge, false outside", () => {
+        // Box centred at (0,0), 100x100 -> spans [-50, 50] on both axes.
+        expect(pointInRect(0, 0, 0, 0, 100, 100)).toBe(true)
+        expect(pointInRect(50, 50, 0, 0, 100, 100)).toBe(true)
+        expect(pointInRect(-50, 10, 0, 0, 100, 100)).toBe(true)
+        expect(pointInRect(51, 0, 0, 0, 100, 100)).toBe(false)
+        expect(pointInRect(0, -60, 0, 0, 100, 100)).toBe(false)
+    })
+})
+
+describe("distanceSegmentToRect", () => {
+    it("returns 0 when a segment endpoint is inside the box", () => {
+        // End at the box centre.
+        expect(distanceSegmentToRect(-200, 0, 0, 0, 0, 0, 100, 100)).toBe(0)
+    })
+
+    it("returns 0 when a segment tunnels clean through the box (no endpoint inside)", () => {
+        // A thin 8-wide box centred at x=0; a horizontal segment from x=-200 to
+        // x=200 passes straight through it. Neither endpoint is inside, but the
+        // segment crosses the box, so the distance is 0.
+        expect(distanceSegmentToRect(-200, 0, 200, 0, 0, 0, 8, 600)).toBe(0)
+    })
+
+    it("returns the perpendicular gap when the segment misses the box", () => {
+        // Box [-50,50]^2; horizontal segment 30 above the top edge.
+        expect(distanceSegmentToRect(-200, 80, 200, 80, 0, 0, 100, 100)).toBeCloseTo(30, 10)
+    })
+
+    it("measures distance to the nearest corner past the box", () => {
+        // Segment well to the upper-right of the box clamps to the (50, 50)
+        // corner: distance from (90, 90) is sqrt(40^2 + 40^2).
+        const d = distanceSegmentToRect(90, 90, 200, 200, 0, 0, 100, 100)
+        expect(d).toBeCloseTo(Math.hypot(40, 40), 10)
     })
 })
