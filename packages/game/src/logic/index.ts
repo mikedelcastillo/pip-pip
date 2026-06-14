@@ -277,6 +277,11 @@ export class PipPipGame{
         if(this.options.triggerSpawns === true){
             const players = Object.values(this.players)
             for(const player of players){
+                // Clear any leftover respawn timer from a previous round so a
+                // dead-when-restarted player is not blocked from spawning (a
+                // non-zero spawnTimeout fails canSpawn) and does not start the
+                // match stranded on the respawn screen.
+                player.timings.spawnTimeout = 0
                 player.setSpawned(false)
                 this.spawnPlayer(player)
             }
@@ -453,11 +458,23 @@ export class PipPipGame{
             for(const player of Object.values(this.players)){
                 const playerIsClient = player.id === this.clientPlayerId
                 const authorizedToShootBullet = playerIsClient === true || this.options.shootPlayerBullets === true
-                const wasWaitingForSpawn = player.spawned === false && player.timings.spawnTimeout !== 0
-                // update player
+                // update player (ticks the respawn timer down, among other things)
                 player.update()
                 if(this.options.triggerSpawns === true){
-                    if(wasWaitingForSpawn && player.timings.spawnTimeout === 0){
+                    // Respawn any DEAD, active (non-spectator, non-idle) player
+                    // once their timer has elapsed. Checking `spawnTimeout === 0`
+                    // (rather than the old "was waiting AND just hit zero") also
+                    // rescues a player who is somehow despawned with no timer at
+                    // all (e.g. a spawn that could not be placed at match start):
+                    // they respawn at once instead of being stranded on the
+                    // respawn screen forever. Idle (disconnected) players are
+                    // excluded so the anti-farm despawn sticks.
+                    if(
+                        player.spawned === false &&
+                        player.spectator === false &&
+                        player.idle === false &&
+                        player.timings.spawnTimeout === 0
+                    ){
                         this.spawnPlayer(player)
                     }
                 }

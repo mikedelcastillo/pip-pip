@@ -362,4 +362,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 70 | `f95e39c`   | Condense repo docs (CLAUDE/README/deploy), fix stale tests note | `git revert f95e39c` |
 | 71 | `aca4c39`   | Apex-style HUD redesign + "Respawning in N" overlay   | `git revert aca4c39` |
 | 72 | `2fac305`   | Optional Telegram analytics/control bot (+ deploy commit broadcast) | `git revert 2fac305` |
-| 73 | (latest)    | Bindings: mouse buttons + wheel + multiple bindings per action | `git revert <sha>` |
+| 73 | `273f2b9`   | Bindings: mouse buttons + wheel + multiple bindings per action | `git revert 273f2b9` |
+| 74 | (latest)    | FIX infinite respawn at match start (stranded-despawn + leftover timer) | `git revert <sha>` |
