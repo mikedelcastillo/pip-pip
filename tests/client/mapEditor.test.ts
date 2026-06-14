@@ -30,6 +30,8 @@ import {
     brushAtCell,
     materialAtCell,
     editorMapIssue,
+    mirrorShape,
+    mirrorMap,
     materialKeyForBrush,
     HALF_BRUSHES,
     EDITOR_MATERIALS,
@@ -1534,5 +1536,88 @@ describe("editorMapIssue (playability gate)", () => {
         // bounding box 301 x 301 = 90601 cells, over the 250 x 250 cap
         map.setCell(300, 300, "full")
         expect(editorMapIssue(map)).toMatch(/too large/i)
+    })
+})
+
+describe("mirrorShape (symmetric flip)", () => {
+    it("flips diagonals + half-left/right horizontally; leaves full/deco/half-top/bottom", () => {
+        expect(mirrorShape("diag_tl", "horizontal")).toBe("diag_tr")
+        expect(mirrorShape("diag_tr", "horizontal")).toBe("diag_tl")
+        expect(mirrorShape("diag_bl", "horizontal")).toBe("diag_br")
+        expect(mirrorShape("diag_br", "horizontal")).toBe("diag_bl")
+        expect(mirrorShape("half_left", "horizontal")).toBe("half_right")
+        expect(mirrorShape("half_right", "horizontal")).toBe("half_left")
+        expect(mirrorShape("half_top", "horizontal")).toBe("half_top")
+        expect(mirrorShape("half_bottom", "horizontal")).toBe("half_bottom")
+        expect(mirrorShape("full", "horizontal")).toBe("full")
+        expect(mirrorShape("deco", "horizontal")).toBe("deco")
+    })
+
+    it("flips diagonals + half-top/bottom vertically; leaves full/deco/half-left/right", () => {
+        expect(mirrorShape("diag_tl", "vertical")).toBe("diag_bl")
+        expect(mirrorShape("diag_bl", "vertical")).toBe("diag_tl")
+        expect(mirrorShape("diag_tr", "vertical")).toBe("diag_br")
+        expect(mirrorShape("diag_br", "vertical")).toBe("diag_tr")
+        expect(mirrorShape("half_top", "vertical")).toBe("half_bottom")
+        expect(mirrorShape("half_bottom", "vertical")).toBe("half_top")
+        expect(mirrorShape("half_left", "vertical")).toBe("half_left")
+        expect(mirrorShape("half_right", "vertical")).toBe("half_right")
+        expect(mirrorShape("full", "vertical")).toBe("full")
+        expect(mirrorShape("deco", "vertical")).toBe("deco")
+    })
+
+    it("is an involution (mirroring twice returns the original) for every shape", () => {
+        const shapes = ["full", "deco", "diag_tl", "diag_tr", "diag_bl", "diag_br", "half_top", "half_bottom", "half_left", "half_right"] as const
+        for(const s of shapes){
+            expect(mirrorShape(mirrorShape(s, "horizontal"), "horizontal")).toBe(s)
+            expect(mirrorShape(mirrorShape(s, "vertical"), "vertical")).toBe(s)
+        }
+    })
+})
+
+describe("mirrorMap (build a symmetric arena)", () => {
+    it("returns false on an empty map", () => {
+        expect(mirrorMap(new EditorMap(), "horizontal")).toBe(false)
+    })
+
+    it("reflects a tile across the bbox centre with the flipped shape (horizontal)", () => {
+        const map = new EditorMap()
+        // bbox cols 0..4 (span = 4). Paint only on one side + a widener on a
+        // DIFFERENT row so no source cell is the mirror of another (no conflict).
+        map.setCell(0, 1, "diag_tl")
+        map.setCell(4, 3, "full")
+        expect(mirrorMap(map, "horizontal")).toBe(true)
+        // originals kept
+        expect(brushAtCell(map, 0, 1)).toBe("diag_tl")
+        expect(brushAtCell(map, 4, 3)).toBe("full")
+        // (0,1) diag_tl mirrors to (4,1) as diag_tr; (4,3) full mirrors to (0,3) full
+        expect(brushAtCell(map, 4, 1)).toBe("diag_tr")
+        expect(brushAtCell(map, 0, 3)).toBe("full")
+    })
+
+    it("reflects half-tiles + spawns vertically", () => {
+        const map = new EditorMap()
+        // bbox rows 0..4, cols 2..5 (no source cell is another's vertical mirror)
+        map.setCell(2, 0, "half_top")
+        map.setCell(5, 4, "spawn")
+        expect(mirrorMap(map, "vertical")).toBe(true)
+        // (2,0) half_top mirrors to (2,4) as half_bottom
+        expect(brushAtCell(map, 2, 4)).toBe("half_bottom")
+        // spawn (5,4) mirrors to (5,0)
+        expect(map.hasSpawn(5, 0)).toBe(true)
+        // originals kept
+        expect(brushAtCell(map, 2, 0)).toBe("half_top")
+        expect(map.hasSpawn(5, 4)).toBe(true)
+    })
+
+    it("a cell on the centre line maps to itself (not moved)", () => {
+        const map = new EditorMap()
+        // single painted column => horizontal centre IS that column; it maps to itself
+        map.setCell(3, 0, "full")
+        map.setCell(3, 2, "spawn")
+        const before = map.tileAt(3, 0)
+        mirrorMap(map, "horizontal")
+        expect(map.tileAt(3, 0)).toBe(before)
+        expect(map.hasSpawn(3, 2)).toBe(true)
     })
 })

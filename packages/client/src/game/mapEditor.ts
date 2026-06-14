@@ -605,6 +605,75 @@ export function editorMapIssue(map: EditorMap): string | null{
     return null
 }
 
+// Which way to mirror the map: "horizontal" reflects left<->right (across a
+// vertical centre line), "vertical" reflects top<->bottom.
+export type MirrorAxis = "horizontal" | "vertical"
+
+// The shape a tile becomes when reflected across the given axis. Full + deco are
+// symmetric (unchanged). Diagonals swap the corner their right angle sits in, and
+// half-tiles swap to the opposite half - but only the halves/diagonals that the
+// reflection actually flips (e.g. a horizontal mirror leaves half_top/half_bottom
+// alone). Pure + total over TileShape so it unit-tests cleanly.
+export function mirrorShape(shape: TileShape, axis: MirrorAxis): TileShape{
+    if(axis === "horizontal"){
+        if(shape === "diag_tl") return "diag_tr"
+        if(shape === "diag_tr") return "diag_tl"
+        if(shape === "diag_bl") return "diag_br"
+        if(shape === "diag_br") return "diag_bl"
+        if(shape === "half_left") return "half_right"
+        if(shape === "half_right") return "half_left"
+        return shape
+    }
+    if(shape === "diag_tl") return "diag_bl"
+    if(shape === "diag_bl") return "diag_tl"
+    if(shape === "diag_tr") return "diag_br"
+    if(shape === "diag_br") return "diag_tr"
+    if(shape === "half_top") return "half_bottom"
+    if(shape === "half_bottom") return "half_top"
+    return shape
+}
+
+// Reflect every painted tile + spawn across the CENTRE of the current painted
+// bounding box, flipping each shape's direction, so a half-painted layout becomes
+// a SYMMETRIC arena in one action (great for balanced competitive maps). The
+// reflection is a UNION: originals stay and their mirror images are added, so the
+// result is symmetric by construction. A cell that lands on the centre line maps
+// to itself and is skipped. Writes through setCell/toggleSpawn so the append-only
+// palette + spawn/tile exclusion are respected. Returns true if anything changed.
+export function mirrorMap(map: EditorMap, axis: MirrorAxis): boolean{
+    const box = map.bounds()
+    if(box.empty) return false
+    // Snapshot the sources first so we never read half-mirrored state.
+    const tiles: { col: number, row: number, shape: TileShape, key: string }[] = []
+    for(const [k, value] of map.tiles){
+        const [c, r] = parseCellKey(k)
+        const entry = map.palette[value - 1]
+        if(typeof entry === "undefined") continue
+        tiles.push({ col: c, row: r, shape: entry.shape, key: entry.key })
+    }
+    const spawns: Cell[] = map.spawns.map(([c, r]) => [c, r])
+    // Reflect across the box centre: minCol+maxCol - c (and likewise for rows). The
+    // centre column/row of an odd-width box maps to itself.
+    const span = axis === "horizontal" ? box.minCol + box.maxCol : box.minRow + box.maxRow
+    const mirror = (c: number, r: number): Cell =>
+        axis === "horizontal" ? [span - c, r] : [c, span - r]
+    let changed = false
+    for(const t of tiles){
+        const [mc, mr] = mirror(t.col, t.row)
+        if(mc === t.col && mr === t.row) continue
+        // mirrorShape never returns "auto"; TileShape is a subset of EditorBrush.
+        if(map.setCell(mc, mr, mirrorShape(t.shape, axis), t.key)) changed = true
+    }
+    for(const [c, r] of spawns){
+        const [mc, mr] = mirror(c, r)
+        if(mc === c && mr === r) continue
+        if(map.hasSpawn(mc, mr)) continue
+        map.setCell(mc, mr, "spawn")
+        changed = true
+    }
+    return changed
+}
+
 // The brush that corresponds to a cell's CURRENT content, for the eyedropper /
 // PICK tool: a single tap reads the cell back into the active brush so the author
 // can re-select "the thing already painted there" without guessing. A spawn WINS

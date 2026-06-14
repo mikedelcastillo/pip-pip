@@ -31,6 +31,8 @@ import {
     DEFAULT_MATERIAL_KEY,
     Cell,
     editorMapIssue,
+    mirrorMap,
+    MirrorAxis,
 } from "../game/mapEditor"
 import { blockFaceCss } from "../game/mapGraphics"
 import { trackEvent, trackPageView } from "../analytics"
@@ -981,6 +983,24 @@ export default function MapEditor(){
         setMessage("Cleared")
     }, [bump, draw, refreshHistoryFlags])
 
+    // Reflect everything painted across the bounding-box centre to build a
+    // symmetric arena in one click. One undo step, autosave-dirtying like any edit.
+    const onMirror = useCallback((axis: MirrorAxis) => {
+        const history = historyRef.current
+        history.begin(mapRef.current)
+        const changed = mirrorMap(mapRef.current, axis)
+        if(changed && history.commit(mapRef.current)){
+            refreshHistoryFlags()
+            markDirty()
+            bump()
+            draw()
+            setMessage(axis === "horizontal" ? "Mirrored left and right" : "Mirrored top and bottom")
+        } else{
+            history.cancel()
+            setMessage("Nothing to mirror")
+        }
+    }, [bump, draw, markDirty, refreshHistoryFlags])
+
     // Reset the pan/zoom to fit the whole grid (geometry() refits when !ready).
     const fitNow = useCallback(() => {
         viewRef.current.ready = false
@@ -1453,6 +1473,8 @@ export default function MapEditor(){
                             <GameButton onClick={onPlay}>Play this map</GameButton>
                             <GameButton accent onClick={onExport}>Download JSON</GameButton>
                             <GameButton accent onClick={() => fileInputRef.current?.click()}>Import</GameButton>
+                            <GameButton accent onClick={() => onMirror("horizontal")}>Mirror left/right</GameButton>
+                            <GameButton accent onClick={() => onMirror("vertical")}>Mirror top/bottom</GameButton>
                             <GameButton accent onClick={fitNow}>Fit view</GameButton>
                             <GameButton accent onClick={onClear}>Clear</GameButton>
                         </div>
