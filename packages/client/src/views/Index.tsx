@@ -2,7 +2,6 @@ import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import GameButton from "../components/GameButton"
 import GameInput from "../components/GameInput"
-import AudioVolumeToggle from "../components/AudioVolumeToggle"
 import SettingsModal from "../components/SettingsModal"
 import CreditsModal from "../components/CreditsModal"
 import HostSettingsModal from "../components/HostSettingsModal"
@@ -36,7 +35,7 @@ export default function Index() {
         trackPageView("/")
     }, [])
 
-    // Join a lobby directly by its code/id — same route the public-match
+    // Join a lobby directly by its code/id, same route the public-match
     // browser uses to join (the /:id view handles connect + join).
     const joinByCode = () => {
         const code = joinValue.trim()
@@ -64,7 +63,6 @@ export default function Index() {
                     <GameButton onClick={joinByCode}>Join Game</GameButton>
                     <GameButton accent onClick={() => setPanel("settings")}>Settings</GameButton>
                     <GameButton accent onClick={() => setPanel("credits")}>Credits</GameButton>
-                    <AudioVolumeToggle />
                     <AlphaBanner onClick={() => setPanel("alpha")} />
                 </div>
             </div>
