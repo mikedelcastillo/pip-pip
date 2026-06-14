@@ -19,6 +19,7 @@ vi.mock("../../packages/client/src/components/GameChat", () => ({ default: () =>
 vi.mock("../../packages/client/src/components/GamePlayerList", () => ({ default: () => null }))
 vi.mock("../../packages/client/src/components/PauseMenu", () => ({ default: () => null }))
 vi.mock("../../packages/client/src/components/KillFeed", () => ({ default: () => null }))
+vi.mock("../../packages/client/src/components/KillStreakBanner", () => ({ default: () => null }))
 vi.mock("../../packages/client/src/components/PowerupFeed", () => ({ default: () => null }))
 vi.mock("../../packages/client/src/components/ObjectiveMeter", () => ({ default: () => null }))
 vi.mock("../../packages/client/src/components/Minimap", () => ({ default: () => null }))

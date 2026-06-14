@@ -1,0 +1,54 @@
+@import "../styles/variables"
+
+// Quake/Krunker-style multi-kill banner, top-center but staggered LOWER than the
+// objective meter (which hugs $screen-margin-dynamic at the very top): we drop a
+// few em below it so the two never overlap, and it stays clear of the minimap
+// (top-left) and menu button (top-right). CRITICAL: pointer-events:none so the
+// whole banner is display-only and touches fall through to the floating sticks on
+// mobile, exactly like the rest of the match HUD.
+.banner
+    position: absolute
+    top: calc(#{$screen-margin-dynamic} + 4.5em)
+    left: 50%
+    transform: translateX(-50%)
+    z-index: 21
+    pointer-events: none
+    display: flex
+    justify-content: center
+    // Cap the width so the celebratory text always fits a 393px phone; the label
+    // itself clamps its font size below.
+    max-width: min(86vw, 18em)
+    white-space: nowrap
+
+    .label
+        font-family: $font-family-game
+        // Clamp so a "Monster Kill" stays big on desktop but never overflows a
+        // narrow phone screen.
+        font-size: clamp(28px, 9vw, 56px)
+        line-height: 1
+        letter-spacing: 0.04em
+        text-transform: uppercase
+        color: $color-main
+        // Amber core with an accent-purple glow, the established HUD palette, so
+        // the banner reads as celebratory without inventing new colors.
+        text-shadow: 0 0 0.3em transparentize($color-main, 0.3), 0 0 0.8em transparentize($color-accent, 0.4), 0 0.08em 0.25em $color-dark-1
+        // Punchy scale + fade-in: overshoots big then settles, then eases out. The
+        // node is remounted (keyed on the trigger) on every escalation so this
+        // replays for each new tier.
+        animation: killStreakPop 1800ms cubic-bezier(0.18, 0.9, 0.32, 1.2) forwards
+
+@keyframes killStreakPop
+    0%
+        opacity: 0
+        transform: scale(0.4)
+    12%
+        opacity: 1
+        transform: scale(1.18)
+    24%
+        transform: scale(1)
+    78%
+        opacity: 1
+        transform: scale(1)
+    100%
+        opacity: 0
+        transform: scale(1.05)

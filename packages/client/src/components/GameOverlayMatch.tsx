@@ -6,6 +6,7 @@ import GameChat from "./GameChat"
 import GamePlayerList from "./GamePlayerList"
 import PauseMenu from "./PauseMenu"
 import KillFeed from "./KillFeed"
+import KillStreakBanner from "./KillStreakBanner"
 import PowerupFeed from "./PowerupFeed"
 import ObjectiveMeter from "./ObjectiveMeter"
 import Minimap from "./Minimap"
@@ -144,6 +145,13 @@ export default function GameOverlayMatch() {
                 its face by mode and is pointer-events:none (set in its own
                 stylesheet) so it never blocks the touch sticks. */}
             <ObjectiveMeter />
+
+            {/* Quake/Krunker-style multi-kill banner for the LOCAL player. Flashes
+                a celebratory tier ("Double Kill", ... "Monster Kill") when the local
+                player chains kills in quick succession. Staggered below the objective
+                meter and pointer-events:none (its own stylesheet) so it never blocks
+                the touch sticks. */}
+            <KillStreakBanner />
 
             {/* Single pause/options button, top-right corner. */}
             <button
