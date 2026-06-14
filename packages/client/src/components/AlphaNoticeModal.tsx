@@ -13,12 +13,12 @@ export default function AlphaNoticeModal({ onClose }: Props) {
     return (
         <Modal title="ALPHA" onClose={onClose}>
             <div className={styles.lead}>
-                Pip-Pip is in early ALPHA — thanks for playing this early!
+                Pip-Pip is in early ALPHA, thanks for playing this early!
             </div>
             <div className={styles.body}>
                 Expect frequent interruptions: every time we ship an update the
                 server restarts, so any match in progress may suddenly drop.
-                Just hop back in — it usually only takes a moment.
+                Just hop back in, it usually only takes a moment.
             </div>
         </Modal>
     )

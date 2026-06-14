@@ -49,7 +49,7 @@ export default function PublicMatchBrowser({ onClose }: Props) {
         )
     } else if (lobbies.length === 0) {
         body = (
-            <div className={styles.message}>No public matches — host one!</div>
+            <div className={styles.message}>No public matches. Host one!</div>
         )
     } else {
         body = (

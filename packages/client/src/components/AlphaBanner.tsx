@@ -13,7 +13,7 @@ export default function AlphaBanner({ onClick }: Props) {
     return (
         <button type="button" className={styles.banner} onClick={onClick}>
             <span className={styles.warn}>&#9888;</span>
-            <span className={styles.text}>ALPHA — frequent interruptions as we ship updates</span>
+            <span className={styles.text}>ALPHA: frequent interruptions as we ship updates</span>
         </button>
     )
 }

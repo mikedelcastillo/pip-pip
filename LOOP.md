@@ -356,4 +356,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 64 | `d732eb5`   | Disconnect warning modal (reconnect / home)           | `git revert d732eb5` |
 | 65 | `a83cf4f`   | PWA: web manifest + icons (installable, fullscreen)   | `git revert a83cf4f` |
 | 66 | `6e309f0`   | Custom keyboard + controller (gamepad) mapping UI     | `git revert 6e309f0` |
-| 67 | (latest)    | First-launch ALPHA notice modal + homepage banner     | `git revert <sha>` |
+| 67 | `2200ad9`   | First-launch ALPHA notice modal + homepage banner     | `git revert 2200ad9` |
+| 68 | (latest)    | Copy: remove em-dashes from user-facing text (rule)   | `git revert <sha>` |
