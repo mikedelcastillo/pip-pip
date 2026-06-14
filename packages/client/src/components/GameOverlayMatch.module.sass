@@ -284,14 +284,24 @@ $health-low: $color-bad
         align-items: center
         gap: 0.6em
         white-space: nowrap
+        // Never let the "Spectating <name>" row push past the panel on a narrow
+        // phone; the name truncates with an ellipsis instead (see .target).
+        max-width: 100%
 
     .label
         color: $color-accent
         text-transform: uppercase
         letter-spacing: 0.05em
+        // Keep the label whole; only the name gives way when space is tight.
+        flex-shrink: 0
 
     .target
         color: $color-main
+        // min-width:0 lets this flex child shrink below its content so the
+        // ellipsis can engage rather than overflowing the panel.
+        min-width: 0
+        overflow: hidden
+        text-overflow: ellipsis
 
     // ---- Spectated target mini-HUD ----
     // A compact read-only echo of the self-HUD (health bar + current/max number,
