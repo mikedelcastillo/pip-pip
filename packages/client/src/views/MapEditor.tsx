@@ -63,6 +63,9 @@ const COLOR_DECO = "#5A4A54"
 const COLOR_SPAWN = "#33DD55"
 const COLOR_GRID = "rgba(255, 255, 255, 0.08)"
 const COLOR_GRID_STRONG = "rgba(255, 255, 255, 0.18)"
+// Dashed outline around the painted bounding box = the exact region that exports,
+// so the author can see their map's edges on the otherwise-unbounded canvas.
+const COLOR_BOUNDS = "rgba(230, 174, 16, 0.45)"
 const COLOR_COLLISION = "rgba(51, 221, 85, 0.9)"
 // A neutral light tint for the draw-mode glyphs, so the mode strip reads as
 // monochrome "how to paint" controls distinct from the coloured brush swatches.
@@ -508,6 +511,23 @@ export default function MapEditor(){
             ctx.lineTo(gridX + gridW, y)
         }
         ctx.stroke()
+
+        // Export-bounds outline: a dashed rectangle around the painted bounding box
+        // so the author sees EXACTLY what will export on the unbounded canvas (the
+        // status bar shows the size as a number; this shows WHERE the edges are).
+        const exportBox = map.bounds()
+        if(exportBox.empty === false){
+            const bx = ox + exportBox.minCol * cell
+            const by = oy + exportBox.minRow * cell
+            const bw = (exportBox.maxCol - exportBox.minCol + 1) * cell
+            const bh = (exportBox.maxRow - exportBox.minRow + 1) * cell
+            ctx.save()
+            ctx.strokeStyle = COLOR_BOUNDS
+            ctx.lineWidth = 1.5
+            ctx.setLineDash([6, 4])
+            ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh)
+            ctx.restore()
+        }
 
         // Spawn markers: a green ring centred on the cell.
         ctx.strokeStyle = COLOR_SPAWN
