@@ -1,6 +1,32 @@
+// Unbiased index in [0, max) drawn from a CSPRNG. Tokens (connection/websocket)
+// are security-sensitive, so they must not be predictable from Math.random's
+// weak, seedable PRNG. We use the Web Crypto API (`crypto.getRandomValues`),
+// which is a global in both Node >= 20 and browsers — so this stays isomorphic
+// and the browser bundle pulls in no node `crypto` module. Only when no
+// webcrypto is exposed at all do we fall back to Math.random, so the function
+// still works rather than throwing. Rejection sampling keeps the distribution
+// flat (a plain `% max` over uint32 would bias the low indices for max=60).
+function randomIndex(max: number){
+    const webcrypto = (globalThis as unknown as {
+        crypto?: { getRandomValues?: (a: Uint32Array) => Uint32Array },
+    }).crypto
+    if(typeof webcrypto?.getRandomValues === "function"){
+        const limit = Math.floor(0x100000000 / max) * max
+        const buf = new Uint32Array(1)
+        let value = 0
+        do{
+            webcrypto.getRandomValues(buf)
+            value = buf[0]
+        } while(value >= limit)
+        return value % max
+    }
+    // Last resort: no CSPRNG available at all.
+    return Math.floor(Math.random() * max)
+}
+
 export function generateId(length = 4, reference?: string[]){
     const pool = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMOPQRSTUVWXYZ"
-    const getRandom = () => Array(length).fill(null).map(() => pool[Math.floor(Math.random()*pool.length)]).join("")
+    const getRandom = () => Array(length).fill(null).map(() => pool[randomIndex(pool.length)]).join("")
     if(typeof reference === "undefined") return getRandom()
     if(reference.length >= Math.pow(pool.length, length)) throw new Error("No unique ID permutations left.")
     let output = getRandom()

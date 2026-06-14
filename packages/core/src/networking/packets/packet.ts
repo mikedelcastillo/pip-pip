@@ -1,4 +1,4 @@
-import { PacketSerializer } from "./serializer"
+import { MAX_VARSTRING, PacketSerializer } from "./serializer"
 
 export type PacketSerializerMap = {
     [dataKey: string]: PacketSerializer,
@@ -72,6 +72,10 @@ export class Packet<T extends PacketSerializerMap>{
             } else{
                 const lenCode = value.slice(index, index + 2)
                 const length = (lenCode[0] | (lenCode[1] << 8)) >>> 0
+                // A field length over the hard cap is hostile framing — reject
+                // before slicing/decoding (the serializer would throw anyway, but
+                // failing here keeps the cap enforced in one obvious place).
+                if(length > MAX_VARSTRING) throw new Error("varstring length exceeds bounds")
                 const totalLength = length + 2
                 const slice = value.slice(index, index + totalLength)
                 output[key as keyof typeof output] = serializer.decode(slice)
@@ -82,15 +86,20 @@ export class Packet<T extends PacketSerializerMap>{
         return output
     }
     
-    decodable(value: number[]){
-        if(value.length === 0) return false
-        if(value[0] === this.id) return true
+    // `offset` lets the manager peek at a packet starting mid-buffer without
+    // re-slicing the whole remaining tail each iteration (which would make the
+    // decode loop O(n^2) again). Defaults to 0 so existing callers are unchanged.
+    decodable(value: number[], offset = 0){
+        if(offset >= value.length) return false
+        if(value[offset] === this.id) return true
         return false
     }
 
-    // Get length of message including first ID byte
-    peekLength(value: number[]){
-        if(!this.decodable(value)) return 0
+    // Get length of message including first ID byte. `offset` is the index of
+    // this packet's ID byte within `value`; the returned length is still the
+    // packet's own byte span (not an absolute end index).
+    peekLength(value: number[], offset = 0){
+        if(!this.decodable(value, offset)) return 0
         if(this.isFixedLength) return this.dataLength + 1
         if(Object.values(this.serializers).length === 0) return 1
         let sum = 1
@@ -100,9 +109,15 @@ export class Packet<T extends PacketSerializerMap>{
             if(typeof serializer.length === "number"){
                 sum += serializer.length
             } else{
-                const lenCode = value.slice(sum, sum + 2)
-                const length = (lenCode[0] | (lenCode[1] << 8)) >>> 0
-                sum += length + 2
+                const at = offset + sum
+                const length = (value[at] | (value[at + 1] << 8)) >>> 0
+                // Clamp the on-wire length to the bytes actually remaining and
+                // reject anything over the hard cap. This stops a hostile length
+                // prefix from making peekLength report an absurd span (which the
+                // manager would otherwise try to read out of the buffer).
+                if(length > MAX_VARSTRING) throw new Error("varstring length exceeds bounds")
+                const remaining = Math.max(0, value.length - (at + 2))
+                sum += Math.min(length, remaining) + 2
             }
         }
 

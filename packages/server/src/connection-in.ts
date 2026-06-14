@@ -1,5 +1,6 @@
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { sanitize } from "@pip-pip/game/src/logic/utils"
+import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
 import type { GameTickContext } from "."
 import { sanitizePlayerInputs } from "./input-sanitize"
@@ -7,6 +8,61 @@ import { sanitizePlayerInputs } from "./input-sanitize"
 // Max bots a single command may add, to bound server work. The default lobby
 // caps at 16 connections; this keeps a bot flood from blowing past that idea.
 const MAX_BOTS_PER_COMMAND = 16
+
+// Chat rate limit: a token bucket per connection. Capacity is the burst a peer
+// may send back-to-back; tokens refill at CHAT_RATE_PER_SECOND/sec. ~3 msg/sec
+// sustained with a small burst is plenty for humans and starves a chat-flood.
+const CHAT_RATE_PER_SECOND = 3
+const CHAT_BURST = 5
+
+type ChatRateState = {
+    tokens: number,
+    lastRefill: number,
+}
+
+// Per-connection rate-limit state, persisted across ticks. Keyed by connection
+// id. Entries are pruned lazily in pruneChatState once a connection is gone.
+const chatRateStates = new Map<string, ChatRateState>()
+
+// Per-tick set of approved (validated, rate-limited, non-command) chat messages
+// keyed by sender connection id. Rebuilt every tick by processChatMessages
+// (runs once, in connection-in) and consumed by the per-recipient broadcast in
+// connection-out — so the rate limit counts each message ONCE, not once per
+// recipient. Drained/replaced wholesale each tick; never grows unbounded.
+const approvedChat = new Map<string, string[]>()
+
+// Refill + spend one token. Returns true if the message is allowed to pass.
+function takeChatToken(connectionId: string, now: number){
+    let state = chatRateStates.get(connectionId)
+    if(typeof state === "undefined"){
+        state = { tokens: CHAT_BURST, lastRefill: now }
+        chatRateStates.set(connectionId, state)
+    }
+    const elapsed = Math.max(0, now - state.lastRefill) / 1000
+    state.tokens = Math.min(CHAT_BURST, state.tokens + elapsed * CHAT_RATE_PER_SECOND)
+    state.lastRefill = now
+    if(state.tokens < 1) return false
+    state.tokens -= 1
+    return true
+}
+
+// Validate one raw chat message. Returns the broadcast-ready text, or undefined
+// to drop it. Empty/whitespace-only messages are dropped; the rest is clamped
+// to CHAT_MAX_MESSAGE_LENGTH so a single message can never be oversized even if
+// the client ignores its own limit.
+export function sanitizeChatMessage(message: string){
+    if(typeof message !== "string") return undefined
+    const trimmed = message.trim()
+    if(trimmed.length === 0) return undefined
+    return trimmed.slice(0, CHAT_MAX_MESSAGE_LENGTH)
+}
+
+// Every (senderId, messages) pair approved for broadcast THIS tick. Returns one
+// entry per sender (already de-duplicated across that sender's ws messages), so
+// connection-out can emit each approved message exactly once per recipient.
+export function getApprovedChatEntries(): [string, string[]][]{
+    return Array.from(approvedChat.entries())
+}
 
 // True if `message` is a recognized host bot-command. Used by both the
 // command processor (to act on it) and the outgoing chat broadcast (to avoid
@@ -71,6 +127,51 @@ function runHostPromoteCommand(game: PipPipGame, message: string){
 
     game.setHost(match)
     return true
+}
+
+// Drop rate-limit state for connections that have left the lobby so the map
+// does not grow without bound over the server's lifetime.
+function pruneChatState(game: PipPipGame){
+    for(const id of chatRateStates.keys()){
+        if(!(id in game.players)) chatRateStates.delete(id)
+    }
+}
+
+// Validate, rate-limit and de-command every sender's chat for THIS tick, once.
+// Builds the approvedChat map that connection-out broadcasts from. Runs before
+// the broadcast (same tick, before lobbyEvents flush) so its results are live
+// for every recipient's send. Host commands are NOT echoed to chat (they are
+// executed in processLobbyPackets and suppressed from the broadcast here).
+export function processChatMessages(context: GameTickContext){
+    const { game, lobbyEvents } = context
+    approvedChat.clear()
+    const now = Date.now()
+
+    for(const events of lobbyEvents.filter("packetMessage")){
+        const { packets, connection } = events.packetMessage
+        const player = game.players[connection.id]
+        if(typeof player === "undefined") continue
+
+        for(const { message } of packets.sendChat || []){
+            // Suppress recognized host commands from the chat log entirely; they
+            // are acted on in processLobbyPackets, not broadcast.
+            if(game.host?.id === connection.id && (isBotCommand(message) || isHostPromoteCommand(message))) continue
+
+            const clean = sanitizeChatMessage(message)
+            if(typeof clean === "undefined") continue
+            // Rate-limit AFTER validation so dropped empties don't burn tokens.
+            if(!takeChatToken(connection.id, now)) continue
+
+            const list = approvedChat.get(connection.id)
+            if(typeof list === "undefined"){
+                approvedChat.set(connection.id, [clean])
+            } else{
+                list.push(clean)
+            }
+        }
+    }
+
+    pruneChatState(game)
 }
 
 export function processLobbyPackets(context: GameTickContext){
@@ -189,4 +290,8 @@ export function processLobbyPackets(context: GameTickContext){
             }
         }
     }
+
+    // Validate + rate-limit chat ONCE this tick; connection-out broadcasts from
+    // the approved store this builds (not the raw packets).
+    processChatMessages(context)
 }

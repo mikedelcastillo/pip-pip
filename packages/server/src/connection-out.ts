@@ -3,7 +3,7 @@ import { PING_REFRESH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { encode } from "@pip-pip/game/src/networking/packets"
 import type { ConnectionContext } from "."
-import { isBotCommand, isHostPromoteCommand } from "./connection-in"
+import { getApprovedChatEntries } from "./connection-in"
 
 export function sendPacketToConnection(context: ConnectionContext){
     const { connection, gameEvents, game } = context
@@ -116,7 +116,7 @@ class PlayerUpdateTracker{
 }
 
 export function getPartialGameState(context: ConnectionContext): number[][] {
-    const { game, gameEvents, connection, lobbyEvents } = context
+    const { game, gameEvents, connection } = context
 
     const playerUpdates = new PlayerUpdateTracker()
 
@@ -267,15 +267,15 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
         playerUpdates.track(killed.id, "playerTimings")
     }
 
-    for(const events of lobbyEvents.filter("packetMessage")){
-        const { packets, connection } = events.packetMessage
-
-        // Broadcast chat message. Recognized host commands (handled in
-        // connection-in) are not echoed back into the chat log.
-        for(const { message } of packets.sendChat || []){
-            const player = game.players[connection.id]
-            if(typeof player === "undefined") continue
-            if(game.host?.id === connection.id && (isBotCommand(message) || isHostPromoteCommand(message))) continue
+    // Broadcast chat. connection-in already validated, rate-limited and
+    // de-commanded every sender's messages ONCE this tick; here we just re-emit
+    // the approved text to this recipient. Iterating the approved entries (one
+    // per sender) rather than raw packets means the length cap / rate limit are
+    // enforced server-side and counted once, not once per recipient.
+    for(const [senderId, chatMessages] of getApprovedChatEntries()){
+        const player = game.players[senderId]
+        if(typeof player === "undefined") continue
+        for(const message of chatMessages){
             messages.push(encode.receiveChat(player, message))
         }
     }

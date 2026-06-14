@@ -34,21 +34,39 @@ export class BasePacketManager<T extends PacketManagerSerializerMap>{
         const arr = Array.from(value instanceof ArrayBuffer ? new Uint8Array(value) : value)
         const output: PacketManagerDecoded<T> = {}
 
-        while(arr.length > 0){
+        // Walk the buffer with a cursor instead of `arr.splice(0, length)` per
+        // packet. splice shifts every remaining element down on each call, so a
+        // message carrying N packets was O(N^2) — a flood of tiny packets in one
+        // message could pin the event loop. decodable/peekLength take the cursor
+        // as an offset (no per-packet re-slice of the tail), so the whole walk is
+        // O(total bytes). The packet count is also bounded so a single message can
+        // never spin the decode loop unboundedly even if framing is pathological.
+        const maxPackets = arr.length + 1
+        let cursor = 0
+        let processed = 0
+
+        while(cursor < arr.length && processed < maxPackets){
+            processed++
             let serializerId: keyof T | undefined = undefined
             for(const id in this.serializers){
-                if(this.serializers[id].decodable(arr)){
+                if(this.serializers[id].decodable(arr, cursor)){
                     serializerId = id
                     break
                 }
             }
             if(typeof serializerId === "undefined") break
             const serializer = this.serializers[serializerId]
-            const length = serializer.peekLength(arr)
-            const splice = arr.splice(0, length)
-            const decoded = serializer.decode(splice) as GetPacketInput<GetPacketSerializerMap<T[keyof T]>>
+            const length = serializer.peekLength(arr, cursor)
+            // A non-positive length would not advance the cursor — bail rather
+            // than loop forever on malformed framing.
+            if(length <= 0) break
+            // Slice only this packet's own bytes (proportional to the packet, so
+            // the total across the message stays O(total bytes)).
+            const slice = arr.slice(cursor, cursor + length)
+            const decoded = serializer.decode(slice) as GetPacketInput<GetPacketSerializerMap<T[keyof T]>>
             if(typeof output[serializerId] === "undefined") output[serializerId] = []
             output[serializerId]?.push(decoded)
+            cursor += length
         }
 
         return output

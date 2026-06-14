@@ -328,6 +328,15 @@ export class PipPlayer{
             if(ahead === 0 || ahead >= 0x8000) return
         }
         this.inputQueue.push({ seq, inputs: cloneInputs(inputs) })
+        // Bound the queue at INGEST, not only at consume time. A flood of input
+        // frames in one message (or many messages between ticks) would otherwise
+        // grow this without limit until the next consume; dropping the oldest
+        // excess here caps memory and keeps consumed input recent. The consumer
+        // still fast-forwards past any residual excess as a second line of
+        // defence.
+        while(this.inputQueue.length > SERVER_INPUT_QUEUE_MAX){
+            this.inputQueue.shift()
+        }
     }
 
     // Server: pull one input for this tick. Empty queue → keep last input

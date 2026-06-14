@@ -44,6 +44,14 @@ function createNumberSerializer(type: keyof typeof numberTypes): PacketSerialize
 const internalTextEncoder = new TextEncoder()
 const internalTextDecoder = new TextDecoder()
 
+// Hard upper bound on the on-wire byte length of a single variable-length field
+// ($varstring, and $json which is built on it). The 2-byte length prefix can
+// claim up to 65535 bytes; without a cap a hostile peer can declare a huge
+// length and force a large allocation per field (and many fields per message).
+// Legit payloads (chat <= 80 chars, names, small JSON) are far under this, so
+// 4096 bytes is comfortably permissive while keeping a single field bounded.
+export const MAX_VARSTRING = 4096
+
 export const $uint8 = createNumberSerializer("uint8")
 export const $uint16 = createNumberSerializer("uint16")
 export const $uint32 = createNumberSerializer("uint32")
@@ -90,6 +98,14 @@ export const $varstring: PacketSerializer<string> = {
         // treat each byte as its own element and read only the low byte, so any
         // payload >= 256 bytes was truncated and desynced the batch.
         const length = (arr[0] | (arr[1] << 8)) >>> 0
+        // Reject a declared length that overruns the buffer we were handed or
+        // exceeds the hard cap BEFORE allocating/slicing — a hostile length must
+        // never drive a large allocation. The cap covers MAX_VARSTRING; the
+        // remaining-bytes clamp covers a length that claims past this field.
+        const available = Math.max(0, arr.length - 2)
+        if(length > MAX_VARSTRING || length > available){
+            throw new Error("varstring length exceeds bounds")
+        }
         const stringCode = arr.slice(2, 2 + length)
         return internalTextDecoder.decode(new Uint8Array(stringCode))
     },
