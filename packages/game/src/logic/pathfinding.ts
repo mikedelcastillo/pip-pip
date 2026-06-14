@@ -11,16 +11,20 @@ import { PipGameMap, PipGameMapBounds } from "./map"
 // every few ticks - never per tick - so this LOWERS server CPU compared with a
 // per-tick straight-line chase that drives bots into walls.
 
-// The nav-grid cell size as a multiple of the ship DIAMETER. ~1.75x keeps the
-// grid coarse (few cells -> cheap A*) while still leaving room for a ship to
-// pass between two open cells. A coarser grid is the main CPU lever here.
-export const NAV_CELL_DIAMETER_FACTOR = 1.75
+// The nav-grid cell size as a multiple of the ship DIAMETER. It MUST be smaller
+// than a real corridor so a corridor has open cells to route through: at ~0.75x
+// (cell < ship diameter < a 1-tile gap) the grid can represent the gaps the ship
+// actually fits, while staying coarse enough that A* is cheap. (Was 1.75x, which
+// made cells WIDER than a 1-tile corridor, so every corridor read as blocked and
+// bots could never path - they drove straight into walls.)
+export const NAV_CELL_DIAMETER_FACTOR = 0.75
 
-// Extra clearance (in ship radii) baked into a cell's blocked test so paths do
-// not hug walls: a cell counts as blocked when a wall comes within ship radius
-// + this margin of it. One ship radius of margin keeps the routed bot off the
-// surface without closing narrow gaps entirely.
-export const NAV_WALL_MARGIN_FACTOR = 1
+// Extra clearance (in ship radii) beyond the bare ship radius kept between a
+// routed cell and a wall. A cell is blocked when its CENTRE comes within
+// shipRadius*(1 + this) + the wall's radius. A small buffer keeps the bot off the
+// surface without closing the ~1-tile gaps it can fit. (Was 1, i.e. a FULL ship
+// diameter of clearance, which closed every normal corridor.)
+export const NAV_WALL_MARGIN_FACTOR = 0.1
 
 // Hard cap on the total number of nav-grid cells. A real map fits comfortably
 // under this, but a degenerate or test arena with enormous bounds would
@@ -48,56 +52,14 @@ export type NavGrid = {
     blocked: boolean[],
 }
 
-// True straight-line clearance test of a single grid CELL against one rect
-// wall, inflated by `margin`. The cell is treated as an axis-aligned box; the
-// wall is inflated by margin on every side, and we report an overlap when the
-// two boxes intersect. Cheap and exact for AABB-vs-AABB.
-function cellOverlapsRect(
-    cellMinX: number, cellMinY: number, cellMaxX: number, cellMaxY: number,
-    rect: PointPhysicsRectWall, margin: number){
-    const halfW = rect.width / 2 + margin
-    const halfH = rect.height / 2 + margin
-    const rMinX = rect.center.x - halfW
-    const rMaxX = rect.center.x + halfW
-    const rMinY = rect.center.y - halfH
-    const rMaxY = rect.center.y + halfH
-    if(cellMaxX < rMinX || cellMinX > rMaxX) return false
-    if(cellMaxY < rMinY || cellMinY > rMaxY) return false
-    return true
-}
-
-// Closest distance from a point to an axis-aligned box (0 inside). Used to test
-// a capsule (segment) wall against a cell: sample the cell centre against the
-// segment, but to be safe against thin walls slicing a cell we also test the
-// segment endpoints against the cell box.
+// Closest distance from a point to an axis-aligned box (0 when inside). Used to
+// test a cell centre against a rect wall when marking the nav grid.
 function pointToBoxDistance(
     px: number, py: number,
     minX: number, minY: number, maxX: number, maxY: number){
     const dx = px < minX ? minX - px : (px > maxX ? px - maxX : 0)
     const dy = py < minY ? minY - py : (py > maxY ? py - maxY : 0)
     return Math.sqrt(dx * dx + dy * dy)
-}
-
-// True when a capsule (segment) wall comes within `clearance` of a grid cell.
-// The segment's spine is tested against the cell box from both sides: the cell
-// centre vs the segment, and each segment endpoint vs the cell box. That covers
-// a long thin wall crossing the cell as well as a wall ending inside it.
-function cellOverlapsSeg(
-    cellMinX: number, cellMinY: number, cellMaxX: number, cellMaxY: number,
-    seg: PointPhysicsSegmentWall, clearance: number){
-    const cx = (cellMinX + cellMaxX) / 2
-    const cy = (cellMinY + cellMaxY) / 2
-    const centreDist = distancePointToSegment(
-        cx, cy,
-        seg.start.x, seg.start.y,
-        seg.end.x, seg.end.y,
-    )
-    if(centreDist <= clearance) return true
-    const startDist = pointToBoxDistance(seg.start.x, seg.start.y, cellMinX, cellMinY, cellMaxX, cellMaxY)
-    if(startDist <= clearance) return true
-    const endDist = pointToBoxDistance(seg.end.x, seg.end.y, cellMinX, cellMinY, cellMaxX, cellMaxY)
-    if(endDist <= clearance) return true
-    return false
 }
 
 // The default cell size for a ship of diameter SHIP_DAIMETER.
@@ -152,23 +114,33 @@ export function buildNavGrid(
 
     for(let row = 0; row < rows; row++){
         for(let col = 0; col < cols; col++){
-            const cellMinX = grid.originX + col * finalCellSize
-            const cellMinY = grid.originY + row * finalCellSize
-            const cellMaxX = cellMinX + finalCellSize
-            const cellMaxY = cellMinY + finalCellSize
+            // Sample the cell CENTRE: the cell is blocked only when a ship CENTRED
+            // there would not clear the walls (centre within `margin` of a rect, or
+            // within margin + the wall's radius of a segment spine). This lets a
+            // corridor the ship actually fits through keep OPEN cells, unlike the
+            // old whole-cell-overlap test which blocked any cell merely touching a
+            // wall and so closed every normal-width corridor.
+            const cx = grid.originX + (col + 0.5) * finalCellSize
+            const cy = grid.originY + (row + 0.5) * finalCellSize
 
             let blocked = false
             for(const rect of rectWalls){
-                if(cellOverlapsRect(cellMinX, cellMinY, cellMaxX, cellMaxY, rect, margin)){
+                const halfW = rect.width / 2
+                const halfH = rect.height / 2
+                const d = pointToBoxDistance(
+                    cx, cy,
+                    rect.center.x - halfW, rect.center.y - halfH,
+                    rect.center.x + halfW, rect.center.y + halfH,
+                )
+                if(d <= margin){
                     blocked = true
                     break
                 }
             }
             if(blocked === false){
                 for(const seg of segWalls){
-                    // A capsule wall's true half-thickness is its radius, so the
-                    // clearance a routed ship needs is margin + that radius.
-                    if(cellOverlapsSeg(cellMinX, cellMinY, cellMaxX, cellMaxY, seg, margin + seg.radius)){
+                    const d = distancePointToSegment(cx, cy, seg.start.x, seg.start.y, seg.end.x, seg.end.y)
+                    if(d <= margin + seg.radius){
                         blocked = true
                         break
                     }
