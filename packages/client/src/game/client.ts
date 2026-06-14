@@ -167,6 +167,15 @@ export const processPackets = (gameContext: GameContext) => {
             game.setMap(mapIndex)
         }
 
+        //  Set a CUSTOM (uploaded / editor) map. The server sends the full
+        //  GridMapData (built-in maps ride the index-only gameMap above), so the
+        //  client builds the exact same walls + spawns the server simulates.
+        //  setCustomMap re-validates the data and ignores it if malformed, so a
+        //  bad payload can never crash the client.
+        for (const { data } of packets.customMap || []) {
+            game.setCustomMap(data)
+        }
+
         //  Set force player positions
         for (const pos of packets.playerPositionSync || []) {
             const player = game.players[pos.playerId]

@@ -16,6 +16,10 @@ import {
     saveEditorMap,
     loadEditorMap,
     clearEditorMap,
+    PLAY_MAP_STORAGE_KEY,
+    stashPlayMap,
+    loadPlayMap,
+    clearPlayMap,
 } from "../../packages/client/src/game/mapEditor"
 import { loadGridMap } from "../../packages/game/src/logic/grid-map"
 
@@ -421,5 +425,49 @@ describe("localStorage autosave round-trip", () => {
         clearEditorMap(storage)
         expect(storage.map.has(EDITOR_STORAGE_KEY)).toBe(false)
         expect(loadEditorMap(storage)).toBe(null)
+    })
+})
+
+describe("editor -> play handoff", () => {
+    it("stashes the current map under the play-map key, separate from the draft", () => {
+        const storage = fakeStorage()
+        const map = new EditorMap("Played Map")
+        map.setCell(0, 0, "full")
+        map.setCell(1, 0, "diag_tr")
+        map.setCell(0, 1, "spawn")
+
+        stashPlayMap(map.toGridMapData(), storage)
+        // It wrote under the play-map key, NOT the autosave-draft key.
+        expect(storage.map.has(PLAY_MAP_STORAGE_KEY)).toBe(true)
+        expect(storage.map.has(EDITOR_STORAGE_KEY)).toBe(false)
+
+        const loaded = loadPlayMap(storage)
+        expect(loaded).not.toBe(null)
+        expect(loaded?.name).toBe("Played Map")
+        // The loaded data round-trips back to the same exported geometry.
+        expect(loaded?.tiles).toEqual(map.toGridMapData().tiles)
+        expect(loaded?.spawns).toEqual(map.toGridMapData().spawns)
+    })
+
+    it("loadPlayMap returns null when nothing is stashed", () => {
+        const storage = fakeStorage()
+        expect(loadPlayMap(storage)).toBe(null)
+    })
+
+    it("loadPlayMap returns null (instead of throwing) on a corrupt stash", () => {
+        const storage = fakeStorage()
+        storage.setItem(PLAY_MAP_STORAGE_KEY, "{ not json")
+        expect(loadPlayMap(storage)).toBe(null)
+    })
+
+    it("clearPlayMap drops the stash so the button stops surfacing", () => {
+        const storage = fakeStorage()
+        const map = new EditorMap("Temp")
+        map.setCell(0, 0, "full")
+        stashPlayMap(map.toGridMapData(), storage)
+        expect(loadPlayMap(storage)).not.toBe(null)
+        clearPlayMap(storage)
+        expect(storage.map.has(PLAY_MAP_STORAGE_KEY)).toBe(false)
+        expect(loadPlayMap(storage)).toBe(null)
     })
 })

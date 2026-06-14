@@ -12,6 +12,7 @@ import {
     HOST_BOTS_DIFFICULTY_MIXED,
 } from "@pip-pip/game/src/networking/packets"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
+import { validateGridMapData } from "@pip-pip/game/src/logic/grid-map"
 import type { GameTickContext } from "."
 import { sanitizePlayerInputs } from "./input-sanitize"
 import { dispatchCommand, isCommandMessage, parseCommand, type CommandContext } from "./commands"
@@ -257,6 +258,22 @@ export function processLobbyPackets(context: GameTickContext){
             if(game.host?.id === connection.id){
                 if(mapIndex in PIP_MAPS){
                     game.setMap(mapIndex)
+                }
+            }
+        }
+
+        // Host-only: load a CUSTOM (uploaded / editor) map into the live match.
+        // Mirrors the gameMap host gate above. The server NEVER trusts the wire:
+        // it re-validates the GridMapData via validateGridMapData (the same shared
+        // gate the client ran) and only applies it when valid; a malformed payload
+        // is ignored. setCustomMap then rebuilds walls + despawns, and the new
+        // geometry rides back to every client (including late joiners) through
+        // connection-out's customMap branch.
+        for(const { data } of packets.customMap || []){
+            if(game.host?.id === connection.id){
+                const valid = validateGridMapData(data)
+                if(valid !== null){
+                    game.setCustomMap(valid)
                 }
             }
         }

@@ -347,3 +347,86 @@ export const GRID_TILE_HIDDEN_KEY = "tile_hidden"
 // Reference TILE_SIZE so a converter that omits an explicit cell size has the
 // engine default to the same world scale the legacy maps used.
 export const GRID_DEFAULT_CELL_SIZE = TILE_SIZE
+
+// HARD CAP on cols*rows for a CUSTOM (uploaded / editor) map. The loader builds
+// one render tile per non-empty cell, greedy-meshes rect walls and walks every
+// cell, and the renderer draws each tile, so an enormous grid could exhaust
+// physics/render memory and CPU on every client. 250*250 = 62500 cells is far
+// larger than any hand-authored map yet bounds a hostile or accidental giant
+// upload to a sane ceiling. Shared so logic, the wire and the UI agree on it.
+export const MAX_CUSTOM_CELLS = 250 * 250
+
+// The valid palette shapes, for a defensive membership test in the validator.
+const VALID_TILE_SHAPES: TileShape[] = ["full", "diag_tl", "diag_tr", "diag_bl", "diag_br", "deco"]
+
+// True for a finite integer (rejects NaN, Infinity and fractional values).
+function isInteger(value: unknown): value is number{
+    return typeof value === "number" && Number.isFinite(value) && Math.floor(value) === value
+}
+
+// Validate an UNTRUSTED value as GridMapData. Returns the value typed as
+// GridMapData when every field is well-formed, or null on ANY failure (never
+// throws on bad input - callers treat null as "ignore this upload"). This is the
+// single gate every custom-map source passes through: the editor upload control,
+// the host->server customMap packet and the server itself all run it, so a
+// malformed or oversized map can never reach loadGridMap / the physics world.
+//
+// Checks: name is a string; cellSize is a positive finite number; cols/rows are
+// positive integers; tiles is a number[] of length EXACTLY cols*rows with each
+// entry a finite int >= 0; spawns is an array of [col,row] integer pairs; palette
+// is an array of {key:string, shape:valid}; optional originCol/originRow are
+// integers and optional segments are 4-int tuples. cols*rows is capped at
+// MAX_CUSTOM_CELLS so an enormous grid cannot exhaust physics/render.
+export function validateGridMapData(x: unknown): GridMapData | null{
+    if(typeof x !== "object" || x === null) return null
+    const data = x as Record<string, unknown>
+
+    if(typeof data.name !== "string") return null
+
+    if(typeof data.cellSize !== "number" || !Number.isFinite(data.cellSize) || data.cellSize <= 0) return null
+
+    if(!isInteger(data.cols) || data.cols <= 0) return null
+    if(!isInteger(data.rows) || data.rows <= 0) return null
+
+    // Cap the cell count BEFORE walking tiles so a hostile cols*rows can never
+    // even reach the length check on a huge array.
+    const cellCount = data.cols * data.rows
+    if(cellCount > MAX_CUSTOM_CELLS) return null
+
+    if(!Array.isArray(data.tiles)) return null
+    if(data.tiles.length !== cellCount) return null
+    for(const tile of data.tiles){
+        if(!isInteger(tile) || tile < 0) return null
+    }
+
+    if(!Array.isArray(data.spawns)) return null
+    for(const spawn of data.spawns){
+        if(!Array.isArray(spawn) || spawn.length !== 2) return null
+        if(!isInteger(spawn[0]) || !isInteger(spawn[1])) return null
+    }
+
+    if(!Array.isArray(data.palette)) return null
+    for(const entry of data.palette){
+        if(typeof entry !== "object" || entry === null) return null
+        const e = entry as Record<string, unknown>
+        if(typeof e.key !== "string") return null
+        if(typeof e.shape !== "string" || VALID_TILE_SHAPES.indexOf(e.shape as TileShape) === -1) return null
+    }
+
+    if(typeof data.originCol !== "undefined" && !isInteger(data.originCol)) return null
+    if(typeof data.originRow !== "undefined" && !isInteger(data.originRow)) return null
+
+    if(typeof data.segments !== "undefined"){
+        if(!Array.isArray(data.segments)) return null
+        for(const seg of data.segments){
+            if(!Array.isArray(seg) || seg.length !== 4) return null
+            for(const c of seg){
+                if(!isInteger(c)) return null
+            }
+        }
+    }
+
+    // Every field checked: the value is structurally a GridMapData. The cast is
+    // safe because each branch above narrowed the corresponding field.
+    return x as GridMapData
+}

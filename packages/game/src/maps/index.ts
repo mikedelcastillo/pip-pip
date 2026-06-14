@@ -1,6 +1,6 @@
 import { PipGameMap } from "@pip-pip/game/src/logic/map"
 import { JSONMapSource } from "@pip-pip/game/src/logic/map"
-import { loadGridMap } from "@pip-pip/game/src/logic/grid-map"
+import { loadGridMap, GridMapData } from "@pip-pip/game/src/logic/grid-map"
 import { convertJSONMapToGrid } from "@pip-pip/game/src/logic/grid-map-migrate"
 
 
@@ -16,6 +16,37 @@ export type PipMapType = {
 }
 
 export const PIP_MAPS: PipMapType[] = []
+
+// The reserved mapIndex for a CUSTOM (uploaded / editor) map. Built-in maps are
+// index-keyed in [0, PIP_MAPS.length-1]; -1 can never collide with one, and the
+// gameMap wire packet (a uint8 0..255) can never produce it either, so a -1
+// mapIndex unambiguously means "the active map is custom, carried by the
+// customMap packet, not PIP_MAPS". Shared so logic, server and client agree.
+export const CUSTOM_MAP_INDEX = -1
+
+// The id every synthetic custom PipMapType carries, so any consumer can detect a
+// custom map by mapType.id without knowing the index.
+export const CUSTOM_MAP_TYPE_ID = "custom"
+
+// Build a synthetic PipMapType for a custom map. PIP_MAPS entries are the only
+// source of valid texture/background values, so a custom map REUSES the first
+// built-in map's texture + background (a sane, on-theme default) and takes its
+// display name from the uploaded data. The createMap thunk loads the same grid
+// engine the editor preview and built-in maps use. setCustomMap sets this on the
+// game so the renderer + client store read a real texture/background.
+export function makeCustomMapType(data: GridMapData): PipMapType{
+    const base = PIP_MAPS[0]
+    const name = typeof data.name === "string" && data.name.trim().length > 0
+        ? data.name.trim()
+        : "Custom Map"
+    return {
+        id: CUSTOM_MAP_TYPE_ID,
+        name,
+        texture: base.texture,
+        background: base.background,
+        createMap: () => loadGridMap(CUSTOM_MAP_TYPE_ID, data),
+    }
+}
 
 // Every registered map now loads through the NEW grid engine. The legacy
 // wall_tiles / wall_segments JSON is converted on the fly by convertJSONMapToGrid

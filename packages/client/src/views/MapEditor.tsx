@@ -18,6 +18,7 @@ import {
     saveEditorMap,
     loadEditorMap,
     clearEditorMap,
+    stashPlayMap,
 } from "../game/mapEditor"
 import { trackEvent, trackPageView } from "../analytics"
 import styles from "./MapEditor.module.sass"
@@ -581,6 +582,19 @@ export default function MapEditor(){
         setMessage(`Downloaded ${link.download}`)
     }, [])
 
+    // Play this map: stash the current exported GridMapData to localStorage under
+    // a stable key, then route home. The home lobby's MapSelect (host-only) reads
+    // the stash and offers a button to load it into the live match. This is an
+    // EXPLICIT handoff - it never auto-hosts and starts no match - so there is no
+    // timing race: the host clicks again in the lobby to apply it.
+    const onPlay = useCallback(() => {
+        const data = mapRef.current.toGridMapData()
+        const storage = editorStorage()
+        if(storage !== null) stashPlayMap(data, storage)
+        trackEvent("play_map")
+        navigate("/")
+    }, [navigate])
+
     // Import a previously exported map JSON back into the editor.
     const onImportFile = useCallback((file: File) => {
         const reader = new FileReader()
@@ -868,7 +882,8 @@ export default function MapEditor(){
                         </label>
 
                         <div className={styles.actions}>
-                            <GameButton onClick={onExport}>Download JSON</GameButton>
+                            <GameButton onClick={onPlay}>Play this map</GameButton>
+                            <GameButton accent onClick={onExport}>Download JSON</GameButton>
                             <GameButton accent onClick={() => fileInputRef.current?.click()}>Import</GameButton>
                             <GameButton accent onClick={fitNow}>Fit view</GameButton>
                             <GameButton accent onClick={onClear}>Clear</GameButton>

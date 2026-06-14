@@ -10,7 +10,8 @@ import { getNavGrid } from "./pathfinding"
 import { generateId } from "@pip-pip/core/src/lib/utils"
 import { PipShip } from "./ship"
 import { PipGameMap } from "./map"
-import { PipMapType, PIP_MAPS } from "../maps"
+import { PipMapType, PIP_MAPS, CUSTOM_MAP_INDEX, makeCustomMapType } from "../maps"
+import { GridMapData, loadGridMap, validateGridMapData } from "./grid-map"
 import { tickDown } from "./utils"
 import { INTERP_DELAY_TICKS } from "./constants"
 
@@ -223,6 +224,11 @@ export class PipPipGame{
     mapIndex!:number
     mapType!: PipMapType
     map!: PipGameMap
+    // The source data of the active CUSTOM map, or undefined when a built-in map
+    // is active. Set by setCustomMap (mapIndex === CUSTOM_MAP_INDEX) and CLEARED
+    // by setMap when switching to a built-in. The server reads it to re-send the
+    // full custom geometry to late joiners; the client mirrors it onto the store.
+    customMapData?: GridMapData
 
     settings: PipPipGameSettings = {
         mode: PipPipGameMode.DEATHMATCH,
@@ -274,8 +280,55 @@ export class PipPipGame{
         this.map = map
         this.mapIndex = index
         this.mapType = mapType
+        // Switching to a BUILT-IN map drops any active custom geometry, so a late
+        // joiner (and the server sync) sees a built-in index, not stale custom
+        // data. setCustomMap is the only path that sets this back.
+        this.customMapData = undefined
 
         this.events.emit("setMap", { mapIndex: index, mapType })
+    }
+
+    // Load a CUSTOM (uploaded / editor) map into the live match. Unlike setMap
+    // there is NO index-equality early-return: re-uploading the SAME custom map
+    // must re-apply (rebuild walls, despawn) so a host can reset to its spawns.
+    // The data is validated via validateGridMapData and IGNORED if invalid (never
+    // throws), so a malformed wire payload can never reach the physics world.
+    // Otherwise it mirrors setMap exactly: remove old walls, build via loadGridMap
+    // (the same loader the editor preview and built-in maps use), add new walls,
+    // despawn, then set map/mapType (a synthetic custom PipMapType) /
+    // mapIndex (CUSTOM_MAP_INDEX) / customMapData, and emit "setMap".
+    setCustomMap(data: GridMapData){
+        const valid = validateGridMapData(data)
+        if(valid === null) return
+
+        if(typeof this.map !== "undefined"){
+            // remove the current map (identical to setMap)
+            for(const rectWall of this.map.rectWalls){
+                this.physics.removeRectWall(rectWall)
+            }
+            for(const segWall of this.map.segWalls){
+                this.physics.removeSegWall(segWall)
+            }
+        }
+
+        const mapType = makeCustomMapType(valid)
+        const map = loadGridMap(mapType.id, valid)
+
+        // Add walls
+        for(const rectWall of map.rectWalls){
+            this.physics.addRectWall(rectWall)
+        }
+        for(const segWall of map.segWalls){
+            this.physics.addSegWall(segWall)
+        }
+
+        this.despawnPlayers()
+        this.map = map
+        this.mapIndex = CUSTOM_MAP_INDEX
+        this.mapType = mapType
+        this.customMapData = valid
+
+        this.events.emit("setMap", { mapIndex: CUSTOM_MAP_INDEX, mapType })
     }
 
     setSettings(settings: Partial<PipPipGameSettings> = {}){

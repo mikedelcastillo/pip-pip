@@ -4,6 +4,28 @@ export type PacketSerializerMap = {
     [dataKey: string]: PacketSerializer,
 }
 
+// A variable-length serializer writes a little-endian length prefix ahead of its
+// body. $varstring/$json use 2 bytes implicitly; $largejson sets prefixBytes=4 so
+// it can carry a body past the 65535-byte ceiling a 2-byte prefix can express.
+// These helpers read the prefix width + the per-field cap straight off the
+// serializer so the framing here matches exactly what the serializer encodes,
+// instead of hardcoding 2 bytes / MAX_VARSTRING for every variable field.
+function prefixBytesOf(serializer: PacketSerializer): number{
+    return typeof serializer.prefixBytes === "number" ? serializer.prefixBytes : 2
+}
+function maxLengthOf(serializer: PacketSerializer): number{
+    return typeof serializer.maxLength === "number" ? serializer.maxLength : MAX_VARSTRING
+}
+// Read a little-endian unsigned length of `bytes` width starting at `at`. >>> 0
+// keeps a 4-byte value unsigned even when the high byte sets the sign bit.
+function readLengthPrefix(value: number[], at: number, bytes: number): number{
+    let length = 0
+    for(let i = 0; i < bytes; i++){
+        length |= (value[at + i] ?? 0) << (i * 8)
+    }
+    return length >>> 0
+}
+
 export type GetPacketInput<T extends PacketSerializerMap> = {
     [K in keyof T]: T[K] extends PacketSerializer<infer R> ? R : never
 }
@@ -70,13 +92,16 @@ export class Packet<T extends PacketSerializerMap>{
                 output[key as keyof typeof output] = serializer.decode(slice)
                 index += serializer.length
             } else{
-                const lenCode = value.slice(index, index + 2)
-                const length = (lenCode[0] | (lenCode[1] << 8)) >>> 0
-                // A field length over the hard cap is hostile framing — reject
+                const prefix = prefixBytesOf(serializer)
+                const cap = maxLengthOf(serializer)
+                const length = readLengthPrefix(value, index, prefix)
+                // A field length over the hard cap is hostile framing - reject
                 // before slicing/decoding (the serializer would throw anyway, but
-                // failing here keeps the cap enforced in one obvious place).
-                if(length > MAX_VARSTRING) throw new Error("varstring length exceeds bounds")
-                const totalLength = length + 2
+                // failing here keeps the cap enforced in one obvious place). The
+                // cap is per-serializer ($varstring: MAX_VARSTRING, $largejson:
+                // MAX_LARGE_JSON) so each variable field is bounded by its own.
+                if(length > cap) throw new Error("varstring length exceeds bounds")
+                const totalLength = length + prefix
                 const slice = value.slice(index, index + totalLength)
                 output[key as keyof typeof output] = serializer.decode(slice)
                 index += totalLength
@@ -109,15 +134,19 @@ export class Packet<T extends PacketSerializerMap>{
             if(typeof serializer.length === "number"){
                 sum += serializer.length
             } else{
+                const prefix = prefixBytesOf(serializer)
+                const cap = maxLengthOf(serializer)
                 const at = offset + sum
-                const length = (value[at] | (value[at + 1] << 8)) >>> 0
+                const length = readLengthPrefix(value, at, prefix)
                 // Clamp the on-wire length to the bytes actually remaining and
                 // reject anything over the hard cap. This stops a hostile length
                 // prefix from making peekLength report an absurd span (which the
-                // manager would otherwise try to read out of the buffer).
-                if(length > MAX_VARSTRING) throw new Error("varstring length exceeds bounds")
-                const remaining = Math.max(0, value.length - (at + 2))
-                sum += Math.min(length, remaining) + 2
+                // manager would otherwise try to read out of the buffer). The cap
+                // and prefix width are per-serializer ($varstring: 2 byte /
+                // MAX_VARSTRING, $largejson: 4 byte / MAX_LARGE_JSON).
+                if(length > cap) throw new Error("varstring length exceeds bounds")
+                const remaining = Math.max(0, value.length - (at + prefix))
+                sum += Math.min(length, remaining) + prefix
             }
         }
 

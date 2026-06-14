@@ -1,9 +1,23 @@
-import { PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { PipPipGame, PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PING_REFRESH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { encode } from "@pip-pip/game/src/networking/packets"
+import { CUSTOM_MAP_INDEX } from "@pip-pip/game/src/maps"
 import type { ConnectionContext } from "."
 import { getApprovedChatEntries } from "./connection-in"
+
+// Encode the active map for a recipient. A CUSTOM map (mapIndex === -1 with
+// customMapData set) must carry its FULL GridMapData so a client - including a
+// late joiner - can render + simulate geometry that has no index in PIP_MAPS;
+// every built-in map rides the index-only gameMap packet. Shared by the
+// initial-sync site and the on-change broadcast so they can never diverge on how
+// a custom map reaches the wire.
+function encodeActiveMap(game: PipPipGame): number[]{
+    if(game.mapIndex === CUSTOM_MAP_INDEX && typeof game.customMapData !== "undefined"){
+        return encode.customMap(game.customMapData)
+    }
+    return encode.gameMap(game.mapIndex)
+}
 
 export function sendPacketToConnection(context: ConnectionContext){
     const { connection, gameEvents, game } = context
@@ -88,7 +102,9 @@ export function getFullGameState(context: ConnectionContext): number[][] {
     messages.push(encode.gamePhase(game))
     messages.push(encode.gameCountdown(game))
     messages.push(encode.gameState(game))
-    messages.push(encode.gameMap(game.mapIndex))
+    // A late joiner gets the FULL custom geometry here (encodeActiveMap branches
+    // on a custom map), so it can render + simulate a map with no PIP_MAPS index.
+    messages.push(encodeActiveMap(game))
 
     // KILL_FRENZY: seed the joining client's match clock so its HUD is correct
     // immediately, not only after the next per-tick matchTimer broadcast.
@@ -238,9 +254,10 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
         messages.push(encode.gameState(game))
     }
 
-    // Send game map
+    // Send game map. On a custom map the full GridMapData rides instead of the
+    // index, so every client (not just late joiners) applies the new geometry.
     if(gameEvents.filter("setMap").length > 0){
-        messages.push(encode.gameMap(game.mapIndex))
+        messages.push(encodeActiveMap(game))
     }
 
     // Shoot bullet

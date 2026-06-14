@@ -1,4 +1,5 @@
 import { PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { CUSTOM_MAP_INDEX } from "@pip-pip/game/src/maps"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer, PlayerScores } from "@pip-pip/game/src/logic/player"
 import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, PowerupType } from "@pip-pip/game/src/logic/powerup"
@@ -353,6 +354,11 @@ export interface GameStoreState {
     ping: number
 
     mapIndex: number
+    // The active CUSTOM map's display name, or null when a built-in map is
+    // active. Derived in sync from the game's mapIndex/mapType so MapSelect can
+    // show the uploaded map as the current selection (built-in cards then show
+    // none highlighted, which is correct since a custom mapIndex is -1).
+    customMapName: string | null
 
     clientPlayerShipIndex: number
     clientPlayerShipType: ShipType
@@ -415,6 +421,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     ping: 0,
 
     mapIndex: 0,
+    customMapName: null,
 
     clientPlayerShipIndex: 0,
     clientPlayerShipType: PIP_SHIPS[0],
@@ -524,6 +531,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             winnerName,
             winnerCount: game.winnerIds.length,
             mapIndex: game.mapIndex,
+            // A custom map has mapIndex -1 and a synthetic mapType whose name is
+            // the uploaded map's; surface that name so MapSelect shows it as the
+            // current selection. null for any built-in map.
+            customMapName: game.mapIndex === CUSTOM_MAP_INDEX
+                ? (game.mapType?.name ?? "Custom Map")
+                : null,
             showPlayerList: GAME_CONTEXT.keyboard.state.Tab === true,
             players: Object.values(game.players).map(playerToGameStore),
             buffRemaining,

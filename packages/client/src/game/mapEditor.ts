@@ -440,6 +440,53 @@ export function clearEditorMap(storage: EditorStorage): void{
     }
 }
 
+// The localStorage key the editor->play handoff uses. SEPARATE from the autosave
+// draft: "Play this map" stashes the current exported GridMapData here and routes
+// home, where MapSelect (host-only) offers a button to load it into the live
+// match. A single stable slot, so only the most recent "Play this map" is queued.
+export const PLAY_MAP_STORAGE_KEY = "pip-pip:play-map"
+
+// Stash a map's GridMapData for the editor->play handoff. Swallows storage errors
+// (quota / private mode) so a failed stash never blocks navigation; the worst
+// case is MapSelect simply not surfacing the button.
+export function stashPlayMap(data: GridMapData, storage: EditorStorage): void{
+    try{
+        storage.setItem(PLAY_MAP_STORAGE_KEY, serializeGridMapData(data))
+    } catch(e){
+        // Best-effort: nothing to do if storage is unavailable.
+    }
+}
+
+// Read the stashed play-map, or null when none is queued or it is corrupt. Reuses
+// the import parse path (same minimal field assertions) so a hand-edited stash
+// still loads instead of throwing. MapSelect calls this to decide whether to show
+// the "Use editor map" button and what name to label it with.
+export function loadPlayMap(storage: EditorStorage): GridMapData | null{
+    let raw: string | null
+    try{
+        raw = storage.getItem(PLAY_MAP_STORAGE_KEY)
+    } catch(e){
+        return null
+    }
+    if(raw === null || raw.length === 0) return null
+    try{
+        return parseGridMapData(raw)
+    } catch(e){
+        return null
+    }
+}
+
+// Drop the stashed play-map. MapSelect clears it after a successful load so the
+// button does not linger once the map is in the match (the host can re-stash from
+// the editor any time).
+export function clearPlayMap(storage: EditorStorage): void{
+    try{
+        storage.removeItem(PLAY_MAP_STORAGE_KEY)
+    } catch(e){
+        // Best-effort: nothing to do if storage is unavailable.
+    }
+}
+
 // A filesystem-safe download filename derived from the map name, e.g.
 // "My Map!" -> "my-map.map.json". Falls back to a default stem when the name
 // has no usable characters.

@@ -84,3 +84,73 @@
         text-align: center
         font-size: 1.2em
         opacity: 0.7
+
+    // The active-custom-map row: reads like a selected card but spans the width,
+    // since a custom map has no built-in card to highlight.
+    .customActive
+        position: relative
+        display: flex
+        align-items: center
+        gap: 0.6em
+        padding: 0.8em 1em
+        background-color: $color-dark-3
+        border: $border-size solid $color-main
+        border-radius: $border-radius
+
+        .customLabel
+            font-size: 1.1em
+            opacity: 0.7
+        .customName
+            font-size: 1.6em
+            line-height: 1
+            color: $color-main
+
+    // Host map-source controls: Upload + (optional) Use-editor-map. Wraps so the
+    // two buttons stack on a narrow (393px) touch screen instead of overflowing.
+    .customRow
+        display: flex
+        flex-wrap: wrap
+        gap: 0.6em
+
+    // Both controls are full touch-target buttons (>=44px tall) so they are easy
+    // to tap on mobile. The upload control is a styled <label> wrapping a hidden
+    // <input type=file>, so the whole pill is the tap target.
+    .uploadButton, .editorButton
+        display: inline-flex
+        align-items: center
+        justify-content: center
+        min-height: 44px
+        padding: 0 1.2em
+        font-size: 1.3em
+        cursor: pointer
+        color: $color-text
+        background-color: $color-dark-2
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        transition: all 0.1s
+
+        &:hover
+            border-color: $color-accent
+
+    .editorButton
+        border-color: $color-accent
+        color: $color-main
+
+    // Visually hidden but still focusable/clickable: the label sits on top, so a
+    // tap on the styled pill opens the file picker. Not display:none (that would
+    // make it unfocusable for keyboard users).
+    .hiddenInput
+        position: absolute
+        width: 1px
+        height: 1px
+        padding: 0
+        margin: -1px
+        overflow: hidden
+        clip: rect(0, 0, 0, 0)
+        white-space: nowrap
+        border: 0
+
+    .error
+        font-size: 1.2em
+        color: $color-bad
+        text-align: center

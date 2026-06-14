@@ -3,6 +3,7 @@ import { useGameStore } from "./store"
 import { useUiStore } from "../store/ui"
 import { showAlert } from "../store/alert"
 import { PipPipGame, PipPipGamePhase, PipPipGameMode, BotDifficultyChoice } from "@pip-pip/game/src/logic"
+import { GridMapData } from "@pip-pip/game/src/logic/grid-map"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { KeyboardListener } from "@pip-pip/core/src/client/keyboard"
 import { MouseListener } from "@pip-pip/core/src/client/mouse"
@@ -336,6 +337,16 @@ export class GameContext {
 
     setMap(index: number) {
         const code = encode.gameMap(index)
+        this.sendCode(code)
+    }
+
+    // Host-only: load a CUSTOM (uploaded / editor) map into the live match. Sends
+    // the full GridMapData via the customMap packet (built-in maps use setMap's
+    // index-only path). The server validates the host + re-validates the data,
+    // then broadcasts the geometry back to every client, which applies it the
+    // same way it applies a built-in map change - so the UI just calls this.
+    setCustomMap(data: GridMapData) {
+        const code = encode.customMap(data)
         this.sendCode(code)
     }
 

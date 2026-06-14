@@ -1,4 +1,4 @@
-import { $bool, $float16, $float32, $quant16, $string, $uint16, $uint32, $uint8, $varstring } from "@pip-pip/core/src/networking/packets/serializer"
+import { $bool, $float16, $float32, $largejson, $quant16, $string, $uint16, $uint32, $uint8, $varstring } from "@pip-pip/core/src/networking/packets/serializer"
 import { PacketManager, ExtractSerializerMap } from "@pip-pip/core/src/networking/packets/manager"
 import { Packet } from "@pip-pip/core/src/networking/packets/packet"
 
@@ -7,6 +7,7 @@ import { PipPipGame, PipPipGamePhase, PipPipGameMode } from "../logic"
 import { Bullet } from "../logic/bullet"
 import { Powerup, POWERUP_ID_LENGTH, POWERUP_TYPE_TO_CODE } from "../logic/powerup"
 import { WORLD_QUANT_RANGE } from "../logic/constants"
+import { GridMapData } from "../logic/grid-map"
 
 export const CONNECTION_ID_LENGTH = 2
 export const LOBBY_ID_LENGTH = 4
@@ -251,6 +252,16 @@ export const packetManager = new PacketManager({
     gameMap: new Packet({
         mapIndex: $uint8,
     }),
+    // A CUSTOM (uploaded / editor) map carried as its full GridMapData. A built-in
+    // map rides the index-only gameMap packet above, but a custom map has no index
+    // in PIP_MAPS, so its whole geometry must travel the wire. The JSON easily
+    // exceeds the 4096-byte $varstring cap, so this uses $largejson (4-byte length
+    // prefix, MAX_LARGE_JSON cap). Host-only inbound: the server validates the host
+    // and re-validates the data via validateGridMapData before applying it, and a
+    // late joiner receives it through the full-game-state sync (connection-out).
+    customMap: new Packet({
+        data: $largejson<GridMapData>(),
+    }),
     // Host-only request to change the match mode + its target while still in the
     // lobby (SETUP). The server validates the host, clamps the values and applies
     // them via game.setSettings (a no-op outside SETUP); the change then rides the
@@ -347,6 +358,11 @@ export const encode = {
     }),
     gameMap: (mapIndex: number) => packetManager.serializers.gameMap.encode({
         mapIndex,
+    }),
+    // Encode a custom map's full GridMapData (see the customMap packet). Mirrors
+    // gameMap's style: a thin helper so call sites never touch the serializer.
+    customMap: (data: GridMapData) => packetManager.serializers.customMap.encode({
+        data,
     }),
     gameMode: (mode: PipPipGameMode, maxKills: number, matchMinutes: number) => packetManager.serializers.gameMode.encode({
         mode,

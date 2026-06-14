@@ -2,6 +2,19 @@ import { Float16Array, Float16ArrayConstructor } from "@petamoriken/float16"
 
 export type PacketSerializer<T = any> = {
     readonly length?: number,
+    // Byte width of the little-endian length prefix a VARIABLE-length serializer
+    // writes ahead of its body. $varstring/$json use the implicit default of 2;
+    // $largejson sets 4 so it can carry a body past the 2-byte (65535) ceiling.
+    // Fixed-length serializers (those with a `length`) ignore this. The Packet
+    // framing reads this to know how many prefix bytes to skip, so it must match
+    // exactly what the serializer's own encode/decode write/read.
+    readonly prefixBytes?: number,
+    // Hard upper bound on the on-wire BODY byte length for a variable-length
+    // serializer (excludes the prefix). The Packet framing rejects any declared
+    // length over this BEFORE slicing, so a hostile prefix can never drive a huge
+    // read. $varstring/$json leave it unset and fall back to MAX_VARSTRING;
+    // $largejson sets it to MAX_LARGE_JSON.
+    readonly maxLength?: number,
     encode: (value: T) => Uint8Array,
     decode: (value: Uint8Array | number[]) => T,
 }
@@ -99,7 +112,7 @@ export const $varstring: PacketSerializer<string> = {
         // payload >= 256 bytes was truncated and desynced the batch.
         const length = (arr[0] | (arr[1] << 8)) >>> 0
         // Reject a declared length that overruns the buffer we were handed or
-        // exceeds the hard cap BEFORE allocating/slicing — a hostile length must
+        // exceeds the hard cap BEFORE allocating/slicing - a hostile length must
         // never drive a large allocation. The cap covers MAX_VARSTRING; the
         // remaining-bytes clamp covers a length that claims past this field.
         const available = Math.max(0, arr.length - 2)
@@ -120,13 +133,78 @@ export const $json = <T extends Record<string, any>>(): PacketSerializer<T> => (
     },
 })
 
+// Hard upper bound on the on-wire BODY byte length of a single $largejson field.
+// Distinct from MAX_VARSTRING: $largejson exists precisely because a custom map
+// JSON easily blows past the 4096-byte $varstring cap (and the 65535-byte ceiling
+// a 2-byte prefix can even express). 256 KiB comfortably holds a large authored
+// map's GridMapData while still bounding a single field so a hostile peer cannot
+// declare a length that drives a huge allocation. Kept separate so the $varstring
+// cap (and every existing packet) is untouched.
+export const MAX_LARGE_JSON = 256 * 1024
+
+// $largevarstring: like $varstring but with a 4-byte (uint32) little-endian length
+// prefix and the MAX_LARGE_JSON cap, so it can carry bodies far past the 2-byte
+// 65535-byte ceiling. The same hostile-length protection $varstring has applies:
+// a declared length over the cap OR past the bytes actually handed in is rejected
+// BEFORE allocating/slicing, so a malicious prefix can never drive a large read.
+// prefixBytes=4 / maxLength tell the Packet framing how to skip the prefix and
+// where to reject. Not exported on its own; $largejson is the public surface.
+const $largevarstring: PacketSerializer<string> = {
+    prefixBytes: 4,
+    maxLength: MAX_LARGE_JSON,
+    encode(value){
+        const encoded = internalTextEncoder.encode(value)
+        if(encoded.length > MAX_LARGE_JSON){
+            throw new Error("largejson length exceeds cap")
+        }
+        const len = encoded.length >>> 0
+        return new Uint8Array([
+            len & 0xFF,
+            (len >> 8) & 0xFF,
+            (len >> 16) & 0xFF,
+            (len >> 24) & 0xFF,
+            ...encoded,
+        ])
+    },
+    decode(value){
+        const arr = Array.from(value)
+        // Little-endian 4-byte length. >>> 0 keeps it an unsigned 32-bit int even
+        // when the high byte sets the sign bit.
+        const length = ((arr[0] | (arr[1] << 8) | (arr[2] << 16) | (arr[3] << 24)) >>> 0)
+        // Reject a declared length that exceeds the hard cap or overruns the bytes
+        // we were handed BEFORE allocating/slicing - a hostile length must never
+        // drive a large allocation. Mirrors the $varstring guard, scaled to the
+        // 4-byte prefix and MAX_LARGE_JSON.
+        const available = Math.max(0, arr.length - 4)
+        if(length > MAX_LARGE_JSON || length > available){
+            throw new Error("largejson length exceeds bounds")
+        }
+        const stringCode = arr.slice(4, 4 + length)
+        return internalTextDecoder.decode(new Uint8Array(stringCode))
+    },
+}
+
+// $largejson: a JSON serializer for payloads too big for $json/$varstring (custom
+// maps). Built on $largevarstring so it inherits the 4-byte prefix, the
+// MAX_LARGE_JSON cap and the hostile-length rejection.
+export const $largejson = <T extends Record<string, any>>(): PacketSerializer<T> => ({
+    prefixBytes: 4,
+    maxLength: MAX_LARGE_JSON,
+    encode(value){
+        return $largevarstring.encode(JSON.stringify(value))
+    },
+    decode(value){
+        return JSON.parse($largevarstring.decode(value))
+    },
+})
+
 export const $string = (length: number): PacketSerializer<string> => ({
     length,
     encode(value){
         // Pad/truncate to exactly `length` BYTES, not characters. The old code
         // substring'd to `length` chars THEN UTF-8 encoded, so a multi-byte
         // value (emoji/CJK) emitted more than `length` bytes and overflowed its
-        // fixed slot — desyncing every following field in the packet (the same
+        // fixed slot - desyncing every following field in the packet (the same
         // class of bug as the C1 $varstring fix). Space-padding (0x20) and the
         // output bytes are identical to before for ASCII inputs (1 char = 1
         // byte), so this is wire-compatible for the connection/powerup ids that

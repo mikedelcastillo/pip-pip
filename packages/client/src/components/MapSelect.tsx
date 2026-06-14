@@ -1,7 +1,9 @@
-import { useMemo } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
+import { GridMapData, validateGridMapData } from "@pip-pip/game/src/logic/grid-map"
 import { GAME_CONTEXT } from "../game"
 import { useGameStore } from "../game/store"
+import { loadPlayMap, clearPlayMap } from "../game/mapEditor"
 import MapPreview from "./MapPreview"
 import styles from "./MapSelect.module.sass"
 
@@ -15,19 +17,104 @@ function getMapPreviews(): number[] {
     })
 }
 
+// The browser localStorage, guarded so a non-DOM/SSR context (and tests that
+// import this component) never throw. Mirrors the editor's own guard.
+function browserStorage(): Storage | null {
+    try {
+        return typeof window !== "undefined" ? window.localStorage : null
+    } catch (e) {
+        return null
+    }
+}
+
 export default function MapSelect() {
     const isHost = useGameStore((s) => s.isHost)
     const activeIndex = useGameStore((s) => s.mapIndex)
+    const customMapName = useGameStore((s) => s.customMapName)
 
     const wallCounts = useMemo(() => getMapPreviews(), [])
+    const fileInputRef = useRef<HTMLInputElement | null>(null)
+    const [error, setError] = useState("")
+
+    // The editor->play handoff: read once per render whether a "Play this map"
+    // stash exists, so the host can load it into the match. Only meaningful for a
+    // host (non-hosts cannot change the map). Recomputed via the version bump
+    // below after a successful load clears it.
+    const [stashVersion, setStashVersion] = useState(0)
+    const stashed = useMemo<GridMapData | null>(() => {
+        // stashVersion bumps after a load so the memo recomputes and the button
+        // disappears once the stash is consumed. Referenced here so the dependency
+        // is real, not just listed.
+        void stashVersion
+        if (!isHost) return null
+        const storage = browserStorage()
+        if (storage === null) return null
+        return loadPlayMap(storage)
+    }, [isHost, stashVersion])
 
     const select = (index: number) => {
         if (!isHost) return
         GAME_CONTEXT.setMap(index)
     }
 
+    // Apply an already-parsed, valid GridMapData to the live match (host action).
+    const applyCustom = useCallback((data: GridMapData) => {
+        GAME_CONTEXT.setCustomMap(data)
+        setError("")
+    }, [])
+
+    // Read an uploaded .json file, parse + validate it, and on success load it
+    // into the match. Any failure (not JSON, wrong shape, oversized) shows a brief
+    // inline error and never crashes. Mirrors the editor's import guard.
+    const onUploadFile = useCallback((file: File) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+            let parsed: unknown
+            try {
+                parsed = JSON.parse(String(reader.result))
+            } catch (e) {
+                setError("That file is not valid JSON.")
+                return
+            }
+            const data = validateGridMapData(parsed)
+            if (data === null) {
+                setError("That map file is invalid or too large.")
+                return
+            }
+            applyCustom(data)
+        }
+        reader.onerror = () => setError("Could not read that file.")
+        reader.readAsText(file)
+    }, [applyCustom])
+
+    // Load the stashed "Play this map" from the editor into the match, then clear
+    // the stash so the button does not linger once the map is live.
+    const onUseEditorMap = useCallback(() => {
+        const storage = browserStorage()
+        if (storage === null) return
+        const data = loadPlayMap(storage)
+        if (data === null) {
+            setError("No editor map is queued.")
+            return
+        }
+        const valid = validateGridMapData(data)
+        if (valid === null) {
+            setError("The editor map is invalid or too large.")
+            clearPlayMap(storage)
+            setStashVersion((v) => v + 1)
+            return
+        }
+        applyCustom(valid)
+        clearPlayMap(storage)
+        setStashVersion((v) => v + 1)
+    }, [applyCustom])
+
     const containerClasses = [styles.mapSelect]
     if (!isHost) containerClasses.push(styles.disabled)
+
+    // A custom map is active when the store carries its name (mapIndex is -1, so
+    // no built-in card is highlighted, which is correct).
+    const customActive = customMapName !== null
 
     return (
         <div className={containerClasses.join(" ")}>
@@ -71,6 +158,54 @@ export default function MapSelect() {
                     )
                 })}
             </div>
+
+            {/* When a custom map is live, show it as the current selection so the
+                host can see which map is active even though no built-in card is
+                highlighted (a custom mapIndex is -1). */}
+            {customActive && (
+                <div className={styles.customActive}>
+                    <span className={styles.customLabel}>Custom map</span>
+                    <span className={styles.customName}>{customMapName}</span>
+                    <span className={styles.selectedTag}>Current</span>
+                </div>
+            )}
+
+            {isHost && (
+                <div className={styles.customRow}>
+                    {/* Upload: a styled label wraps a visually-hidden file input so
+                        the whole >=44px target is tappable on a 393px touch screen
+                        (a bare file input is a tiny, hard-to-hit native control). */}
+                    <label className={styles.uploadButton}>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".json,application/json"
+                            className={styles.hiddenInput}
+                            onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (typeof file !== "undefined") onUploadFile(file)
+                                e.target.value = ""
+                            }}
+                        />
+                        Upload map
+                    </label>
+
+                    {stashed !== null && (
+                        <button
+                            type="button"
+                            className={styles.editorButton}
+                            onClick={onUseEditorMap}
+                        >
+                            Use editor map ({stashed.name})
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {isHost && error.length > 0 && (
+                <div className={styles.error} role="alert">{error}</div>
+            )}
+
             {!isHost && (
                 <div className={styles.hint}>Only the host can change the map.</div>
             )}
