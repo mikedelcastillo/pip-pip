@@ -391,4 +391,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 99 | `1838461`   | Lobby hamburger menu (Settings/Leave/Close Lobby) + Close Lobby confirm modal (ConfirmModal, Modal hideClose) | `git revert 1838461`|
 | 100| `fdccbbb`   | Multi-kill banners (Double/Triple/Multi/Monster Kill) for the local player | `git revert fdccbbb`|
 | 101| `635b86b`   | End-of-match top-3 podium + MVP on the results screen | `git revert 635b86b`|
-| 102| (latest)    | Rapid Fire powerup: timed buff that speeds up weapon fire (networked) | `git revert <sha>` |
+| 102| `f671ae8`   | Rapid Fire powerup: timed buff that speeds up weapon fire (networked) | `git revert f671ae8`|
+| 103| (latest)    | A suicide counts as a death only (no kill, no damage-dealt credit, no kill feed) | `git revert <sha>` |

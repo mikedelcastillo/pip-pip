@@ -927,27 +927,38 @@ export class PipPipGame{
         const damage = Math.min(rawDamage, target.ship.capacities.health)
         target.ship.capacities.health = tickDown(target.ship.capacities.health, damage)
 
-        // increase damage
-        dealer.score.damage += damage
+        // increase damage dealt - but NOT for self-damage: a suicide / standing
+        // on your own grenade must not pad your damage-dealt stat (it only counts
+        // as a death, see the kill block below). The health loss + the hit visual
+        // still happen.
+        if(dealer.id !== target.id){
+            dealer.score.damage += damage
+        }
 
-        // log damage
+        // log damage (drives the hit visuals; fires for self-damage too)
         this.events.emit("dealDamage", {
             dealer,
             target,
             damage,
         })
 
-        // trigger kill
+        // trigger kill / death
         if(target.ship.capacities.health === 0){
-            // kill
-            dealer.score.kills += 1
+            // The death always counts. A SUICIDE (dying to your OWN weapon, e.g.
+            // standing on your own grenade blast) is a death ONLY - it must not
+            // pad the killer's kill count, the kill feed, or a multi-kill streak.
+            // So the kill credit + the playerKill event fire only when someone
+            // ELSE landed the killing blow.
             target.score.deaths += 1
             target.setSpawned(false)
             target.timings.spawnTimeout = 20 * 3 // 3 seconds
-            this.events.emit("playerKill", {
-                killer: dealer,
-                killed: target,
-            })
+            if(dealer.id !== target.id){
+                dealer.score.kills += 1
+                this.events.emit("playerKill", {
+                    killer: dealer,
+                    killed: target,
+                })
+            }
         }
     }
 
