@@ -325,9 +325,15 @@ export function getPartialGameState(context: ConnectionContext, sharedCache?: Sh
     for(const event of gameEvents.filter("powerupPickup")){
         const { powerup, player } = event.powerupPickup
         messages.push(encode.powerupPickup(powerup, player))
-        // The pickup mutated the picker's ship capacities (health/ammo); push
-        // the authoritative values so the client reflects the heal/refill.
+        // The pickup mutated the picker's ship: instant types change capacities
+        // (health/ammo), and the five TIMED buffs (haste/shield/invisibility/
+        // ricochet/rapidfire) change ship.timings. Push BOTH so the client reflects
+        // the heal/refill AND the buff. The timings matter the same tick: the
+        // picker's own movement prediction reads ship.timings.haste (else it
+        // rubber-bands against the 1.5x server for the whole buff window), and every
+        // client needs them for the buff visuals + the powerup-feed countdown.
         playerUpdates.track(player.id, "shipCapacities")
+        playerUpdates.track(player.id, "shipTimings")
     }
 
     // Reload
