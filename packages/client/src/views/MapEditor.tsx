@@ -625,8 +625,23 @@ export default function MapEditor(){
         // the same cell (that would flip it on/off endlessly); for shapes,
         // skipping the same cell just avoids redundant work.
         if(last !== null && last.col === cellPos.col && last.row === cellPos.row) return
+        // Interpolate from the LAST painted cell to this one so a fast drag paints a
+        // CONTINUOUS stroke (no gaps), like a pencil: pointermove fires at discrete
+        // positions, so without this a quick flick would dot only the cells it
+        // happened to land on. lineCells is 8-connected and includes both ends; drop
+        // the leading cell (it equals `last`, already painted) so a spawn toggle does
+        // not re-fire on it. The first paint of a gesture (last === null) is one cell.
+        const cells: Cell[] = last === null
+            ? [[cellPos.col, cellPos.row]]
+            : lineCells([last.col, last.row], [cellPos.col, cellPos.row]).slice(1)
         lastCellRef.current = cellPos
-        const changed = mapRef.current.setCell(cellPos.col, cellPos.row, brushRef.current, materialRef.current)
+        const map = mapRef.current
+        const brushNow = brushRef.current
+        const materialNow = materialRef.current
+        let changed = false
+        for(const [col, row] of cells){
+            if(map.setCell(col, row, brushNow, materialNow)) changed = true
+        }
         if(changed){
             markDirty()
             bump()
