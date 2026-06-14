@@ -335,11 +335,14 @@ export const sendPackets = (gameContext: GameContext) => {
     const messages: number[][] = []
     const clientPlayer = getClientPlayer(game)
 
-    if (game.phase === PipPipGamePhase.SETUP) {
-        if (typeof clientPlayer !== "undefined") {
-            if (gameEvents.filter("playerSetShip").length > 0) {
-                messages.push(encode.playerSetShip(clientPlayer))
-            }
+    // Ship changes are sent in ANY phase, not just SETUP: the lobby ship picker
+    // AND the mid-game-join / "Change Loadout" screen during MATCH both emit
+    // playerSetShip, and the server applies it regardless of phase. Gating this
+    // on SETUP meant a ship chosen on the in-match loadout screen never reached
+    // the server, so other players never saw the joiner's ship change.
+    if (typeof clientPlayer !== "undefined") {
+        if (gameEvents.filter("playerSetShip").length > 0) {
+            messages.push(encode.playerSetShip(clientPlayer))
         }
     }
 

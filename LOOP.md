@@ -383,4 +383,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 91 | `79cb9b5`   | Mid-game join loadout screen (pick ship / Deploy / Spectate) + respawn "Change Loadout" | `git revert 79cb9b5`|
 | 92 | `2b5af09`   | Subtle UI click SFX on every button press (app-wide, soft, muteable) | `git revert 2b5af09`|
 | 93 | `84e3a36`   | Host "Close Lobby" (disband + send everyone home with a notice) | `git revert 84e3a36`|
-| 94 | (latest)    | Ricochet powerup: timed buff, bullets bounce off walls (max 3 bounces) | `git revert <sha>` |
+| 94 | `04b117d`   | Ricochet powerup: timed buff, bullets bounce off walls (max 3 bounces) | `git revert 04b117d`|
+| 95 | (latest)    | FIX loadout ship pick not reaching server in-match (playerSetShip was SETUP-gated) | `git revert <sha>` |
