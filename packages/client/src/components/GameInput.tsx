@@ -20,11 +20,13 @@ interface Props {
     onFocus?: () => void
     onBlur?: () => void
     className?: string
+    // Hard cap on input length (e.g. a player name); forwarded to the <input>.
+    maxLength?: number
 }
 
 const GameInput = forwardRef<GameInputHandle, Props>(function GameInput({
     value, onChange, placeholder = "", type = "text", name = "text-field",
-    onEnter, onUp, onFocus, onBlur, className,
+    onEnter, onUp, onFocus, onBlur, className, maxLength,
 }, ref) {
     const inputRef = useRef<HTMLInputElement>(null)
 
@@ -85,6 +87,7 @@ const GameInput = forwardRef<GameInputHandle, Props>(function GameInput({
                 autoComplete="off"
                 value={value}
                 placeholder={placeholder}
+                maxLength={maxLength}
                 onChange={(e) => onChange(e.target.value)}
                 onClick={() => inputRef.current?.focus()}
             />

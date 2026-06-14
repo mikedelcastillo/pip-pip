@@ -34,6 +34,18 @@ export function cloneInputs(inputs: PlayerInputs): PlayerInputs{
     }
 }
 
+// Player display names are bounded so they can never overflow HUD layouts (the
+// spectate panel, scoreboard, kill feed, player list) or be abused as a UI/wire
+// flood by a hand-crafted client. Enforced server-authoritatively in setName,
+// which every name path (own client, server-applied, broadcast) routes through.
+export const MAX_PLAYER_NAME_LENGTH = 16
+
+// Slice by code point (not UTF-16 unit) so an emoji on the boundary is never cut
+// into a lone surrogate.
+export function clampPlayerName(name: string){
+    return [...name].slice(0, MAX_PLAYER_NAME_LENGTH).join("")
+}
+
 // Server: one buffered input awaiting consumption (one consumed per tick).
 export type PlayerInputFrame = {
     seq: number,
@@ -266,7 +278,7 @@ export class PipPlayer{
     }
 
     setName(name: string){
-        this.name = name
+        this.name = clampPlayerName(name)
         this.game.events.emit("playerDetailsChange", { player: this })
     }
 

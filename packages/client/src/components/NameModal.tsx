@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { MAX_PLAYER_NAME_LENGTH } from "@pip-pip/game/src/logic/player"
 import { GAME_CONTEXT } from "../game"
 import Modal from "./Modal"
 import GameButton from "./GameButton"
@@ -30,6 +31,7 @@ export default function NameModal({ onClose }: Props) {
                 onChange={setName}
                 name="player-name"
                 placeholder="Your name"
+                maxLength={MAX_PLAYER_NAME_LENGTH}
                 onEnter={save}
             />
             <div className={styles.actions}>
