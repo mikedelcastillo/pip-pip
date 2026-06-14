@@ -358,4 +358,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 66 | `6e309f0`   | Custom keyboard + controller (gamepad) mapping UI     | `git revert 6e309f0` |
 | 67 | `2200ad9`   | First-launch ALPHA notice modal + homepage banner     | `git revert 2200ad9` |
 | 68 | `411f73f`   | Copy: remove em-dashes from user-facing text (rule)   | `git revert 411f73f` |
-| 69 | (latest)    | In-game HUD overhaul: pause menu + floating sticks + declutter | `git revert <sha>` |
+| 69 | `1528cad`   | In-game HUD overhaul: pause menu + floating sticks + declutter | `git revert 1528cad` |
+| 70 | (latest)    | Condense repo docs (CLAUDE/README/deploy), fix stale tests note | `git revert <sha>` |
