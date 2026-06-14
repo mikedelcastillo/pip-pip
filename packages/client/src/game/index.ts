@@ -239,6 +239,26 @@ export class GameContext {
         this.initialized = true
     }
 
+    // Surface the core Client's "connection dropped" signal to React. The core
+    // websocket emits `socketClose` only after a verified connection closes
+    // (see packages/core/src/networking/client/websockets.ts), so this fires on
+    // an unexpected mid-session drop. An intentional leave unsubscribes via the
+    // returned cleanup BEFORE GameView's own teardown calls client.disconnect(),
+    // so the deliberate close never reaches `handler`. Returns an unsubscribe fn.
+    onDisconnect(handler: () => void): () => void {
+        this.client.events.on("socketClose", handler)
+        return () => this.client.events.off("socketClose", handler)
+    }
+
+    // Re-establish the connection and rejoin the given lobby after a drop.
+    // Mirrors the connect → joinLobby sequence used when first entering a game
+    // (see views/Game.tsx). Throws if either step fails so the caller can keep
+    // the disconnect modal up.
+    async reconnect(lobbyId: string) {
+        await this.client.connect()
+        await this.client.joinLobby(lobbyId)
+    }
+
     getClientPlayer() {
         if (typeof this.client.connectionId !== "undefined") {
             if (this.client.connectionId in this.game.players) {

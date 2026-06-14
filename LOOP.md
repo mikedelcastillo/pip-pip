@@ -352,4 +352,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 60 | `f20dfd3`   | Buff/shield/tactical HUD (bars w/ duration, bottom-right) | `git revert f20dfd3` |
 | 61 | `c08fa7f`   | Mobile UI/UX overhaul (tap targets, a11y button, modal fit) | `git revert c08fa7f` |
 | 62 | `97260ee`   | Netcode security hardening (DoS/abuse: payload/varstring/chat/input caps + crypto ids) | `git revert 97260ee` |
-| 63 | (latest)    | On-screen powerup pickup announcements (feed)          | `git revert <sha>` |
+| 63 | `012cb85`   | On-screen powerup pickup announcements (feed)          | `git revert 012cb85` |
+| 64 | (latest)    | Disconnect warning modal (reconnect / home)           | `git revert <sha>` |
