@@ -15,11 +15,32 @@ function getCommandPrefix(value: string): string | null {
     return rest
 }
 
-export default function GameChat() {
-    const [chatMessage, setChatMessage] = useState("")
+interface Props {
+    // Text to seed the input with on mount. The in-match HUD passes "/" when the
+    // chat was opened with the Slash key so command entry starts naturally; the
+    // lobby callers omit it (empty input). Only read once, at mount.
+    initialValue?: string
+    // Focus the input as soon as it mounts. The in-match HUD sets this so the
+    // opening keypress drops the player straight into typing; lobby chat leaves
+    // it false so it never steals focus from the surrounding setup UI.
+    autoFocus?: boolean
+    // Called when the chat should be dismissed without staying open: Escape, or
+    // right after a message is sent. The in-match HUD uses this to hide the chat
+    // again and hand focus back to the game. Lobby chat omits it (stays open).
+    onClose?: () => void
+}
+
+export default function GameChat({ initialValue = "", autoFocus = false, onClose }: Props) {
+    const [chatMessage, setChatMessage] = useState(initialValue)
     const [activeIndex, setActiveIndex] = useState(0)
     const [dismissed, setDismissed] = useState(false)
     const inputRef = useRef<GameInputHandle>(null)
+
+    // Focus on mount when asked (in-match open). Done in an effect so the ref is
+    // attached first. Empty dep array: this is a one-shot on mount.
+    useEffect(() => {
+        if (autoFocus) inputRef.current?.focus()
+    }, [autoFocus])
 
     const chatMessages = useGameStore((s) => s.chatMessages)
     const addChatMessage = useGameStore((s) => s.addChatMessage)
@@ -82,6 +103,9 @@ export default function GameChat() {
         }
         setChatMessage("")
         setDismissed(false)
+        // In-match chat is one-shot: a send dismisses it and hands focus back to
+        // the game. Lobby chat omits onClose, so it stays put as before.
+        onClose?.()
     }
 
     const restoreLastMessage = () => {
@@ -102,7 +126,14 @@ export default function GameChat() {
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!showSuggestions) {
-                if (e.code === "Escape") setDismissed(true)
+                // No suggestion list to back out of, so Escape dismisses the chat
+                // itself. onClose lets the in-match HUD hide it and refocus the
+                // game; GameInput's keyup also blurs the field. Lobby chat passes
+                // no onClose, so Escape there just blurs as before.
+                if (e.code === "Escape") {
+                    setDismissed(true)
+                    onClose?.()
+                }
                 return
             }
             if (e.code === "ArrowDown") {
@@ -123,7 +154,7 @@ export default function GameChat() {
 
         input.addEventListener("keydown", handleKeyDown)
         return () => input.removeEventListener("keydown", handleKeyDown)
-    }, [showSuggestions, suggestions, activeIndex])
+    }, [showSuggestions, suggestions, activeIndex, onClose])
 
     const visibleMessages = chatMessages.slice(-10)
 

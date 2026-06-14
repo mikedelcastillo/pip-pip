@@ -316,6 +316,9 @@ $health-low: $color-bad
         color: transparentize($color-text, 0.3)
 
 // ---- Chat, top-left under the minimap ----
+// Hidden in-match until summoned (the openChat key or the touch button), so the
+// component only mounts .chat while open. pointer-events:auto so the input is
+// usable even though the surrounding HUD is click-through.
 .chat
     position: absolute
     left: $screen-margin-dynamic
@@ -328,26 +331,43 @@ $health-low: $color-bad
     flex-direction: column
     gap: 0.3em
 
-    .chatToggle
-        align-self: flex-start
-        padding: 0.2em 0.7em
-        background-color: $hud-panel
-        border: $border-size solid $color-border
-        border-radius: $border-radius
-        color: $color-main
-        cursor: pointer
-        user-select: none
-
-        &:hover
-            background-color: $color-main-darker
-            color: $color-dark-3
-
     .chatBody
         max-height: 30vh
         overflow: hidden
 
-    &.collapsed
-        width: auto
+// ---- Touch-only chat opener (top-left corner, under the minimap) ----
+// Desktop players use the openChat key, so this tiny button is hidden there and
+// only revealed on coarse-pointer (touch) devices, mirroring TouchControls. It
+// re-enables pointer events because the HUD root is click-through.
+.chatButton
+    display: none
+
+@media (pointer: coarse)
+    .chatButton
+        position: absolute
+        left: $screen-margin-dynamic
+        top: calc(#{$screen-margin-dynamic} + 9em)
+        z-index: 20
+        pointer-events: auto
+        display: flex
+        align-items: center
+        justify-content: center
+        width: 2.2em
+        height: 2.2em
+        padding: 0
+        font-size: clamp(16px, 5vw, 22px)
+        line-height: 1
+        color: $color-main
+        background-color: $hud-panel
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        cursor: pointer
+        -webkit-tap-highlight-color: transparent
+        touch-action: manipulation
+
+        &:active
+            background-color: $color-main-darker
+            color: $color-dark-3
 
 // ---- Phone tuning ----
 // On a phone the bottom-right is the aim-stick + action-button zone, so the

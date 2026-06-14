@@ -35,6 +35,7 @@ describe("DEFAULT_KEYBINDINGS", () => {
             tactical: [{ kind: "key", code: "KeyQ" }, { kind: "mouse", button: 2 }],
             reload: [{ kind: "key", code: "KeyR" }],
             scoreboard: [{ kind: "key", code: "Tab" }],
+            openChat: [{ kind: "key", code: "Slash" }, { kind: "key", code: "KeyT" }],
         })
     })
 

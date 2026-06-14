@@ -12,6 +12,8 @@ export const KEYBINDINGS_KEY = "pip-pip:keybindings"
 // right stick (gamepad) and is therefore NOT a remappable key here. `scoreboard`
 // is included so the UI can display/rebind it, though the actual show-scoreboard
 // wiring lives in the game store and currently still reads Tab directly.
+// `openChat` opens the in-match chat input (the chat is hidden until then); it is
+// handled in GameOverlayMatch, NOT processInputs, so it never feeds the ship.
 export type GameAction =
     | "moveUp"
     | "moveDown"
@@ -21,6 +23,7 @@ export type GameAction =
     | "tactical"
     | "reload"
     | "scoreboard"
+    | "openChat"
 
 // Ordered list - the single source of truth for iteration (UI rows, validation,
 // merge). Keeping it explicit avoids relying on object key order.
@@ -33,6 +36,7 @@ export const GAME_ACTIONS: readonly GameAction[] = [
     "tactical",
     "reload",
     "scoreboard",
+    "openChat",
 ] as const
 
 // Human-readable labels for the UI. Kept here (next to the action list) so the
@@ -46,6 +50,7 @@ export const ACTION_LABELS: Record<GameAction, string> = {
     tactical: "Secondary cannon",
     reload: "Reload",
     scoreboard: "Scoreboard",
+    openChat: "Open Chat",
 }
 
 // A single binding for an action. Three kinds, so one action can be triggered by
@@ -87,8 +92,10 @@ export interface ControlBindings {
 // Current defaults: these reproduce the behavior processInputs had before it
 // was made configurable, now expressed as the new multi-binding model: WASD
 // move, Space + left-click fire, Q + right-click tactical, R reload, Tab
-// scoreboard. The mouse entries reproduce the old hard-wired mouse-left=fire /
-// mouse-right=tactical lines that processInputs used to carry directly.
+// scoreboard, "/" or "T" open chat. The mouse entries reproduce the old
+// hard-wired mouse-left=fire / mouse-right=tactical lines that processInputs used
+// to carry directly. openChat defaults to Slash AND KeyT so "/" reads as "start a
+// command" and "T" as the familiar "talk" key, matching most shooters.
 export const DEFAULT_KEYBINDINGS: KeyBindings = {
     moveUp: [keyBinding("KeyW")],
     moveDown: [keyBinding("KeyS")],
@@ -98,6 +105,7 @@ export const DEFAULT_KEYBINDINGS: KeyBindings = {
     tactical: [keyBinding("KeyQ"), mouseBinding(2)],
     reload: [keyBinding("KeyR")],
     scoreboard: [keyBinding("Tab")],
+    openChat: [keyBinding("Slash"), keyBinding("KeyT")],
 }
 
 // Sensible gamepad defaults for a standard-mapping controller. Left stick drives
@@ -113,6 +121,7 @@ export const DEFAULT_GAMEPAD_BINDINGS: GamepadBindings = {
     tactical: 5, // right bumper (RB / R1)
     reload: 2, // X / square
     scoreboard: 3, // Y / triangle
+    openChat: -1, // no pad default: typing needs a keyboard / on-screen button
 }
 
 // Deep-clone a default binding list so callers never share the module's frozen
@@ -414,6 +423,18 @@ export const isBindingActive = (b: Binding, state: BindingInputState): boolean =
 export const isActionActive = (bindings: Binding[], state: BindingInputState): boolean => {
     for (const binding of bindings) {
         if (isBindingActive(binding, state)) return true
+    }
+    return false
+}
+
+// Does a single KeyboardEvent.code match any KEY binding in this list? Used by
+// edge-triggered handlers (like opening the chat on a keydown) that work off the
+// raw DOM event rather than the per-tick BindingInputState. Only "key" bindings
+// can match a keyboard event, so mouse/wheel bindings are ignored here. Pure, so
+// it is unit-testable and never special-cases a hard-coded "Slash"/"KeyT".
+export const keyMatchesBindings = (code: string, bindings: Binding[]): boolean => {
+    for (const binding of bindings) {
+        if (binding.kind === "key" && binding.code === code) return true
     }
     return false
 }

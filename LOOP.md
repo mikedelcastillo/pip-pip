@@ -374,4 +374,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 82 | `59b9500`   | Tame harsh audio: default volume 0.8->0.35, master limiter + low-pass, softer SFX | `git revert 59b9500`|
 | 83 | `907faf1`   | Fix mobile lobby panels not scrolling (grid stretch -> flex column on phone) | `git revert 907faf1`|
 | 84 | `8801893`   | Credits: drop the false "ships named after birds" line (Meg's correction) | `git revert 8801893`|
-| 85 | (latest)    | In-lobby game mode switching (host changes mode/target without re-hosting) | `git revert <sha>` |
+| 85 | `38c30da`   | In-lobby game mode switching (host changes mode/target without re-hosting) | `git revert 38c30da`|
+| 86 | (latest)    | In-match chat hidden until "/" or "T" (editable bind) + mobile chat button | `git revert <sha>` |
