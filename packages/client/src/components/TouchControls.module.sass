@@ -100,7 +100,9 @@ $stick-radius: 56px
     pointer-events: auto
     touch-action: none
     min-width: 4.5em
-    min-height: 2.4em
+    // Floor at 44px so these in-combat buttons stay tappable on small phones,
+    // where 2.4em resolves to ~38px; tablets keep the larger 2.4em sizing.
+    min-height: max(2.4em, 44px)
     padding: $text-padding-y $text-padding-x
     text-align: center
     font-size: clamp(16px, 4.5vmin, 24px)

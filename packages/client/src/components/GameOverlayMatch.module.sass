@@ -445,6 +445,10 @@ $health-low: $color-bad
         justify-content: center
         width: 2.2em
         height: 2.2em
+        // Never shrink below the 44px touch-target floor: at the clamp minimum
+        // (small phones) 2.2em resolves to ~35px, well under a comfortable thumb.
+        min-width: 44px
+        min-height: 44px
         padding: 0
         font-size: clamp(16px, 5vw, 22px)
         line-height: 1
