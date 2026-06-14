@@ -1,11 +1,27 @@
 @import "../styles/variables"
 
+// A faint Apex-style forward skew on the podium blocks, matched to the HUD's
+// slant ($hud-skew in GameOverlayMatch) but softer so the small phone podium
+// stays legible.
+$podium-skew: -6deg
+
 @keyframes resultPop
     from
         transform: scale(0.9)
         opacity: 0
     to
         transform: scale(1)
+        opacity: 1
+
+// Podium blocks rise into place from below, staggered per rank so the crowd
+// reads 2 -> 1 -> 3 settling in. The skew is baked into the end state so it
+// persists after the animation finishes.
+@keyframes podiumRise
+    from
+        transform: skewX($podium-skew) translateY(1.5em)
+        opacity: 0
+    to
+        transform: skewX($podium-skew) translateY(0)
         opacity: 1
 
 .blackout
@@ -41,6 +57,113 @@
 
         &.tie
             color: $color-accent
+
+    // Top-3 podium. Three blocks laid out 2 - 1 - 3 (the component re-orders the
+    // ranks), bottom-aligned so the taller 1st-place block stands above the
+    // shorter 2nd/3rd. clamp + flex-wrap keep it inside a 393px phone: if all
+    // three cannot fit, blocks wrap rather than overflow.
+    .podium
+        display: flex
+        justify-content: center
+        align-items: flex-end
+        flex-wrap: wrap
+        gap: 0.6em
+        width: 100%
+        margin: 0.2em 0
+
+    .block
+        font-family: $font-family-game
+        display: flex
+        flex-direction: column
+        align-items: center
+        // clamp the block width so it scales down on a narrow phone but never
+        // grows past a comfortable size on a wide screen.
+        width: clamp(4.5em, 28%, 7em)
+        padding: 0.4em 0.3em 0
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        background-color: transparentize($color-dark-2, 0.25)
+        // Each block carries the shared Apex skew; the rise animation ends on the
+        // same skew so the slant stays after it settles.
+        transform: skewX($podium-skew)
+        animation: podiumRise 320ms ease-out backwards
+
+        // De-skew the inner content so text/icons read upright inside the
+        // slanted block.
+        > *
+            transform: skewX(-1 * $podium-skew)
+
+        .mvp
+            font-size: 0.8em
+            text-transform: uppercase
+            letter-spacing: 0.08em
+            color: $color-dark-1
+            background-color: $color-main
+            border-radius: $border-radius
+            padding: 0 0.4em
+            line-height: 1.3
+
+        .rank
+            font-size: 1.2em
+            line-height: 1
+            color: $color-text
+            opacity: 0.8
+
+        .shipIcon
+            width: 2.4em
+            height: 2.4em
+            object-fit: contain
+            image-rendering: pixelated
+
+        .name
+            font-size: 1em
+            line-height: 1.1
+            max-width: 100%
+            white-space: nowrap
+            overflow: hidden
+            text-overflow: ellipsis
+            color: $color-text
+
+        .kills
+            font-size: 1.4em
+            line-height: 1
+            color: $color-main
+
+        // The pedestal is the visible "step" each rank stands on; its height is
+        // what makes 1st tallest. Skew-inherited from the block above.
+        .pedestal
+            width: 100%
+            margin-top: 0.3em
+            border-top: $border-size solid $color-border
+
+        // 1st place: tallest pedestal, amber MVP highlight, and a brand-colored
+        // glow so the winner reads as the centerpiece.
+        &.first
+            width: clamp(5.5em, 34%, 8.5em)
+            border-color: $color-main
+            box-shadow: 0 0 0.8em transparentize($color-main, 0.6)
+            // Lands first in the stagger so the winner pops before the wings.
+            animation-delay: 0ms
+            .rank
+                color: $color-main
+                opacity: 1
+            .shipIcon
+                width: 3em
+                height: 3em
+            .pedestal
+                height: 2.4em
+                border-color: $color-main
+                background-color: transparentize($color-main, 0.8)
+
+        &.second
+            animation-delay: 90ms
+            .pedestal
+                height: 1.5em
+
+        &.third
+            animation-delay: 160ms
+            .pedestal
+                height: 1em
 
     .board
         width: 100%

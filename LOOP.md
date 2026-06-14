@@ -389,4 +389,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 97 | `7c44072`   | Loadout buttons: Spectate small on the left, Deploy prominent on the right | `git revert 7c44072`|
 | 98 | `59c8553`   | Prompt for a name (modal) on entering a lobby/match when none is saved | `git revert 59c8553`|
 | 99 | `1838461`   | Lobby hamburger menu (Settings/Leave/Close Lobby) + Close Lobby confirm modal (ConfirmModal, Modal hideClose) | `git revert 1838461`|
-| 100| (latest)    | Multi-kill banners (Double/Triple/Multi/Monster Kill) for the local player | `git revert <sha>` |
+| 100| `fdccbbb`   | Multi-kill banners (Double/Triple/Multi/Monster Kill) for the local player | `git revert fdccbbb`|
+| 101| (latest)    | End-of-match top-3 podium + MVP on the results screen | `git revert <sha>` |
