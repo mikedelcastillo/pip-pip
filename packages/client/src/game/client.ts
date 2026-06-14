@@ -1,8 +1,7 @@
-import { forgivingEqual } from "@pip-pip/core/src/math"
 import { Vector2 } from "@pip-pip/core/src/physics"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { POWERUP_CODE_TO_TYPE } from "@pip-pip/game/src/logic/powerup"
-import { CHAT_MAX_MESSAGE_LENGTH, PLAYER_POSITION_TOLERANCE } from "@pip-pip/game/src/logic/constants"
+import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { encode } from "@pip-pip/game/src/networking/packets"
 import { GameContext, getClientPlayer } from "."
 import { useGameStore } from "./store"
@@ -131,29 +130,37 @@ export const processPackets = (gameContext: GameContext) => {
             }
         }
 
-        //  Set player positions
+        //  Set player positions — REMOTE players only. The local player's
+        //  authoritative state arrives via ownPlayerState (below) and is
+        //  reconciled against client prediction; applying the quantized
+        //  broadcast here would fight that prediction and snap the local ship.
         for (const pos of packets.playerPosition || []) {
+            if (pos.playerId === gameContext.client.connectionId) continue
             const player = game.players[pos.playerId]
             if (typeof player === "undefined") continue
 
-            let xOffset = 0
-            let yOffset = 0
-
-            if (pos.playerId === gameContext.client.connectionId) {
-                // TODO: Improve server reconciliation
-                const lookbackRaw = player.ping / game.deltaMs
-                const state = player.getLastTickState(lookbackRaw)
-                const x = forgivingEqual((state.positionX + state.velocityX), (pos.positionX), PLAYER_POSITION_TOLERANCE)
-                const y = forgivingEqual((state.positionY + state.velocityY), (pos.positionY), PLAYER_POSITION_TOLERANCE)
-                if (x && y) continue
-                xOffset = -state.velocityX
-                yOffset = -state.velocityY
-            }
-
-            player.ship.physics.position.x = pos.positionX + xOffset
-            player.ship.physics.position.y = pos.positionY + yOffset
+            player.ship.physics.position.x = pos.positionX
+            player.ship.physics.position.y = pos.positionY
             player.ship.physics.velocity.x = pos.velocityX
             player.ship.physics.velocity.y = pos.velocityY
+        }
+
+        // Owner-only authoritative state for client-prediction reconciliation.
+        // The server reports our position/velocity AFTER consuming our input up
+        // to lastInputSeq; reconcileTo shifts the predicted ship to match. This
+        // is what keeps the local player in the same place everyone else sees —
+        // without it the local ship free-runs its prediction and appears far
+        // offset on other screens (worst right after a mid-match join or spawn).
+        for (const state of packets.ownPlayerState || []) {
+            const player = getClientPlayer(game)
+            if (typeof player === "undefined") continue
+            player.reconcileTo(
+                state.positionX,
+                state.positionY,
+                state.velocityX,
+                state.velocityY,
+                state.lastInputSeq,
+            )
         }
 
         // update player ship timings
@@ -265,6 +272,7 @@ export const processPackets = (gameContext: GameContext) => {
         const ignorePacket = [
             "playerPositionSync",
             "playerPosition", "playerInputs",
+            "ownPlayerState",
             "gameCountdown",
             "playerSpectate",
             "powerupSpawn", "powerupPickup",
@@ -298,10 +306,13 @@ export const sendPackets = (gameContext: GameContext) => {
         }
     }
 
-    // send position
+    // send inputs (server-authoritative: it simulates from these, NOT from any
+    // client-reported position — so we no longer send playerPosition at all).
+    // Record the predicted post-sim position for THIS tick's inputSeq first, so
+    // ownPlayerState can later reconcile against it.
     if (game.phase === PipPipGamePhase.MATCH) {
         if (typeof clientPlayer !== "undefined") {
-            messages.push(encode.playerPosition(clientPlayer))
+            clientPlayer.recordPredictedState()
             messages.push(encode.playerInputs(clientPlayer))
         }
     }

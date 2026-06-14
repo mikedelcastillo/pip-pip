@@ -167,6 +167,26 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 
 ## Decision log
 
+- **D11 — finished the client-side prediction & reconciliation (THE mid-join/respawn
+  offset bug).** The netcode rework (e9fa70b) built all the scaffolding — server-side
+  authoritative sim from a queued input stream, the owner-only `ownPlayerState` packet
+  (float32 pos + `lastInputSeq`), `predictedStates`/`renderError`/`resetNetworkState`,
+  and a `DebugOverlay` that reads them — but the CLIENT side was never wired. Two
+  concrete defects: (1) `inputSeq` was never advanced, so every `playerInputs` went out
+  as seq 0 and the server's wrap-safe dedupe (`pushInputFrame`) collapsed any batch that
+  arrived in one tick (jitter / the burst right after a join or respawn / bad wifi) down
+  to a single input — the server barely moved the player while the client predicted full
+  motion, so everyone else saw the player frozen/severely offset. (2) `ownPlayerState`
+  had no client handler at all, so the local ship free-ran its prediction with zero
+  server correction. Fix: `ui.ts` advances `inputSeq` once per tick; `sendPackets`
+  records the predicted post-sim position keyed by that seq and stops sending the
+  now-unused (server-ignored) client `playerPosition`; `client.ts` consumes
+  `ownPlayerState` and calls the new `PipPlayer.reconcileTo`, which measures the
+  prediction error at the acked seq and shifts the current position by it (collision-free
+  reset-and-replay), hard-resyncing on a cold start / post-spawn gap. `playerPosition` is
+  now applied to REMOTE players only. 9 headless regression tests pin the seq/dedup +
+  reconcile math (218 total). Game-logic + client only (no homepage) → no prod
+  smoke-test. The author can't easily test two clients; verified headlessly first.
 - **D10 — opt-in graphics effects are persisted + OFF by default.** The renderer already
   constructed CRT/Glitch/Pixelate/Bulge filters but only the bulge was wired into
   `app.stage.filters`; CRT was configured with an untested `curvature = 100` (extreme).
@@ -303,4 +323,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 44 | `6ab9738`   | Persist audio settings to localStorage            | `git revert 6ab9738`|
 | 45 | `2e1d903`   | Opt-in CRT graphics toggle (Settings, persisted)  | `git revert 2e1d903`|
 | 46 | `576f962`   | Fix H2 player-snap distance typo (vertical jumps) | `git revert 576f962`|
-| 47 | (latest)    | Harden $string to fixed byte width (M6, C1 class) | `git revert <sha>`  |
+| 47 | `766f7b2`   | Harden $string to fixed byte width (M6, C1 class) | `git revert 766f7b2`|
+| 48 | (latest)    | Fix client prediction/reconciliation (mid-join + respawn offset) | `git revert <sha>` |

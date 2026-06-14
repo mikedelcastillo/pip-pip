@@ -64,4 +64,12 @@ export function processInputs(context: GameContext){
         clientPlayer.inputs.useTactical = clientPlayer.inputs.useTactical || touchState.useTactical
         clientPlayer.inputs.doReload = clientPlayer.inputs.doReload || touchState.doReload
     }
+
+    // Tag this tick's input with a fresh, monotonically increasing sequence so
+    // the server can acknowledge how far it has consumed our stream and the
+    // local sim can reconcile its prediction (see PipPlayer.reconcileTo). Bumped
+    // once per tick here, BEFORE game.update() predicts and sendPackets records +
+    // transmits the frame. (Previously inputSeq never moved, so every input was
+    // sent as seq 0 and the server's dedupe dropped repeats.)
+    clientPlayer.advanceInputSeq()
 }

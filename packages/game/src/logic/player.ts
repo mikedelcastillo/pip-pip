@@ -78,6 +78,18 @@ export type PlayerScores = {
 
 export const MAX_PLAYER_POSITION_STATES = 8
 
+// Client (local player): max unacknowledged predicted frames kept for
+// reconciliation. ~6s at 20Hz — far beyond any sane RTT, but bounded so a
+// stalled server can never grow this without limit.
+export const MAX_PREDICTED_STATES = 128
+
+// Wrap-safe "seq a is strictly after seq b" across the uint16 input-seq space.
+// (a - b) mod 2^16 lands in (0, 0x8000) when a leads b, accounting for wrap.
+export function isInputSeqAfter(a: number, b: number){
+    const delta = (a - b) & 0xFFFF
+    return delta !== 0 && delta < 0x8000
+}
+
 export class PipPlayer{
     id: string
     
@@ -346,6 +358,63 @@ export class PipPlayer{
         this.renderError.x = 0
         this.renderError.y = 0
         this.inputQueue = []
+    }
+
+    // Client (local player): advance the input sequence for the frame produced
+    // this tick. Each sent input carries a unique, monotonically increasing seq
+    // so the server can acknowledge exactly how far it has consumed our stream
+    // and we can reconcile the unacknowledged tail. uint16, wraps.
+    advanceInputSeq(){
+        this.inputSeq = (this.inputSeq + 1) & 0xFFFF
+    }
+
+    // Client (local player): snapshot this tick's input + predicted position,
+    // keyed by the current inputSeq. Call AFTER the local sim has stepped so the
+    // position is post-physics. reconcileTo compares the server's authoritative
+    // position at a given seq against the prediction recorded here.
+    recordPredictedState(){
+        this.predictedStates.push({
+            seq: this.inputSeq,
+            inputs: cloneInputs(this.inputs),
+            positionX: this.ship.physics.position.x,
+            positionY: this.ship.physics.position.y,
+        })
+        while(this.predictedStates.length > MAX_PREDICTED_STATES){
+            this.predictedStates.shift()
+        }
+    }
+
+    // Client (local player): reconcile the locally-predicted ship against the
+    // server's authoritative own-state (the ownPlayerState packet), which
+    // reports the authoritative position/velocity AFTER the server consumed
+    // input up to lastInputSeq.
+    //
+    // We measure the prediction error at the acknowledged seq (authoritative
+    // minus what we predicted for that same seq) and shift the CURRENT predicted
+    // position by that error. Because every later predicted frame was built on
+    // the same erroneous base via the same inputs, one translation realigns the
+    // whole unacknowledged tail — the cheap, collision-free form of
+    // reset-and-replay. Without a matching prediction (cold start, just after a
+    // spawn/teleport that cleared predictedStates, or a seq gap) we hard-resync
+    // to the authoritative state instead.
+    reconcileTo(positionX: number, positionY: number, velocityX: number, velocityY: number, lastInputSeq: number){
+        const acked = this.predictedStates.find(state => state.seq === lastInputSeq)
+        // Drop every acknowledged frame; keep only the unacknowledged tail.
+        this.predictedStates = this.predictedStates.filter(state => isInputSeqAfter(state.seq, lastInputSeq))
+
+        if(typeof this.ship === "undefined") return
+
+        if(typeof acked === "undefined"){
+            // No prediction to reconcile against — snap to authoritative state.
+            this.ship.physics.position.x = positionX
+            this.ship.physics.position.y = positionY
+            this.ship.physics.velocity.x = velocityX
+            this.ship.physics.velocity.y = velocityY
+            return
+        }
+
+        this.ship.physics.position.x += positionX - acked.positionX
+        this.ship.physics.position.y += positionY - acked.positionY
     }
 
     update(){
