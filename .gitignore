@@ -120,3 +120,6 @@ playwright-report/
 /editor-*.png
 /*.screenshot.png
 /screenshot*.png
+/e2e-*.png
+/game-*.png
+/.playwright-mcp/

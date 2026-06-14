@@ -221,8 +221,12 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
   works in this environment. Commit the master + the USED exports; skip review-only
   previews. Use this same flow for future art.
 - **D8 — production smoke-testing runs in the loop.** Production is
-  https://pippip.mikedc.io and `main` AUTO-DEPLOYS there — a smoke test confirmed the
-  session's commits are already live. A read-only browser smoke-test subagent runs
+  https://pip-pip.mikedc.io (WITH the hyphen - this is the live Railway domain; the old
+  note said `pippip.mikedc.io` without a hyphen, which is NOT attached to the service and
+  returns Railway's "Application not found" fallback 404, so do not smoke-test that one).
+  `main` AUTO-DEPLOYS there. Verified live 2026-06-14: pip-pip.mikedc.io serves HTTP 200,
+  /hrzn healthcheck 200, and its built JS asset hash matches a local `yarn build` of HEAD,
+  so the session's commits are deployed. A read-only browser smoke-test subagent runs
   occasionally (homepage renders, no console errors / blank-screen, recent features
   present). First run (after 23 commits): PASS — homepage renders, all menu modals work,
   the only console message is a cosmetic a11y warning (a form input missing id/name).
