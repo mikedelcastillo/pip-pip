@@ -1,79 +1,20 @@
 @import "../styles/variables"
 
-// Animated pixel-art space background for the homepage. Recreation of Meg's
-// original bg.png, authored in Aseprite (assets/homepage-bg.aseprite) and
-// exported to ../assets/art. Three stacked, full-bleed layers:
-//   .root   solid space fill so nothing ever shows through (mobile-safe)
-//   .base   opaque tiling nebula gradient, slow marquee parallax drift
-//   .stars  transparent 12-frame twinkle spritesheet, faster parallax drift
-//
-// The whole thing is fixed behind the page (z-index 0) and is purely
-// decorative, so it is hidden from assistive tech and disables itself for
-// users who prefer reduced motion.
-
-$tile: 256px
-// On-screen size of one 256px master tile. Scaled up a touch so the pixels
-// read as chunky pixel-art rather than a tiny texture.
-$scale: 384px
-
+// Full-bleed <canvas> for the homepage parallax star field (see
+// HomeBackground.tsx). The canvas draws the dark space fill and the drifting
+// stars itself; this rule just pins it behind the page content and keeps it
+// from catching pointer events. The solid background-color is an immediate
+// paint before the first canvas frame, and a fallback if the canvas never
+// initialises.
 .root
     position: fixed
     inset: 0
     z-index: 0
-    overflow: hidden
+    width: 100%
+    height: 100%
+    display: block
     pointer-events: none
-    background-color: $color-dark-1
-    // Static still as an immediate paint before the layered images settle.
-    background-position: center
-    background-size: cover
-
-.layer
-    position: absolute
-    // Bleed past every edge so the parallax drift never reveals a seam.
-    top: -10%
-    left: -10%
-    width: 120%
-    height: 120%
+    background-color: $color-dark-2
+    // Stars are tiny pixel blocks; never let the browser smooth the canvas
+    // when it scales the backing store to CSS pixels.
     image-rendering: pixelated
-    will-change: background-position
-
-.base
-    background-repeat: repeat
-    background-size: $scale $scale
-    // Slow, gentle marquee: one tile width every 80s.
-    animation: bgDriftBase 80s linear infinite
-
-.stars
-    background-repeat: repeat
-    // The sheet is 12 frames wide, so its on-screen width is 12 tiles. The
-    // repeat period therefore equals the full sheet width ($scale * 12).
-    // Stepping background-position-x across that whole period with steps(12)
-    // jumps exactly one frame (one tile width) per step, walking the twinkle
-    // one frame at a time and looping seamlessly. Because the layer repeats,
-    // that same motion doubles as a gentle horizontal parallax drift over the
-    // nebula below.
-    background-size: ($scale * 12) $scale
-    animation: bgTwinkle 4.8s steps(12) infinite, bgDriftStars 60s linear infinite
-
-@keyframes bgTwinkle
-    from
-        background-position-x: 0
-    to
-        // Walk all 12 frames: one full sheet width = 12 tiles.
-        background-position-x: ($scale * -12)
-
-@keyframes bgDriftStars
-    from
-        background-position-y: 0
-    to
-        background-position-y: $scale
-
-@keyframes bgDriftBase
-    from
-        background-position-x: 0
-    to
-        background-position-x: -$scale
-
-@media (prefers-reduced-motion: reduce)
-    .base, .stars
-        animation: none
