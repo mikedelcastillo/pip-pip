@@ -8,6 +8,7 @@ import { loadGridMap } from "@pip-pip/game/src/logic/grid-map"
 import {
     EditorMap,
     EditorBrush,
+    EditorHistory,
     SLOPE_BRUSHES,
     DEFAULT_MAP_NAME,
     parseCellKey,
@@ -147,6 +148,21 @@ function editorStorage(): Storage | null{
     }
 }
 
+// Show the right modifier in the undo/redo tooltips: Cmd on a Mac, Ctrl
+// everywhere else, so the on-screen hint matches the key the author would
+// actually press. Best-effort platform sniff; falls back to Ctrl when unknown.
+function isApplePlatform(): boolean{
+    try{
+        return typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "")
+    } catch(e){
+        return false
+    }
+}
+
+const MOD_KEY = isApplePlatform() ? "Cmd" : "Ctrl"
+const UNDO_SHORTCUT = `${MOD_KEY}+Z`
+const REDO_SHORTCUT = `${MOD_KEY}+Shift+Z`
+
 export default function MapEditor(){
     const navigate = useNavigate()
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -160,6 +176,22 @@ export default function MapEditor(){
     const mapRef = useRef<EditorMap>(restoreInitialMap())
     const [version, setVersion] = useState(0)
     const bump = useCallback(() => setVersion((v) => v + 1), [])
+
+    // Aseprite-style undo/redo, scoped to canvas CONTENT (tiles + spawns; the map
+    // name is a text field and is not undoable). The history lives in a ref (it is
+    // a mutable model the imperative pointer handlers drive), while `canUndo` /
+    // `canRedo` are mirrored into React state so the on-screen buttons can show a
+    // disabled state. A single paint GESTURE (pointer-down -> drag -> up) commits
+    // as ONE step: the view begins a snapshot at pointer-down and commits it at
+    // pointer-up.
+    const historyRef = useRef<EditorHistory>(new EditorHistory())
+    const [canUndo, setCanUndo] = useState(false)
+    const [canRedo, setCanRedo] = useState(false)
+    const refreshHistoryFlags = useCallback(() => {
+        const history = historyRef.current
+        setCanUndo(history.canUndo())
+        setCanRedo(history.canRedo())
+    }, [])
 
     // The pan/zoom viewport. Held in a ref (mutated by gesture handlers without a
     // re-render) - `ready` is false until the first fit so a fresh/resized grid
@@ -482,11 +514,19 @@ export default function MapEditor(){
             if(pointers.size === 1){
                 painting = true
                 lastCellRef.current = null
+                // Open one history step for this whole stroke: snapshot the
+                // pre-stroke canvas now, commit it at pointer-up if anything
+                // changed. A click-drag that paints 40 cells thus undoes in ONE
+                // step (Aseprite-style).
+                historyRef.current.begin(mapRef.current)
                 paintAt(e.clientX, e.clientY)
             } else if(pointers.size === 2){
                 // A second finger turns the drag into a pinch/pan gesture: stop
                 // painting and seed the gesture from the current two-finger pose.
+                // Commit whatever the single finger already painted as its own
+                // step, so the tap that preceded the pinch is not lost.
                 painting = false
+                if(historyRef.current.commit(mapRef.current)) refreshHistoryFlags()
                 gesture = pinchState()
             }
             e.preventDefault()
@@ -510,6 +550,7 @@ export default function MapEditor(){
             e.preventDefault()
         }
         const onUp = (e: PointerEvent) => {
+            const wasPainting = painting
             pointers.delete(e.pointerId)
             if(canvas.hasPointerCapture(e.pointerId)){
                 canvas.releasePointerCapture(e.pointerId)
@@ -518,6 +559,15 @@ export default function MapEditor(){
             if(pointers.size === 0){
                 painting = false
                 lastCellRef.current = null
+                // Close the stroke: commit the gesture opened at pointer-down as a
+                // single undo step (a no-op stroke commits nothing). Only when this
+                // pointer was actually painting, so lifting a pinch finger does not
+                // touch history.
+                if(wasPainting && historyRef.current.commit(mapRef.current)){
+                    refreshHistoryFlags()
+                } else{
+                    historyRef.current.cancel()
+                }
             }
         }
 
@@ -534,7 +584,7 @@ export default function MapEditor(){
             canvas.removeEventListener("pointercancel", onUp)
             canvas.removeEventListener("pointerleave", onUp)
         }
-    }, [paintAt, applyZoom, applyPan, draw])
+    }, [paintAt, applyZoom, applyPan, draw, refreshHistoryFlags])
 
     // Native trackpad: a Mac pinch arrives as wheel + ctrlKey (so does Ctrl+wheel)
     // -> zoom around the cursor; a plain two-finger scroll -> pan. passive:false so
@@ -604,6 +654,12 @@ export default function MapEditor(){
                 const map = EditorMap.fromGridMapData(data)
                 mapRef.current = map
                 setName(map.name)
+                // A fresh map replaces the canvas wholesale, so the old history no
+                // longer applies: reset it and refresh the button flags. The
+                // imported content is the new baseline (not undoable back into the
+                // previous map).
+                historyRef.current.reset()
+                refreshHistoryFlags()
                 // Re-fit the viewport to the imported content.
                 viewRef.current.ready = false
                 markDirty()
@@ -615,25 +671,53 @@ export default function MapEditor(){
             }
         }
         reader.readAsText(file)
-    }, [bump, draw, markDirty])
+    }, [bump, draw, markDirty, refreshHistoryFlags])
 
     // Clear every tile/spawn AND forget the autosaved draft, so this is a true
     // "start fresh" (a reload after Clear comes up blank, not the cleared map).
+    // The clear is recorded as one undo step, so an accidental Clear can be undone
+    // back to the pre-clear canvas (the autosave then re-persists it on the next
+    // edit/restore), staying consistent with every other edit.
     const onClear = useCallback(() => {
+        const history = historyRef.current
+        history.begin(mapRef.current)
         mapRef.current.clear()
+        if(history.commit(mapRef.current)) refreshHistoryFlags()
         const storage = editorStorage()
         if(storage !== null) clearEditorMap(storage)
         setDirty(false)
         bump()
         draw()
         setMessage("Cleared")
-    }, [bump, draw])
+    }, [bump, draw, refreshHistoryFlags])
 
     // Reset the pan/zoom to fit the whole grid (geometry() refits when !ready).
     const fitNow = useCallback(() => {
         viewRef.current.ready = false
         draw()
     }, [draw])
+
+    // Undo / redo the last paint GESTURE. Both round-trip the SPARSE model (so a
+    // later export reflects the restored state), then integrate exactly like a
+    // normal edit: keep the viewport (no refit), redraw, mark dirty so the leave
+    // guard knows there is unsaved work, and let the debounced autosave persist
+    // the restored draft (it fires off the `version` bump). The button
+    // disabled-state flags are refreshed after each.
+    const undo = useCallback(() => {
+        if(historyRef.current.undo(mapRef.current) === false) return
+        refreshHistoryFlags()
+        markDirty()
+        bump()
+        draw()
+    }, [bump, draw, markDirty, refreshHistoryFlags])
+
+    const redo = useCallback(() => {
+        if(historyRef.current.redo(mapRef.current) === false) return
+        refreshHistoryFlags()
+        markDirty()
+        bump()
+        draw()
+    }, [bump, draw, markDirty, refreshHistoryFlags])
 
     // Leaving the editor: only confirm when there is unsaved work, otherwise go
     // straight back. The ConfirmModal handles the in-app Back prompt; the
@@ -681,6 +765,28 @@ export default function MapEditor(){
                 onExport()
                 return
             }
+            // Undo / redo, Aseprite-style. Cmd/Ctrl+Z undoes; Cmd/Ctrl+Shift+Z and
+            // Cmd/Ctrl+Y redo. preventDefault so the browser does not navigate
+            // back or run its own undo. These sit BEFORE the modifier guard below
+            // so they are not swallowed by it, and after the input guard above so
+            // typing in the name field keeps the browser's native text undo.
+            if(e.metaKey || e.ctrlKey){
+                const lower = e.key.toLowerCase()
+                if(lower === "z"){
+                    e.preventDefault()
+                    if(e.shiftKey){
+                        redo()
+                    } else{
+                        undo()
+                    }
+                    return
+                }
+                if(lower === "y"){
+                    e.preventDefault()
+                    redo()
+                    return
+                }
+            }
             if(e.metaKey || e.ctrlKey || e.altKey) return
 
             const key = e.key.toLowerCase()
@@ -700,7 +806,7 @@ export default function MapEditor(){
         }
         window.addEventListener("keydown", onKeyDown)
         return () => window.removeEventListener("keydown", onKeyDown)
-    }, [confirmLeave, onExport, fitNow])
+    }, [confirmLeave, onExport, fitNow, undo, redo])
 
     const spawnCount = mapRef.current.spawns.length
     // The size the map would EXPORT at: the bounding box of everything painted.
@@ -801,10 +907,38 @@ export default function MapEditor(){
                 })}
             </div>
 
-            {/* Top bar: title, Options, and Back. Floats over the canvas. */}
+            {/* Top bar: title, Undo/Redo, Options, and Back. Floats over the
+                canvas. Undo/Redo are first so they sit nearest the brand and are
+                an easy thumb reach on a phone (there is no Ctrl+Z on touch). */}
             <div className={styles.topBar}>
                 <div className={styles.brand}>Map Maker</div>
                 <div className={styles.topActions}>
+                    <Tooltip label="Undo" shortcut={UNDO_SHORTCUT} placement="bottom-left">
+                        <button
+                            type="button"
+                            className={styles.iconButton}
+                            onClick={undo}
+                            disabled={canUndo === false}
+                            aria-label={`Undo (${UNDO_SHORTCUT})`}
+                            aria-keyshortcuts="Control+Z Meta+Z"
+                            title={`Undo (${UNDO_SHORTCUT})`}
+                        >
+                            <UndoIcon />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Redo" shortcut={REDO_SHORTCUT} placement="bottom-left">
+                        <button
+                            type="button"
+                            className={styles.iconButton}
+                            onClick={redo}
+                            disabled={canRedo === false}
+                            aria-label={`Redo (${REDO_SHORTCUT})`}
+                            aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y Meta+Y"
+                            title={`Redo (${REDO_SHORTCUT})`}
+                        >
+                            <RedoIcon />
+                        </button>
+                    </Tooltip>
                     <Tooltip label="Map options" shortcut="O" placement="bottom-left">
                         <button
                             type="button"
@@ -1151,6 +1285,27 @@ function CloseIcon(){
     return (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
             <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+    )
+}
+
+// A counter-clockwise arrow for Undo: a curved arc with an arrowhead pointing
+// back to the start.
+function UndoIcon(){
+    return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 14L4 9l5-5" />
+            <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+        </svg>
+    )
+}
+
+// A clockwise arrow for Redo: the Undo glyph mirrored.
+function RedoIcon(){
+    return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 14l5-5-5-5" />
+            <path d="M20 9H10a6 6 0 0 0 0 12h3" />
         </svg>
     )
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
     EditorMap,
+    EditorHistory,
     EditorStorage,
     EDITOR_PALETTE,
     EDITOR_STORAGE_KEY,
@@ -11,6 +12,9 @@ import {
     autoSlopeShape,
     parseGridMapData,
     serializeGridMapData,
+    snapshotEditorMap,
+    restoreEditorSnapshot,
+    snapshotsEqual,
     mapFileName,
     brushForKey,
     saveEditorMap,
@@ -469,5 +473,279 @@ describe("editor -> play handoff", () => {
         clearPlayMap(storage)
         expect(storage.map.has(PLAY_MAP_STORAGE_KEY)).toBe(false)
         expect(loadPlayMap(storage)).toBe(null)
+    })
+})
+
+// Compare a map's sparse content to a flat description, order-independently, so a
+// test reads as "the canvas holds exactly these tiles + spawns" regardless of the
+// insertion order the sparse Map happens to keep.
+function tileEntries(map: EditorMap): [string, number][]{
+    return Array.from(map.tiles.entries()).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+}
+function spawnKeys(map: EditorMap): string[]{
+    return map.spawns.map(([c, r]) => cellKey(c, r)).sort()
+}
+
+describe("snapshotEditorMap / restoreEditorSnapshot (deep copy)", () => {
+    it("captures tiles + spawns by value, not by reference", () => {
+        const map = new EditorMap()
+        map.setCell(1, 1, "full")
+        map.setCell(2, 2, "spawn")
+        const snap = snapshotEditorMap(map)
+
+        // Mutating the LIVE map after the snapshot must not change the snapshot.
+        map.setCell(1, 1, "empty")
+        map.setCell(5, 5, "deco")
+        map.setCell(2, 2, "spawn") // remove the spawn
+
+        expect(snap.tiles).toContainEqual([cellKey(1, 1), paletteValueForBrush("full")])
+        expect(snap.tiles.length).toBe(1)
+        expect(snap.spawns).toEqual([[2, 2]])
+    })
+
+    it("restores a snapshot without sharing references with it", () => {
+        const map = new EditorMap()
+        map.setCell(3, 4, "full")
+        map.setCell(0, 0, "spawn")
+        const snap = snapshotEditorMap(map)
+
+        // Scribble all over the map, then restore.
+        map.clear()
+        map.setCell(9, 9, "deco")
+        restoreEditorSnapshot(map, snap)
+        expect(tileEntries(map)).toEqual([[cellKey(3, 4), paletteValueForBrush("full")]])
+        expect(spawnKeys(map)).toEqual([cellKey(0, 0)])
+
+        // Mutating the restored map must not corrupt the snapshot it came from
+        // (the restore rebuilt fresh containers + tuples).
+        map.spawns[0][0] = 999
+        expect(snap.spawns).toEqual([[0, 0]])
+    })
+})
+
+describe("snapshotsEqual", () => {
+    it("is true for equal content regardless of insertion order", () => {
+        const a = new EditorMap()
+        a.setCell(1, 1, "full")
+        a.setCell(2, 2, "deco")
+        a.setCell(0, 0, "spawn")
+        const b = new EditorMap()
+        b.setCell(2, 2, "deco")
+        b.setCell(0, 0, "spawn")
+        b.setCell(1, 1, "full")
+        expect(snapshotsEqual(snapshotEditorMap(a), snapshotEditorMap(b))).toBe(true)
+    })
+
+    it("is false when a tile value, a tile cell, or a spawn differs", () => {
+        const base = new EditorMap()
+        base.setCell(1, 1, "full")
+        const baseSnap = snapshotEditorMap(base)
+
+        const diffValue = new EditorMap()
+        diffValue.setCell(1, 1, "deco")
+        expect(snapshotsEqual(baseSnap, snapshotEditorMap(diffValue))).toBe(false)
+
+        const diffCell = new EditorMap()
+        diffCell.setCell(2, 1, "full")
+        expect(snapshotsEqual(baseSnap, snapshotEditorMap(diffCell))).toBe(false)
+
+        const extraSpawn = new EditorMap()
+        extraSpawn.setCell(1, 1, "full")
+        extraSpawn.setCell(3, 3, "spawn")
+        expect(snapshotsEqual(baseSnap, snapshotEditorMap(extraSpawn))).toBe(false)
+    })
+})
+
+describe("EditorHistory (Aseprite-style undo / redo)", () => {
+    it("push/undo/redo round-trips the sparse tiles + spawns", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+        expect(history.canUndo()).toBe(false)
+        expect(history.canRedo()).toBe(false)
+
+        // One committed edit (a tap).
+        history.begin(map)
+        map.setCell(2, 3, "full")
+        expect(history.commit(map)).toBe(true)
+        expect(history.canUndo()).toBe(true)
+        expect(history.canRedo()).toBe(false)
+
+        // Undo returns to the empty canvas.
+        expect(history.undo(map)).toBe(true)
+        expect(map.tiles.size).toBe(0)
+        expect(history.canUndo()).toBe(false)
+        expect(history.canRedo()).toBe(true)
+
+        // Redo re-applies it, and the sparse model round-trips: the export shows
+        // the restored tile.
+        expect(history.redo(map)).toBe(true)
+        expect(map.tileAt(2, 3)).toBe(paletteValueForBrush("full"))
+        const data = map.toGridMapData()
+        expect(data.tiles.some((v) => v === paletteValueForBrush("full"))).toBe(true)
+    })
+
+    it("treats a multi-cell stroke as ONE undo step", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+
+        // One gesture: pointer-down begins, the drag paints 40 cells, pointer-up
+        // commits.
+        history.begin(map)
+        for(let col = 0; col < 40; col++){
+            map.setCell(col, 5, "full")
+        }
+        expect(map.tiles.size).toBe(40)
+        expect(history.commit(map)).toBe(true)
+
+        // A single undo wipes the WHOLE stroke (not one cell).
+        expect(history.undo(map)).toBe(true)
+        expect(map.tiles.size).toBe(0)
+        expect(history.canUndo()).toBe(false)
+        // And a single redo restores all 40 cells at once.
+        expect(history.redo(map)).toBe(true)
+        expect(map.tiles.size).toBe(40)
+    })
+
+    it("undoes a spawn toggle as one step", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+        history.begin(map)
+        map.setCell(4, 4, "spawn")
+        expect(history.commit(map)).toBe(true)
+        expect(map.hasSpawn(4, 4)).toBe(true)
+
+        expect(history.undo(map)).toBe(true)
+        expect(map.hasSpawn(4, 4)).toBe(false)
+        expect(history.redo(map)).toBe(true)
+        expect(map.hasSpawn(4, 4)).toBe(true)
+    })
+
+    it("a new edit after an undo CLEARS the redo stack", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+
+        history.begin(map); map.setCell(0, 0, "full"); history.commit(map)
+        history.begin(map); map.setCell(1, 0, "full"); history.commit(map)
+
+        // Undo the second edit, then make a different edit: the redo of the
+        // undone second edit must be gone.
+        expect(history.undo(map)).toBe(true)
+        expect(history.canRedo()).toBe(true)
+        history.begin(map); map.setCell(0, 1, "deco"); history.commit(map)
+        expect(history.canRedo()).toBe(false)
+
+        // Undo now walks back through the NEW edit, then the first edit.
+        expect(history.undo(map)).toBe(true)
+        expect(map.tileAt(0, 1)).toBe(0)
+        expect(map.tileAt(0, 0)).toBe(paletteValueForBrush("full"))
+        expect(history.undo(map)).toBe(true)
+        expect(map.tiles.size).toBe(0)
+    })
+
+    it("commits no entry for a stroke that changed nothing", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full")
+        const history = new EditorHistory()
+
+        // A gesture that re-paints the same brush onto the same cell is a no-op.
+        history.begin(map)
+        map.setCell(0, 0, "full")
+        expect(history.commit(map)).toBe(false)
+        expect(history.canUndo()).toBe(false)
+    })
+
+    it("bounded cap drops the oldest step beyond the limit", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory(3)
+
+        // Five distinct committed edits, cap is 3.
+        for(let i = 0; i < 5; i++){
+            history.begin(map)
+            map.setCell(i, 0, "full")
+            expect(history.commit(map)).toBe(true)
+        }
+        // Only the most recent 3 edits are undoable; the older 2 fell off.
+        let undos = 0
+        while(history.undo(map)){
+            undos++
+        }
+        expect(undos).toBe(3)
+        // The two oldest cells (0,0) and (1,0) survive the bounded undo because
+        // their CREATING edits were dropped; cells (2..4, 0) were undone away.
+        expect(map.tileAt(0, 0)).toBe(paletteValueForBrush("full"))
+        expect(map.tileAt(1, 0)).toBe(paletteValueForBrush("full"))
+        expect(map.tileAt(2, 0)).toBe(0)
+        expect(map.tileAt(4, 0)).toBe(0)
+    })
+
+    it("canUndo / canRedo track the stacks correctly", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+        expect(history.canUndo()).toBe(false)
+        expect(history.canRedo()).toBe(false)
+
+        history.begin(map); map.setCell(0, 0, "full"); history.commit(map)
+        expect(history.canUndo()).toBe(true)
+        expect(history.canRedo()).toBe(false)
+
+        history.undo(map)
+        expect(history.canUndo()).toBe(false)
+        expect(history.canRedo()).toBe(true)
+
+        history.redo(map)
+        expect(history.canUndo()).toBe(true)
+        expect(history.canRedo()).toBe(false)
+    })
+
+    it("undo/redo are no-ops (return false) on empty stacks", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+        expect(history.undo(map)).toBe(false)
+        expect(history.redo(map)).toBe(false)
+    })
+
+    it("history is fully isolated: undoing does not corrupt later snapshots", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+
+        history.begin(map); map.setCell(0, 0, "full"); history.commit(map)
+        history.begin(map); map.setCell(1, 1, "deco"); history.commit(map)
+
+        // Undo twice back to empty, then mutate the live map heavily.
+        history.undo(map)
+        history.undo(map)
+        expect(map.tiles.size).toBe(0)
+        map.setCell(7, 7, "spawn")
+        map.setCell(8, 8, "full")
+
+        // Redoing the first edit must restore EXACTLY that edit's state (empty +
+        // one full at 0,0), unpolluted by the live scribbles above.
+        expect(history.redo(map)).toBe(true)
+        expect(tileEntries(map)).toEqual([[cellKey(0, 0), paletteValueForBrush("full")]])
+        expect(map.spawns.length).toBe(0)
+    })
+
+    it("reset forgets all history", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+        history.begin(map); map.setCell(0, 0, "full"); history.commit(map)
+        history.undo(map)
+        expect(history.canUndo() || history.canRedo()).toBe(true)
+        history.reset()
+        expect(history.canUndo()).toBe(false)
+        expect(history.canRedo()).toBe(false)
+    })
+
+    it("cancel drops an in-progress gesture without a history entry", () => {
+        const map = new EditorMap()
+        const history = new EditorHistory()
+        history.begin(map)
+        map.setCell(0, 0, "full")
+        history.cancel()
+        // The paint stands on the live map, but nothing was committed to history.
+        expect(map.tileAt(0, 0)).toBe(paletteValueForBrush("full"))
+        expect(history.canUndo()).toBe(false)
+        // A fresh commit with no pending baseline is also a no-op.
+        expect(history.commit(map)).toBe(false)
     })
 })

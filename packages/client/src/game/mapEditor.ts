@@ -334,6 +334,163 @@ export class EditorMap{
     }
 }
 
+// An undoable snapshot of the editor's CANVAS CONTENT: the full sparse tile map
+// and every spawn, captured by value so a later mutation of the live EditorMap
+// can never reach back and corrupt a stored snapshot. `tiles` is a flat list of
+// [key, value] entries (a copy of the Map's contents) and `spawns` is a deep
+// copy of the [col, row] pairs (fresh tuples, not shared references). The map
+// NAME is intentionally NOT captured: it is a text field and is not undoable.
+export type EditorSnapshot = {
+    tiles: [string, number][],
+    spawns: [number, number][],
+}
+
+// Capture the current canvas content of a map as a self-contained snapshot.
+// Copies every tile entry and deep-copies every spawn pair, so the snapshot is
+// fully detached from the live map.
+export function snapshotEditorMap(map: EditorMap): EditorSnapshot{
+    return {
+        tiles: Array.from(map.tiles.entries()).map(([key, value]) => [key, value] as [string, number]),
+        spawns: map.spawns.map(([col, row]) => [col, row] as [number, number]),
+    }
+}
+
+// Restore a snapshot back onto a map, replacing its tiles and spawns in place.
+// Rebuilds fresh containers (new Map, fresh tuples) so the map never shares
+// references with the snapshot it was restored from; restoring the same snapshot
+// twice therefore stays safe. The map name/palette/cellSize are left untouched
+// (only canvas content is undoable).
+export function restoreEditorSnapshot(map: EditorMap, snapshot: EditorSnapshot): void{
+    map.tiles = new Map(snapshot.tiles.map(([key, value]) => [key, value] as [string, number]))
+    map.spawns = snapshot.spawns.map(([col, row]) => [col, row] as [number, number])
+}
+
+// Are two snapshots equal in canvas content? Used to drop no-op strokes (a
+// gesture that painted nothing different) so they never create an empty history
+// entry. Compares tile entries order-independently (via a key->value lookup) and
+// spawns by their set of coordinates.
+export function snapshotsEqual(a: EditorSnapshot, b: EditorSnapshot): boolean{
+    if(a.tiles.length !== b.tiles.length) return false
+    if(a.spawns.length !== b.spawns.length) return false
+    const aTiles = new Map(a.tiles)
+    for(const [key, value] of b.tiles){
+        if(aTiles.get(key) !== value) return false
+    }
+    const aSpawns = new Set(a.spawns.map(([c, r]) => cellKey(c, r)))
+    for(const [c, r] of b.spawns){
+        if(aSpawns.has(cellKey(c, r)) === false) return false
+    }
+    return true
+}
+
+// The default cap on how many UNDO steps the history keeps. Bounded so a long
+// session on a huge map never grows memory without limit; the oldest step is
+// dropped once the cap is exceeded.
+export const DEFAULT_HISTORY_LIMIT = 100
+
+// Aseprite-style UNDO / REDO for the editor canvas. PURE and DOM-free so it
+// unit-tests cleanly: it stores past/future snapshots of the canvas content and
+// applies them back onto a live EditorMap. The model holds the current state
+// implicitly (the live map); the past stack holds states BEFORE each committed
+// edit and the future stack holds states undone but not yet re-applied.
+//
+// One history entry = one paint GESTURE, not one cell. The view snapshots at
+// pointer-DOWN (begin) and commits at pointer-UP (commit); a tap, a drag that
+// painted 40 cells, an erase stroke, and a spawn toggle are each ONE step.
+// Standard semantics: committing a new edit clears the redo (future) stack, and
+// the past stack is bounded to `limit` (oldest dropped beyond the cap).
+export class EditorHistory{
+    // States BEFORE each committed edit, oldest first. undo() pops the newest.
+    private past: EditorSnapshot[] = []
+    // States that were undone, newest-undone last. redo() pops the newest.
+    private future: EditorSnapshot[] = []
+    // The snapshot taken at the start of the in-progress gesture, or null when no
+    // gesture is open. Held so commit() can decide whether the gesture changed
+    // anything before pushing it as one entry.
+    private pending: EditorSnapshot | null = null
+    private readonly limit: number
+
+    constructor(limit: number = DEFAULT_HISTORY_LIMIT){
+        // A sane floor so a non-positive limit never makes undo impossible.
+        this.limit = limit > 0 ? Math.floor(limit) : 1
+    }
+
+    // Open a gesture: snapshot the map's CURRENT content (the state to return to
+    // if this gesture is undone). Call at pointer-down (or before a one-shot
+    // edit). A second begin() without a commit replaces the pending snapshot, so
+    // an interrupted gesture never strands a stale baseline.
+    begin(map: EditorMap): void{
+        this.pending = snapshotEditorMap(map)
+    }
+
+    // Close the gesture opened by begin(): if the map's content actually changed,
+    // push the pre-gesture snapshot onto the past stack as ONE undo step and clear
+    // the redo stack (a new edit invalidates any undone future). A gesture that
+    // changed nothing pushes no entry. Returns true when an entry was committed.
+    commit(map: EditorMap): boolean{
+        const before = this.pending
+        this.pending = null
+        if(before === null) return false
+        const after = snapshotEditorMap(map)
+        if(snapshotsEqual(before, after)) return false
+        this.past.push(before)
+        if(this.past.length > this.limit){
+            // Drop the oldest entry so memory stays bounded on a long session.
+            this.past.shift()
+        }
+        this.future = []
+        return true
+    }
+
+    // Drop any in-progress gesture without committing it (e.g. a cancelled
+    // pointer interaction). The map is left as-is; no history entry is created.
+    cancel(): void{
+        this.pending = null
+    }
+
+    canUndo(): boolean{
+        return this.past.length > 0
+    }
+
+    canRedo(): boolean{
+        return this.future.length > 0
+    }
+
+    // Undo the most recent committed edit: snapshot the CURRENT state onto the
+    // future (redo) stack, then restore the previous state onto the map. Returns
+    // true when something was undone. Any in-progress gesture is dropped first so
+    // undo never races a half-open stroke.
+    undo(map: EditorMap): boolean{
+        this.pending = null
+        const previous = this.past.pop()
+        if(typeof previous === "undefined") return false
+        this.future.push(snapshotEditorMap(map))
+        restoreEditorSnapshot(map, previous)
+        return true
+    }
+
+    // Redo the most recently undone edit: snapshot the CURRENT state back onto the
+    // past (undo) stack, then re-apply the undone state onto the map. Returns true
+    // when something was redone.
+    redo(map: EditorMap): boolean{
+        this.pending = null
+        const next = this.future.pop()
+        if(typeof next === "undefined") return false
+        this.past.push(snapshotEditorMap(map))
+        restoreEditorSnapshot(map, next)
+        return true
+    }
+
+    // Forget all history (used when the editor loads a fresh/imported map, so the
+    // restored baseline is the new starting point rather than something undoable
+    // back into the previous map).
+    reset(): void{
+        this.past = []
+        this.future = []
+        this.pending = null
+    }
+}
+
 // The "palette index + 1" tiles value for a shape brush. The editor palette is
 // fixed and shares its order with EditorMap.palette, so a brush's value is just
 // its position in EDITOR_PALETTE plus one. Throws for non-shape brushes

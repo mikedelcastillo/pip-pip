@@ -232,6 +232,21 @@
     &:active
         transform: translateY(1px)
 
+    // Disabled (e.g. Undo with nothing to undo): clearly dimmed and inert. The
+    // overrides defeat the hover/active rules above so it reads as unavailable.
+    &:disabled
+        cursor: default
+        opacity: 0.32
+        border-color: $color-border
+        color: $color-text
+
+    &:disabled:hover
+        border-color: $color-border
+        color: $color-text
+
+    &:disabled:active
+        transform: none
+
 .iconButtonActive
     border-color: $color-main
     color: $color-main
