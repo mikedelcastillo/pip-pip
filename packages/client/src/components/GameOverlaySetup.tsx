@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import { PipPipGameMode } from "@pip-pip/game/src/logic"
 import { GAME_CONTEXT } from "../game"
 import { useGameStore } from "../game/store"
+import { readyTally } from "../game/ready"
 import GameButton from "./GameButton"
 import GamePlayerList from "./GamePlayerList"
 import GameChat from "./GameChat"
@@ -81,6 +82,16 @@ export default function GameOverlaySetup() {
 
     const startGame = () => GAME_CONTEXT.startGame()
     const toggleSpectate = () => GAME_CONTEXT.toggleSpectator()
+
+    // Lobby "ready up" state. The client player's own ready drives the non-host
+    // footer toggle; the host id (the player flagged isHost in the store) feeds
+    // the ready tally the host sees next to Start Game. readyTally excludes the
+    // host + spectators, so it counts only the players the host is waiting on.
+    // Ready is purely social: the host still starts with no readiness gate.
+    const ready = players.find((p) => p.isClient)?.ready ?? false
+    const hostId = players.find((p) => p.isHost)?.id ?? ""
+    const tally = useMemo(() => readyTally(players, hostId), [players, hostId])
+    const toggleReady = () => GAME_CONTEXT.setReady(!ready)
 
     return (
         <div className="game-overlay">
@@ -208,10 +219,21 @@ export default function GameOverlaySetup() {
                     </GameButton>
                     {isHost ? (
                         <GameButton onClick={startGame} className={styles.startBtn}>
-                            Start Game
+                            <span className={styles.startLabel}>Start Game</span>
+                            {tally.total > 0 && (
+                                <span className={styles.readyCount}>
+                                    {tally.ready}/{tally.total} ready
+                                </span>
+                            )}
                         </GameButton>
                     ) : (
-                        <div className={styles.waiting}>Waiting for host...</div>
+                        <GameButton
+                            accent={ready}
+                            onClick={toggleReady}
+                            className={styles.readyBtn}
+                        >
+                            {ready ? "Ready ✓" : "Ready"}
+                        </GameButton>
                     )}
                 </footer>
             </div>

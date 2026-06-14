@@ -377,6 +377,18 @@ export class GameContext {
         this.setSpectator(!player.spectator)
     }
 
+    // Toggle the local player's lobby "ready up" state and tell the server. The
+    // local setReady gives instant feedback (the footer button reacts at once);
+    // the server is authoritative - it sets the flag and re-broadcasts
+    // playerReady to everyone so every lobby agrees on the ready tally. Ready is
+    // purely social and never gates the host's start.
+    setReady(ready: boolean) {
+        const player = this.getClientPlayer()
+        if (typeof player === "undefined") return
+        player.setReady(ready)
+        this.sendCode(encode.playerReady(player))
+    }
+
     // Auto-recover from a stuck "Respawning" state (the infinite-respawn bug):
     // if the local player intends to PLAY (client-side NOT a spectator) but is
     // dead with no respawn timer for a sustained window, the server most likely

@@ -301,6 +301,15 @@ export function processLobbyPackets(context: GameTickContext){
             }
         }
 
+        // Set player "ready up" state. A player may only set their OWN ready, so
+        // authority comes from connection.id and the packet's playerId is ignored
+        // for authority. setReady emits playerReadyChange, which connection-out
+        // re-broadcasts so every client's lobby footer + player list agree on the
+        // ready tally. Ready is purely social; it never gates the host's start.
+        for(const { ready } of packets.playerReady || []){
+            game.players[connection.id]?.setReady(ready === 1)
+        }
+
         // set player name
         for(const { playerId, name } of packets.playerName || []){
             const player = game.players[playerId]

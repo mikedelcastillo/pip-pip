@@ -114,6 +114,11 @@ export class PipPlayer{
     // it, and a TDM player is assigned a real team at startMatch / on join).
     team = -1
 
+    // Lobby "ready up" flag. Purely informational + social: it never blocks the
+    // host (who can force-start at any time). Defaults to false and is cleared
+    // for every player at startMatch so each fresh lobby round starts unready.
+    ready = false
+
     score: PlayerScores = {
         kills: 0,
         assists: 0,
@@ -229,6 +234,17 @@ export class PipPlayer{
         if(this.team === team) return
         this.team = team
         this.game.events.emit("playerTeamChange", { player: this })
+    }
+
+    // Toggle this player's lobby "ready up" flag. Emits playerReadyChange so the
+    // per-player broadcast can put the ready state on the wire and every client
+    // agrees on the ready tally. A no-op (no event) when unchanged, so re-setting
+    // the same value never spams. Ready is purely social: it never gates the
+    // host's force-start.
+    setReady(ready: boolean){
+        if(this.ready === ready) return
+        this.ready = ready
+        this.game.events.emit("playerReadyChange", { player: this })
     }
 
     // Toggle this player into/out of spectator mode. A spectator can never

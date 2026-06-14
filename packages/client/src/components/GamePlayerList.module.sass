@@ -94,6 +94,10 @@
                 &.respawning
                     white-space: nowrap
                     background-color: transparentize($color-bad, 0.4)
+                // Lobby "ready up" check. Tinted "good" green and kept light - a
+                // subtle badge that reads at a glance without shouting.
+                &.ready
+                    background-color: transparentize($color-good, 0.5)
 
         // Color-coded ping by latency band.
         td.ping

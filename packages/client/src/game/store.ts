@@ -40,6 +40,10 @@ export type GameStorePlayer = {
     // TEAM_DEATHMATCH team (0 or 1; -1 unassigned), mirrored from the networked
     // player.team so the HUD + scoreboard can color by team and total team scores.
     team: number,
+    // Lobby "ready up" flag, mirrored from the networked player.ready so the lobby
+    // footer Ready toggle + player list ready badges + the host's ready tally can
+    // read it. Purely social: it never gates the host's start.
+    ready: boolean,
     // Respawn state, networked to every player (client.ts applies playerTimings),
     // so the scoreboard can show a "Respawning Ns" indicator for anyone who is
     // currently dead. spawnTimeout is in ticks; convert with ticksToSeconds.
@@ -84,6 +88,7 @@ export function playerToGameStore(player: PipPlayer): GameStorePlayer {
         isHost: GAME_CONTEXT.game.host?.id === player.id,
         isClient: GAME_CONTEXT.client.connectionId === player.id,
         team: player.team,
+        ready: player.ready,
         spawned: player.spawned,
         spawnTimeout: player.timings.spawnTimeout,
     }

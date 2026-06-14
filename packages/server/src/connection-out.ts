@@ -53,6 +53,7 @@ export function getFullGameState(context: ConnectionContext): number[][] {
         messages.push(encode.playerSpectate(player))
         messages.push(encode.playerSetShip(player))
         messages.push(encode.playerTeam(player))
+        messages.push(encode.playerReady(player))
         messages.push(encode.playerPositionSync(player))
         messages.push(encode.playerPosition(player))
         messages.push(encode.playerPing(player))
@@ -189,6 +190,16 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
     for(const event of gameEvents.filter("playerTeamChange")){
         const { player } = event.playerTeamChange
         messages.push(encode.playerTeam(player))
+    }
+
+    // Send lobby "ready up" changes. Fires whenever a player toggles ready and
+    // when startMatch clears everyone's ready for the next round, so every
+    // client's lobby footer + player list agree on the ready tally. A fresh
+    // joiner's ready also rides the full game state they get on connect
+    // (getFullGameState pushes playerReady per player).
+    for(const event of gameEvents.filter("playerReadyChange")){
+        const { player } = event.playerReadyChange
+        messages.push(encode.playerReady(player))
     }
 
     // player spawned

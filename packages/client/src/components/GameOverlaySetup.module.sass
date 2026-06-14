@@ -250,18 +250,23 @@ $head-bg: transparentize($color-dark-2, 0.15)
 .startBtn
     flex: 1 1 auto
 
-.waiting
+// Non-host "Ready up" toggle - fills the footer like Start Game did, and reuses
+// GameButton so it inherits the same mobile-friendly sizing as every other
+// lobby button.
+.readyBtn
     flex: 1 1 auto
-    display: flex
-    align-items: center
-    justify-content: center
-    padding: 0.4em 0.8em
-    font-family: $font-family-game
-    font-size: 1.3em
-    color: transparentize($color-text, 0.3)
-    background-color: $panel-bg
-    border: $border-size solid $color-border
-    border-radius: $border-radius
+
+// Host Start Game button label: the title plus a small ready sub-count stacked
+// under it (e.g. "2/3 ready"). The count is light + small so it reads as a hint,
+// never competing with the Start Game call to action.
+.startLabel
+    display: block
+
+.readyCount
+    display: block
+    margin-top: 0.15em
+    font-size: 0.6em
+    color: transparentize($color-text, 0.25)
 
 // ---- Desktop / wide: three columns, each panel scrolls on its own ----
 @media (min-width: 880px)

@@ -80,6 +80,13 @@ export const packetManager = new PacketManager({
         playerId: $string(CONNECTION_ID_LENGTH),
         team: $uint8,
     }),
+    // Lobby "ready up" flag, broadcast so every client agrees on the ready tally
+    // shown in the lobby footer + player list. A boolean rides as a $uint8 0/1
+    // (in range), encoded by encode.playerReady below.
+    playerReady: new Packet({
+        playerId: $string(CONNECTION_ID_LENGTH),
+        ready: $uint8,
+    }),
     playerPosition: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
         positionX: $worldPos,
@@ -362,6 +369,10 @@ export const encode = {
     playerTeam: (player: PipPlayer) => packetManager.serializers.playerTeam.encode({
         playerId: player.id,
         team: encodeTeam(player.team),
+    }),
+    playerReady: (player: PipPlayer) => packetManager.serializers.playerReady.encode({
+        playerId: player.id,
+        ready: player.ready ? 1 : 0,
     }),
     playerPosition: (player: PipPlayer) => packetManager.serializers.playerPosition.encode({
         playerId: player.id,

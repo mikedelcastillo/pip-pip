@@ -43,6 +43,20 @@ describe("game packetManager wire format", () => {
         expect(decodeTeam(decoded.playerTeam?.[0]?.team ?? 0)).toBe(-1)
     })
 
+    it("round-trips playerReady encoding ready true->1 and false->0", () => {
+        // The lobby "ready up" boolean rides as a uint8 0/1, so a round-trip must
+        // preserve the exact value on both states (and never wrap out of range).
+        const on = packetManager.decode(
+            packetManager.encode("playerReady", { playerId: "ab", ready: 1 }),
+        )
+        expect(on.playerReady?.[0]).toEqual({ playerId: "ab", ready: 1 })
+
+        const off = packetManager.decode(
+            packetManager.encode("playerReady", { playerId: "cd", ready: 0 }),
+        )
+        expect(off.playerReady?.[0]).toEqual({ playerId: "cd", ready: 0 })
+    })
+
     it("round-trips playerSpectate exactly (string id + bool)", () => {
         const on = packetManager.decode(
             packetManager.encode("playerSpectate", { playerId: "ab", spectating: true }),

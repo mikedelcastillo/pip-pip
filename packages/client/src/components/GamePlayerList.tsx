@@ -71,6 +71,9 @@ export default function GamePlayerList() {
     // The respawn indicator is only meaningful mid-match; in setup/lobby no one
     // is spawned, so we would otherwise tag every player.
     const inMatch = phase === PipPipGamePhase.MATCH
+    // The "ready up" badge is only meaningful in the lobby (SETUP); during a live
+    // match the ready flag is irrelevant, so it is shown only here.
+    const inLobby = phase === PipPipGamePhase.SETUP
 
     return (
         <div className={styles.playerList}>
@@ -112,6 +115,9 @@ export default function GamePlayerList() {
                                 )}
                                 {player.spectator && (
                                     <span className={styles.tag}>Spec</span>
+                                )}
+                                {inLobby && player.ready && !player.spectator && (
+                                    <span className={`${styles.tag} ${styles.ready}`} title="Ready">&#10003;</span>
                                 )}
                                 {inMatch && isAwaitingRespawn(player) && (
                                     <span className={`${styles.tag} ${styles.respawning}`}>

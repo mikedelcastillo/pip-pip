@@ -27,6 +27,7 @@ export type PipPipGameEventMap = {
     playerSpawned: { player: PipPlayer },
     playerScoreChanged: { player: PipPlayer },
     playerTeamChange: { player: PipPlayer },
+    playerReadyChange: { player: PipPlayer },
 
     setHost: { player: PipPlayer },
     removeHost: undefined,
@@ -324,6 +325,16 @@ export class PipPipGame{
         // packets. Free-for-all modes leave every player unassigned.
         if(this.options.triggerSpawns === true && this.settings.mode === PipPipGameMode.TEAM_DEATHMATCH){
             this.assignTeams()
+        }
+        // Clear every player's lobby "ready up" flag so each fresh round starts
+        // unready. Gated on triggerSpawns (the authoritative server) like team
+        // assignment, so the client never invents ready state - it mirrors it
+        // from playerReady packets. setReady emits playerReadyChange for any
+        // player that was ready, so the clear rides the wire.
+        if(this.options.triggerSpawns === true){
+            for(const player of Object.values(this.players)){
+                player.setReady(false)
+            }
         }
         if(this.options.triggerSpawns === true){
             const players = Object.values(this.players)

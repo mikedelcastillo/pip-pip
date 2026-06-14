@@ -398,4 +398,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 106| `9fa1791`   | FIX infinite respawn (spectator desync): client auto-re-asserts not-spectator when stranded | `git revert 9fa1791`|
 | 107| `52f7193`   | Gamepad reaches the mid-match Loadout overlay (gate opens on showLoadout; it is not a Modal) | `git revert 52f7193`|
 | 108| `60b34e4`   | Team Deathmatch mode (2 balanced teams, team scoring to maxKills, friendly-fire off, team HUD + player list grouping, host/lobby config) | `git revert 60b34e4`|
-| 109| (latest)    | FIX infinite reboot loop: Telegram bot skips its backlog on startup, so a stale /reboot is acknowledged (not re-run) instead of redelivered forever | `git revert <sha>` |
+| 109| `de27b53`   | FIX infinite reboot loop: Telegram bot skips its backlog on startup, so a stale /reboot is acknowledged (not re-run) instead of redelivered forever | `git revert de27b53`|
+| 110| (latest)    | Ready-up: non-host Ready toggle in the lobby footer + host Start Game shows N/M ready (force-start still unrestricted); player-list ready ticks | `git revert <sha>` |

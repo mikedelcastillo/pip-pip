@@ -100,6 +100,13 @@ export const processPackets = (gameContext: GameContext) => {
             game.players[playerId]?.setTeam(decodeTeam(team))
         }
 
+        // Set player "ready up" state. The wire carries 0/1; mirror it so the
+        // lobby footer Ready toggle + player list ready badges agree across
+        // every client. Ready is purely social and server-broadcast.
+        for (const { playerId, ready } of packets.playerReady || []) {
+            game.players[playerId]?.setReady(ready === 1)
+        }
+
         // Powerup spawned: create it locally (server-authoritative; the client
         // never spawns powerups itself). Re-keys onto the server's id so the
         // matching powerupPickup removes the right one.
