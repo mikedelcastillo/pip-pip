@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
     EditorMap,
+    EditorStorage,
     EDITOR_PALETTE,
+    EDITOR_STORAGE_KEY,
     MIN_GRID,
     MAX_GRID,
     clampGrid,
@@ -9,8 +11,25 @@ import {
     parseGridMapData,
     serializeGridMapData,
     mapFileName,
+    brushForKey,
+    saveEditorMap,
+    loadEditorMap,
+    clearEditorMap,
 } from "../../packages/client/src/game/mapEditor"
 import { loadGridMap } from "../../packages/game/src/logic/grid-map"
+
+// A tiny in-memory EditorStorage so the autosave round-trip is exercised without
+// a real DOM/localStorage. Matches the getItem/setItem/removeItem surface the
+// pure persistence helpers depend on.
+function fakeStorage(): EditorStorage & { map: Map<string, string> }{
+    const map = new Map<string, string>()
+    return {
+        map,
+        getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
+        setItem: (key, value) => { map.set(key, value) },
+        removeItem: (key) => { map.delete(key) },
+    }
+}
 
 describe("clampGrid", () => {
     it("clamps below/above the allowed range and floors fractions", () => {
@@ -207,5 +226,87 @@ describe("mapFileName", () => {
         expect(mapFileName("My Cool Map!")).toBe("my-cool-map.map.json")
         expect(mapFileName("   ")).toBe("map.map.json")
         expect(mapFileName("___")).toBe("map.map.json")
+    })
+})
+
+describe("brushForKey shortcut mapping", () => {
+    it("maps each single key to the brush its tool selects", () => {
+        expect(brushForKey("e")).toBe("empty")
+        expect(brushForKey("b")).toBe("full")
+        expect(brushForKey("d")).toBe("deco")
+        expect(brushForKey("g")).toBe("spawn")
+        // The four slopes sit on the Q/W/A/S corner cluster.
+        expect(brushForKey("q")).toBe("diag_tl")
+        expect(brushForKey("w")).toBe("diag_tr")
+        expect(brushForKey("a")).toBe("diag_bl")
+        expect(brushForKey("s")).toBe("diag_br")
+    })
+
+    it("is case-insensitive so Shift does not break a shortcut", () => {
+        expect(brushForKey("B")).toBe("full")
+        expect(brushForKey("Q")).toBe("diag_tl")
+    })
+
+    it("returns null for keys that are not tool shortcuts", () => {
+        expect(brushForKey("z")).toBe(null)
+        expect(brushForKey("1")).toBe(null)
+        expect(brushForKey("Enter")).toBe(null)
+        expect(brushForKey(" ")).toBe(null)
+    })
+
+    it("only maps keys to brushes that exist on an EditorMap", () => {
+        // Every mapped shape brush must round-trip to a palette entry; empty and
+        // spawn are valid brushes EditorMap.setCell accepts even without one.
+        const map = new EditorMap()
+        for(const key of ["b", "d", "q", "w", "a", "s"]){
+            const brush = brushForKey(key)
+            expect(brush).not.toBe(null)
+            const value = paletteValueForBrush(brush as never)
+            expect(map.palette[value - 1]).toBeDefined()
+        }
+    })
+})
+
+describe("localStorage autosave round-trip", () => {
+    it("saves a map and restores an equivalent one from a fake storage", () => {
+        const storage = fakeStorage()
+        const map = new EditorMap(12, 9, "Saved Map")
+        map.setCell(1, 1, "full")
+        map.setCell(2, 1, "diag_br")
+        map.setCell(5, 5, "deco")
+        map.setCell(0, 0, "spawn")
+
+        saveEditorMap(map, storage)
+        // It actually wrote JSON under the shared key.
+        expect(storage.map.has(EDITOR_STORAGE_KEY)).toBe(true)
+
+        const restored = loadEditorMap(storage)
+        expect(restored).not.toBe(null)
+        const safe = restored as EditorMap
+        expect(safe.name).toBe("Saved Map")
+        expect(safe.cols).toBe(12)
+        expect(safe.rows).toBe(9)
+        expect(safe.tiles).toEqual(map.tiles)
+        expect(safe.spawns).toEqual(map.spawns)
+    })
+
+    it("returns null when there is no saved draft", () => {
+        const storage = fakeStorage()
+        expect(loadEditorMap(storage)).toBe(null)
+    })
+
+    it("returns null (instead of throwing) on a corrupt draft", () => {
+        const storage = fakeStorage()
+        storage.setItem(EDITOR_STORAGE_KEY, "{ not valid json")
+        expect(loadEditorMap(storage)).toBe(null)
+    })
+
+    it("clearEditorMap forgets the draft so the next load is blank", () => {
+        const storage = fakeStorage()
+        saveEditorMap(new EditorMap(4, 4, "Temp"), storage)
+        expect(loadEditorMap(storage)).not.toBe(null)
+        clearEditorMap(storage)
+        expect(storage.map.has(EDITOR_STORAGE_KEY)).toBe(false)
+        expect(loadEditorMap(storage)).toBe(null)
     })
 })

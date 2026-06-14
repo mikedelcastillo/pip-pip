@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import GameButton from "../components/GameButton"
 import GameInput from "../components/GameInput"
-import HomeBackground from "../components/HomeBackground"
+import ConfirmModal from "../components/ConfirmModal"
 import { loadGridMap } from "@pip-pip/game/src/logic/grid-map"
 import {
     EditorMap,
@@ -17,16 +17,27 @@ import {
     serializeGridMapData,
     parseGridMapData,
     mapFileName,
+    brushForKey,
+    saveEditorMap,
+    loadEditorMap,
+    clearEditorMap,
 } from "../game/mapEditor"
 import { trackEvent, trackPageView } from "../analytics"
 import styles from "./MapEditor.module.sass"
 
-// The homepage MAP EDITOR. The paintable grid lives in an EditorMap (pure model,
-// see game/mapEditor.ts); this view only renders it to a <canvas> and wires
-// pointer (mouse + touch) events to map.setCell. A second pass overlays the
-// REAL collision/spawn geometry from loadGridMap so the author sees exactly the
-// walls the game will build. Export downloads the GridMapData JSON loadGridMap
-// consumes - no server, no database.
+// The homepage MAP EDITOR, redesigned to feel like Aseprite: an edge-to-edge
+// paint canvas with a dark sprite-style checkerboard behind empty cells, a
+// compact vertical TOOL RAIL of brush tools, and an OPTIONS popover that hides
+// map settings + actions so the canvas stays uncluttered. Every tool and action
+// has a single-key keyboard shortcut (shown in a styled tooltip), painting works
+// click-and-drag, an autosaved draft survives a reload, and leaving with unsaved
+// work asks for confirmation.
+//
+// The paintable grid lives in an EditorMap (pure model, see game/mapEditor.ts);
+// this view only renders it to a <canvas> and wires pointer (mouse + touch)
+// events to map.setCell. A second pass overlays the REAL collision/spawn
+// geometry from loadGridMap so the author sees exactly the walls the game will
+// build. Export downloads the GridMapData JSON loadGridMap consumes - no server.
 
 // Palette swatch colours, kept in sync with the on-canvas tile fills so a
 // button reads as the thing it paints. Amber blocks, purple slopes, muted deco.
@@ -37,6 +48,13 @@ const COLOR_SPAWN = "#33DD55"
 const COLOR_GRID = "rgba(255, 255, 255, 0.08)"
 const COLOR_GRID_STRONG = "rgba(255, 255, 255, 0.18)"
 const COLOR_COLLISION = "rgba(51, 221, 85, 0.9)"
+
+// Aseprite-style transparency checkerboard behind empty cells, so the grid reads
+// as a sprite canvas. Two near-black shades; one square per CHECKER_DIV-th of a
+// cell so the pattern stays fine no matter the zoom.
+const COLOR_CHECKER_A = "#141014"
+const COLOR_CHECKER_B = "#0C090B"
+const CHECKER_DIV = 2
 
 // Viewport: cells are BASE_CELL * scale pixels, and the grid's top-left corner
 // sits at (offsetX, offsetY) on screen. The author pans (trackpad two-finger
@@ -51,25 +69,52 @@ function clampScale(scale: number): number{
     return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale))
 }
 
-// The full brush list the palette shows: erase first, then every shape from the
-// shared editor palette, then the spawn marker last.
-type BrushDef = { brush: EditorBrush, label: string, color: string }
-const BRUSHES: BrushDef[] = [
-    { brush: "empty", label: "Erase", color: COLOR_GRID_STRONG },
+// Display labels for the brush shortcut keys, used to stamp each rail tool's
+// tooltip. The pure model owns the actual key -> brush mapping (BRUSH_SHORTCUTS);
+// this is only the human-facing letter shown to the author, and must agree with
+// it so keyboard and rail stay in lockstep.
+const SHORTCUT_FOR: Record<EditorBrush, string> = {
+    empty: "E",
+    full: "B",
+    diag_tl: "Q",
+    diag_tr: "W",
+    diag_bl: "A",
+    diag_br: "S",
+    deco: "D",
+    spawn: "G",
+}
+
+// One entry per tool in the rail: erase first, then every shape from the shared
+// editor palette, then the spawn marker last. `shortcut` is the single key that
+// selects it (also rendered in the tooltip).
+type ToolDef = { brush: EditorBrush, label: string, color: string, shortcut: string }
+const TOOLS: ToolDef[] = [
+    { brush: "empty", label: "Erase", color: COLOR_GRID_STRONG, shortcut: SHORTCUT_FOR.empty },
     ...EDITOR_PALETTE.map((entry) => ({
         brush: entry.brush,
         label: entry.label,
         color: entry.shape === "full" ? COLOR_BLOCK : entry.shape === "deco" ? COLOR_DECO : COLOR_SLOPE,
+        shortcut: SHORTCUT_FOR[entry.brush],
     })),
-    { brush: "spawn", label: "Spawn", color: COLOR_SPAWN },
+    { brush: "spawn", label: "Spawn", color: COLOR_SPAWN, shortcut: SHORTCUT_FOR.spawn },
 ]
 
 // Fill colour for a painted shape, used by both the canvas tiles and the
-// palette swatches.
+// rail icons.
 function shapeColor(shape: string): string{
     if(shape === "full") return COLOR_BLOCK
     if(shape === "deco") return COLOR_DECO
     return COLOR_SLOPE
+}
+
+// The injectable storage the autosave uses. window.localStorage in the browser;
+// guarded so a non-DOM/SSR context (and tests that import the view) never throw.
+function editorStorage(): Storage | null{
+    try{
+        return typeof window !== "undefined" ? window.localStorage : null
+    } catch(e){
+        return null
+    }
 }
 
 export default function MapEditor(){
@@ -79,8 +124,10 @@ export default function MapEditor(){
 
     // The mutable editor model. Held in a ref (not React state) so high-rate
     // pointer drags mutate it directly without a re-render per cell; a separate
-    // `version` counter bumps to trigger redraws/UI refreshes when needed.
-    const mapRef = useRef<EditorMap>(new EditorMap(DEFAULT_COLS, DEFAULT_ROWS))
+    // `version` counter bumps to trigger redraws/UI refreshes when needed. On
+    // mount we restore an autosaved draft if one exists, so a reload or crash
+    // never loses progress; otherwise we start from a default-sized blank map.
+    const mapRef = useRef<EditorMap>(restoreInitialMap())
     const [version, setVersion] = useState(0)
     const bump = useCallback(() => setVersion((v) => v + 1), [])
 
@@ -91,12 +138,19 @@ export default function MapEditor(){
     const viewRef = useRef({ scale: 1, offsetX: 0, offsetY: 0, ready: false })
     const pointersRef = useRef<Map<number, { x: number, y: number }>>(new Map())
 
+    const initial = mapRef.current
     const [brush, setBrush] = useState<EditorBrush>("full")
-    const [name, setName] = useState(DEFAULT_MAP_NAME)
-    const [colsInput, setColsInput] = useState(String(DEFAULT_COLS))
-    const [rowsInput, setRowsInput] = useState(String(DEFAULT_ROWS))
+    const [name, setName] = useState(initial.name)
+    const [colsInput, setColsInput] = useState(String(initial.cols))
+    const [rowsInput, setRowsInput] = useState(String(initial.rows))
     const [showCollision, setShowCollision] = useState(false)
     const [message, setMessage] = useState("")
+    const [optionsOpen, setOptionsOpen] = useState(false)
+    const [confirmLeave, setConfirmLeave] = useState(false)
+    // Becomes true on the first paint/resize/import/clear so the leave guard
+    // (Back button + browser beforeunload) only fires when there is real work to
+    // lose. A freshly restored draft counts as dirty too (see restore below).
+    const [dirty, setDirty] = useState<boolean>(initial.tiles.some((v) => v > 0) || initial.spawns.length > 0)
 
     // The active brush is read inside imperative pointer handlers, which capture
     // their closure once; mirror it into a ref so a drag always paints the
@@ -108,6 +162,12 @@ export default function MapEditor(){
 
     useEffect(() => {
         trackPageView("/editor")
+    }, [])
+
+    // Mark the map dirty (used by every mutating action so the leave guard knows
+    // there is unsaved work) and clear any stale status message.
+    const markDirty = useCallback(() => {
+        setDirty(true)
     }, [])
 
     // Recompute the live collision/spawn geometry whenever the grid changes.
@@ -129,6 +189,19 @@ export default function MapEditor(){
         // recomputed from the latest grid each paint/resize/clear/import. The
         // model itself is a ref, so `version` is the only meaningful dependency.
     }, [version])
+
+    // Debounced localStorage autosave: persist the in-progress GridMapData a
+    // short moment after the last edit so a reload/crash recovers the draft. The
+    // persistence itself lives in the pure model (saveEditorMap) for testability;
+    // here we only schedule it off the `version` counter.
+    useEffect(() => {
+        const storage = editorStorage()
+        if(storage === null) return
+        const id = window.setTimeout(() => {
+            saveEditorMap(mapRef.current, storage)
+        }, 400)
+        return () => window.clearTimeout(id)
+    }, [version, name])
 
     // Canvas CSS size (rounded up, never 0) so geometry maths stay finite.
     const canvasSize = useCallback(() => {
@@ -161,8 +234,9 @@ export default function MapEditor(){
         return { cell: BASE_CELL * v.scale, ox: v.offsetX, oy: v.offsetY }
     }, [fitView])
 
-    // Draw the entire editor: grid lines, painted tiles (squares / diagonals /
-    // deco), spawn markers, and (optionally) the loadGridMap collision overlay.
+    // Draw the entire editor: the Aseprite checkerboard backdrop, grid lines,
+    // painted tiles (squares / diagonals / deco), spawn markers, and (optionally)
+    // the loadGridMap collision overlay.
     const draw = useCallback(() => {
         const canvas = canvasRef.current
         if(canvas === null) return
@@ -186,9 +260,15 @@ export default function MapEditor(){
         const ox = geo.ox
         const oy = geo.oy
 
-        // Backdrop behind the grid so empty cells read as dark space.
+        // Fill the whole viewport with the space colour so the canvas reads
+        // edge to edge as one surface (the grid sits on top of it).
         ctx.fillStyle = "#0D090B"
-        ctx.fillRect(ox, oy, gridW, gridH)
+        ctx.fillRect(0, 0, cssW, cssH)
+
+        // Aseprite-style transparency checkerboard behind the grid, so empty
+        // cells read as a sprite canvas rather than flat dark. Two squares per
+        // cell, clipped to the grid rectangle.
+        drawCheckerboard(ctx, ox, oy, gridW, gridH, cell / CHECKER_DIV)
 
         // Painted tiles.
         for(let row = 0; row < map.rows; row++){
@@ -216,6 +296,12 @@ export default function MapEditor(){
             ctx.lineTo(ox + gridW, y)
         }
         ctx.stroke()
+
+        // A brighter border around the whole grid so its extent reads clearly
+        // against the full-screen backdrop.
+        ctx.strokeStyle = COLOR_GRID_STRONG
+        ctx.lineWidth = 2
+        ctx.strokeRect(ox - 1, oy - 1, gridW + 2, gridH + 2)
 
         // Spawn markers: a green ring centred on the cell.
         ctx.strokeStyle = COLOR_SPAWN
@@ -295,10 +381,11 @@ export default function MapEditor(){
         lastCellRef.current = cellPos
         const changed = mapRef.current.setCell(cellPos.col, cellPos.row, brushRef.current)
         if(changed){
+            markDirty()
             bump()
             draw()
         }
-    }, [cellFromEvent, bump, draw])
+    }, [cellFromEvent, bump, draw, markDirty])
 
     // Zoom by `ratio` around a canvas-relative focal point, keeping the world
     // point under the focal fixed (natural pinch / scroll-wheel zoom).
@@ -436,16 +523,18 @@ export default function MapEditor(){
             map.resize(nextCols, nextRows)
             // Re-fit the viewport to the new grid (geometry() refits when !ready).
             viewRef.current.ready = false
+            markDirty()
             bump()
             draw()
         }
-    }, [colsInput, rowsInput, bump, draw])
+    }, [colsInput, rowsInput, bump, draw, markDirty])
 
     // Keep the model name in sync as the author types.
     const onNameChange = useCallback((value: string) => {
         setName(value)
         mapRef.current.name = value
-    }, [])
+        markDirty()
+    }, [markDirty])
 
     // Download the current map as GridMapData JSON via an object URL. No server.
     const onExport = useCallback(() => {
@@ -477,6 +566,7 @@ export default function MapEditor(){
                 setRowsInput(String(map.rows))
                 // Re-fit the viewport to the imported grid.
                 viewRef.current.ready = false
+                markDirty()
                 bump()
                 draw()
                 setMessage(`Loaded ${map.name}`)
@@ -485,10 +575,15 @@ export default function MapEditor(){
             }
         }
         reader.readAsText(file)
-    }, [bump, draw])
+    }, [bump, draw, markDirty])
 
+    // Clear every tile/spawn AND forget the autosaved draft, so this is a true
+    // "start fresh" (a reload after Clear comes up blank, not the cleared map).
     const onClear = useCallback(() => {
         mapRef.current.clear()
+        const storage = editorStorage()
+        if(storage !== null) clearEditorMap(storage)
+        setDirty(false)
         bump()
         draw()
         setMessage("Cleared")
@@ -500,19 +595,157 @@ export default function MapEditor(){
         draw()
     }, [draw])
 
+    // Leaving the editor: only confirm when there is unsaved work, otherwise go
+    // straight back. The ConfirmModal handles the in-app Back prompt; the
+    // beforeunload effect below handles a browser tab close / reload.
+    const onBack = useCallback(() => {
+        if(dirty){
+            setConfirmLeave(true)
+        } else{
+            navigate("/")
+        }
+    }, [dirty, navigate])
+
+    const leaveNow = useCallback(() => {
+        setConfirmLeave(false)
+        navigate("/")
+    }, [navigate])
+
+    // Browser-level leave guard: a tab close / reload with unsaved work triggers
+    // the native "leave site?" prompt. Removed when clean so we never nag.
+    useEffect(() => {
+        if(dirty === false) return
+        const onBeforeUnload = (e: BeforeUnloadEvent) => {
+            e.preventDefault()
+            e.returnValue = ""
+            return ""
+        }
+        window.addEventListener("beforeunload", onBeforeUnload)
+        return () => window.removeEventListener("beforeunload", onBeforeUnload)
+    }, [dirty])
+
+    // Global keyboard shortcuts, Aseprite-style. A single key selects a tool
+    // (via the pure brushForKey mapping); F fits the view; Cmd/Ctrl+S downloads.
+    // Ignored while typing in an input/textarea so size/name fields work, and
+    // while a modal is open so Escape/typing there is unaffected.
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if(confirmLeave) return
+            const target = e.target as HTMLElement | null
+            const tag = target?.tagName
+            if(tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable === true) return
+
+            // Cmd/Ctrl+S downloads instead of triggering the browser's save page.
+            if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s"){
+                e.preventDefault()
+                onExport()
+                return
+            }
+            if(e.metaKey || e.ctrlKey || e.altKey) return
+
+            const key = e.key.toLowerCase()
+            const toolBrush = brushForKey(e.key)
+            if(toolBrush !== null){
+                e.preventDefault()
+                setBrush(toolBrush)
+                return
+            }
+            if(key === "f"){
+                e.preventDefault()
+                fitNow()
+            } else if(key === "o"){
+                e.preventDefault()
+                setOptionsOpen((v) => v === false)
+            }
+        }
+        window.addEventListener("keydown", onKeyDown)
+        return () => window.removeEventListener("keydown", onKeyDown)
+    }, [confirmLeave, onExport, fitNow])
+
     const spawnCount = mapRef.current.spawns.length
 
     return (
-        <div className={`center-container ${styles.root}`}>
-            <HomeBackground />
-            <div className={`content-container ${styles.content}`}>
-                <div className={styles.topBar}>
-                    <div className={styles.title}>Map Maker</div>
-                    <GameButton accent onClick={() => navigate("/")}>Back</GameButton>
-                </div>
+        <div className={styles.root}>
+            <canvas ref={canvasRef} className={styles.canvas} />
 
-                <div className={styles.editor}>
-                    <div className={styles.sidebar}>
+            {/* Tool rail: compact vertical toolbar of brush tools, Aseprite-style. */}
+            <div className={styles.toolRail} role="toolbar" aria-label="Brush tools">
+                {TOOLS.map((tool) => (
+                    <button
+                        key={tool.brush}
+                        type="button"
+                        className={`${styles.tool} ${brush === tool.brush ? styles.toolActive : ""}`}
+                        onClick={() => setBrush(tool.brush)}
+                        aria-pressed={brush === tool.brush}
+                        aria-label={`${tool.label} (${tool.shortcut})`}
+                        title={`${tool.label} (${tool.shortcut})`}
+                        data-tip={`${tool.label} (${tool.shortcut})`}
+                    >
+                        <span className={styles.toolIcon}>
+                            <ToolIcon brush={tool.brush} color={tool.color} />
+                        </span>
+                        <span className={styles.toolKey}>{tool.shortcut}</span>
+                    </button>
+                ))}
+            </div>
+
+            {/* Top bar: title, Options, and Back. Floats over the canvas. */}
+            <div className={styles.topBar}>
+                <div className={styles.brand}>Map Maker</div>
+                <div className={styles.topActions}>
+                    <button
+                        type="button"
+                        className={`${styles.iconButton} ${optionsOpen ? styles.iconButtonActive : ""}`}
+                        onClick={() => setOptionsOpen((v) => v === false)}
+                        aria-label="Map options (O)"
+                        aria-expanded={optionsOpen}
+                        title="Map options (O)"
+                        data-tip="Map options (O)"
+                    >
+                        <GearIcon />
+                    </button>
+                    <button
+                        type="button"
+                        className={styles.iconButton}
+                        onClick={onBack}
+                        aria-label="Back to home"
+                        title="Back"
+                        data-tip="Back"
+                    >
+                        <BackIcon />
+                    </button>
+                </div>
+            </div>
+
+            {/* A compact status readout pinned to the bottom: spawn count + tip. */}
+            <div className={styles.statusBar}>
+                <span className={spawnCount === 0 ? styles.statusWarn : styles.statusGood}>
+                    {spawnCount} spawn{spawnCount === 1 ? "" : "s"}
+                </span>
+                <span className={styles.statusDim}>
+                    {mapRef.current.cols} x {mapRef.current.rows}
+                </span>
+                {message.length > 0 && <span className={styles.statusMsg}>{message}</span>}
+            </div>
+
+            {/* Options popover: map settings + actions, hidden until opened. */}
+            {optionsOpen && (
+                <>
+                    <div className={styles.scrim} onClick={() => setOptionsOpen(false)} />
+                    <div className={styles.optionsPanel} role="dialog" aria-label="Map options">
+                        <div className={styles.optionsHeader}>
+                            <span>Map Options</span>
+                            <button
+                                type="button"
+                                className={styles.closeButton}
+                                onClick={() => setOptionsOpen(false)}
+                                aria-label="Close options"
+                                title="Close"
+                            >
+                                <CloseIcon />
+                            </button>
+                        </div>
+
                         <div className={styles.field}>
                             <label className={styles.label} htmlFor="map-name">Name</label>
                             <GameInput value={name} onChange={onNameChange} name="map-name" placeholder="Map name" />
@@ -544,24 +777,6 @@ export default function MapEditor(){
                         </div>
                         <div className={styles.hint}>{MIN_GRID}-{MAX_GRID} per side</div>
 
-                        <div className={styles.paletteLabel}>Brush</div>
-                        <div className={styles.palette}>
-                            {BRUSHES.map((b) => (
-                                <button
-                                    key={b.brush}
-                                    type="button"
-                                    className={`${styles.swatch} ${brush === b.brush ? styles.swatchActive : ""}`}
-                                    onClick={() => setBrush(b.brush)}
-                                    aria-pressed={brush === b.brush}
-                                >
-                                    <span className={styles.swatchIcon}>
-                                        <SwatchIcon brush={b.brush} color={b.color} />
-                                    </span>
-                                    <span className={styles.swatchLabel}>{b.label}</span>
-                                </button>
-                            ))}
-                        </div>
-
                         <label className={styles.toggle}>
                             <input
                                 type="checkbox"
@@ -571,39 +786,76 @@ export default function MapEditor(){
                             <span>Show collision</span>
                         </label>
 
-                        <div className={styles.spawnNote}>
-                            Spawns: {spawnCount}{spawnCount === 0 ? " (add at least one)" : ""}
-                        </div>
-
                         <div className={styles.actions}>
                             <GameButton onClick={onExport}>Download JSON</GameButton>
                             <GameButton accent onClick={() => fileInputRef.current?.click()}>Import</GameButton>
                             <GameButton accent onClick={fitNow}>Fit view</GameButton>
                             <GameButton accent onClick={onClear}>Clear</GameButton>
                         </div>
-                        <div className={styles.hint}>Scroll to pan, pinch (or ctrl+scroll) to zoom. Two fingers pan/zoom on touch.</div>
-                        {message.length > 0 && <div className={styles.message}>{message}</div>}
-
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="application/json,.json"
-                            className={styles.fileInput}
-                            onChange={(e) => {
-                                const file = e.target.files?.[0]
-                                if(typeof file !== "undefined") onImportFile(file)
-                                e.target.value = ""
-                            }}
-                        />
+                        <div className={styles.hint}>
+                            Scroll to pan, pinch (or ctrl+scroll) to zoom. Two fingers pan/zoom on touch.
+                            Press F to fit, Cmd/Ctrl+S to download.
+                        </div>
                     </div>
+                </>
+            )}
 
-                    <div className={styles.canvasWrap}>
-                        <canvas ref={canvasRef} className={styles.canvas} />
-                    </div>
-                </div>
-            </div>
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className={styles.fileInput}
+                onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if(typeof file !== "undefined") onImportFile(file)
+                    e.target.value = ""
+                }}
+            />
+
+            {confirmLeave && (
+                <ConfirmModal
+                    title="Leave editor?"
+                    message="Are you sure you want to leave? Your map is autosaved here, but unexported changes will not be downloaded."
+                    confirmLabel="Leave"
+                    cancelLabel="Stay"
+                    onConfirm={leaveNow}
+                    onClose={() => setConfirmLeave(false)}
+                />
+            )}
         </div>
     )
+}
+
+// Restore the autosaved draft on mount, or fall back to a default-sized blank
+// map. Kept out of the component body so the initial useRef/useState reads stay
+// a single synchronous call.
+function restoreInitialMap(): EditorMap{
+    const storage = editorStorage()
+    if(storage !== null){
+        const restored = loadEditorMap(storage)
+        if(restored !== null) return restored
+    }
+    return new EditorMap(DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_MAP_NAME)
+}
+
+// Paint the Aseprite transparency checkerboard inside the grid rectangle. Two
+// alternating near-black squares of side `sq`, clipped to (ox, oy, w, h) so it
+// never bleeds past the grid edge.
+function drawCheckerboard(ctx: CanvasRenderingContext2D, ox: number, oy: number, w: number, h: number, sq: number){
+    if(sq <= 0) return
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(ox, oy, w, h)
+    ctx.clip()
+    const cols = Math.ceil(w / sq)
+    const rows = Math.ceil(h / sq)
+    for(let r = 0; r < rows; r++){
+        for(let c = 0; c < cols; c++){
+            ctx.fillStyle = (r + c) % 2 === 0 ? COLOR_CHECKER_A : COLOR_CHECKER_B
+            ctx.fillRect(ox + c * sq, oy + r * sq, sq, sq)
+        }
+    }
+    ctx.restore()
 }
 
 // Draw a single painted tile into a cell-sized box at (x, y). Full fills the
@@ -649,29 +901,30 @@ function drawTile(ctx: CanvasRenderingContext2D, shape: string, x: number, y: nu
     ctx.fill()
 }
 
-// A small SVG glyph for each palette swatch so the brush list reads at a glance:
-// a filled square for blocks, a triangle for the matching diagonal, a faded box
+// A small SVG glyph for each rail tool so the toolbar reads at a glance: a
+// filled square for blocks, a triangle for the matching diagonal, a faded box
 // for deco, a ring for spawn, and a hollow box for erase.
-function SwatchIcon({ brush, color }: { brush: EditorBrush, color: string }){
-    const size = 20
+function ToolIcon({ brush, color }: { brush: EditorBrush, color: string }){
+    const size = 22
     if(brush === "spawn"){
         return (
             <svg width={size} height={size} viewBox="0 0 20 20">
                 <circle cx="10" cy="10" r="6" fill="none" stroke={color} strokeWidth="2.5" />
+                <circle cx="10" cy="10" r="1.6" fill={color} />
             </svg>
         )
     }
     if(brush === "empty"){
         return (
             <svg width={size} height={size} viewBox="0 0 20 20">
-                <rect x="2" y="2" width="16" height="16" fill="none" stroke={color} strokeWidth="2" />
+                <rect x="2.5" y="2.5" width="15" height="15" fill="none" stroke={color} strokeWidth="2" strokeDasharray="3 2" />
             </svg>
         )
     }
     if(brush === "full" || brush === "deco"){
         return (
             <svg width={size} height={size} viewBox="0 0 20 20">
-                <rect x="2" y="2" width="16" height="16" fill={color} />
+                <rect x="2" y="2" width="16" height="16" fill={color} opacity={brush === "deco" ? 0.85 : 1} />
             </svg>
         )
     }
@@ -683,6 +936,34 @@ function SwatchIcon({ brush, color }: { brush: EditorBrush, color: string }){
     return (
         <svg width={size} height={size} viewBox="0 0 20 20">
             <polygon points={points} fill={color} />
+        </svg>
+    )
+}
+
+// A gear glyph for the Options button.
+function GearIcon(){
+    return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" />
+        </svg>
+    )
+}
+
+// A left-chevron glyph for the Back button.
+function BackIcon(){
+    return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+        </svg>
+    )
+}
+
+// An X glyph for the close-options button.
+function CloseIcon(){
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
         </svg>
     )
 }

@@ -20,6 +20,29 @@ import { TILE_SIZE } from "@pip-pip/game/src/logic/constants"
 // uniform list of paintable things.
 export type EditorBrush = "empty" | "full" | "diag_tl" | "diag_tr" | "diag_bl" | "diag_br" | "deco" | "spawn"
 
+// Single-key keyboard shortcut for every tool, Aseprite-style: one letter
+// selects one brush. Lower-cased keys map to brushes; the four slopes share the
+// "Q W A S" cluster so they sit under the home row like a corner pad (top-left,
+// top-right, bottom-left, bottom-right). Kept here (DOM-free) so the
+// shortcut-key -> brush mapping is unit-testable without rendering the view.
+export const BRUSH_SHORTCUTS: Record<string, EditorBrush> = {
+    e: "empty",
+    b: "full",
+    d: "deco",
+    g: "spawn",
+    q: "diag_tl",
+    w: "diag_tr",
+    a: "diag_bl",
+    s: "diag_br",
+}
+
+// Resolve a raw KeyboardEvent.key into the brush it selects, or null when the
+// key is not a tool shortcut. Case-insensitive so Shift does not break it.
+export function brushForKey(key: string): EditorBrush | null{
+    const brush = BRUSH_SHORTCUTS[key.toLowerCase()]
+    return typeof brush === "undefined" ? null : brush
+}
+
 // The fixed editor palette. The editor authors with a SINGLE shared texture key
 // per shape (the renderer's defaults), so the exported palette is small and
 // every painted cell of a given shape shares one palette entry. Order here is
@@ -263,6 +286,59 @@ export function parseGridMapData(raw: string): GridMapData{
 // about whitespace.
 export function serializeGridMapData(data: GridMapData): string{
     return JSON.stringify(data, null, 2)
+}
+
+// The localStorage key the editor autosaves its in-progress map under. A single
+// slot: the editor restores whatever was last worked on so a reload or crash
+// never loses progress. Kept here so the key is shared by save/load and tests.
+export const EDITOR_STORAGE_KEY = "pip-pip:map-editor:draft"
+
+// The minimal storage surface saveEditorMap/loadEditorMap need. window
+// .localStorage satisfies it, and a test can pass a tiny fake object, so the
+// persistence logic stays pure and unit-testable (no real DOM, no globals).
+export interface EditorStorage{
+    getItem(key: string): string | null
+    setItem(key: string, value: string): void
+    removeItem(key: string): void
+}
+
+// Persist a map's GridMapData to storage as JSON under EDITOR_STORAGE_KEY.
+// Swallows quota/serialisation errors so a failed autosave never interrupts
+// painting; the in-memory map is still the source of truth.
+export function saveEditorMap(map: EditorMap, storage: EditorStorage): void{
+    try{
+        storage.setItem(EDITOR_STORAGE_KEY, serializeGridMapData(map.toGridMapData()))
+    } catch(e){
+        // Storage may be full or disabled (private mode); autosave is best-effort.
+    }
+}
+
+// Restore a previously autosaved map from storage, or null when there is no
+// saved draft or it is corrupt. Reuses the same parse + normalise path as
+// import, so a partial/hand-edited draft still loads instead of throwing.
+export function loadEditorMap(storage: EditorStorage): EditorMap | null{
+    let raw: string | null
+    try{
+        raw = storage.getItem(EDITOR_STORAGE_KEY)
+    } catch(e){
+        return null
+    }
+    if(raw === null || raw.length === 0) return null
+    try{
+        return EditorMap.fromGridMapData(parseGridMapData(raw))
+    } catch(e){
+        return null
+    }
+}
+
+// Forget the autosaved draft (used by "New"/"Clear to fresh") so the next mount
+// starts from a blank map instead of restoring the cleared one.
+export function clearEditorMap(storage: EditorStorage): void{
+    try{
+        storage.removeItem(EDITOR_STORAGE_KEY)
+    } catch(e){
+        // Best-effort: nothing to do if storage is unavailable.
+    }
 }
 
 // A filesystem-safe download filename derived from the map name, e.g.

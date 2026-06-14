@@ -1,51 +1,258 @@
 @import "../styles/variables"
 
-// Full-screen editor layout. The page itself is a center-container (from
-// global.sass) so it scrolls when the content is taller than the viewport on a
-// phone. The content fills a wide, comfortable column on desktop.
+// Aseprite-style editor. The whole viewport is the paint surface: a single
+// full-screen canvas with the UI (tool rail, top bar, status bar, options
+// popover) floating over it. Everything is fixed and edge to edge so the canvas
+// reads as a sprite-editor workspace, not a page with a sidebar.
 .root
-    align-content: safe start
+    position: fixed
+    inset: 0
+    width: 100%
+    height: 100%
+    overflow: hidden
+    background-color: $color-dark-1
+    // Honour notch / home-indicator insets on the floating chrome via a custom
+    // property, so the rail and bars never hide under them.
+    --inset-top: env(safe-area-inset-top)
+    --inset-bottom: env(safe-area-inset-bottom)
+    --inset-left: env(safe-area-inset-left)
+    --inset-right: env(safe-area-inset-right)
 
-.content
-    z-index: 1
-    width: min(1100px, 100%)
-    padding: $screen-margin-static
+// The full-screen paint canvas. Fills the root edge to edge; the grid + the
+// Aseprite checkerboard are drawn into it in JS. touch-action none so a finger
+// paints/pans the canvas instead of scrolling the page.
+.canvas
+    position: absolute
+    inset: 0
+    display: block
+    width: 100%
+    height: 100%
+    touch-action: none
+    -webkit-tap-highlight-color: transparent
+    cursor: crosshair
+    image-rendering: pixelated
+
+// A frosted panel look shared by the floating chrome so it lifts off the canvas
+// without hiding it. Kept as a mixin-like base class composed below.
+=panel
+    background-color: rgba(13, 9, 11, 0.82)
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    backdrop-filter: blur(6px)
+    -webkit-backdrop-filter: blur(6px)
+
+// TOOL RAIL: compact vertical toolbar docked to the left, Aseprite-style. Each
+// tool is an icon button >= 44px so touch users clear the platform minimum. The
+// rail scrolls internally if it ever outgrows a short landscape phone.
+.toolRail
+    +panel
+    position: absolute
+    top: 50%
+    left: calc(0.6em + var(--inset-left))
+    transform: translateY(-50%)
+    z-index: 20
     display: flex
     flex-direction: column
-    gap: 1em
+    gap: 0.3em
+    padding: 0.4em
+    max-height: calc(100% - 2em)
+    overflow-y: auto
 
+.tool
+    appearance: none
+    -webkit-appearance: none
+    background: $color-dark-2
+    border: $border-size solid transparent
+    border-radius: $border-radius
+    color: $color-text
+    cursor: pointer
+    display: flex
+    flex-direction: column
+    align-items: center
+    justify-content: center
+    gap: 0.05em
+    width: 46px
+    height: 46px
+    padding: 0
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
+    transition: border-color 80ms, background-color 80ms
+
+    @media (hover: hover)
+        &:hover
+            border-color: $color-accent
+
+    &:active
+        transform: translateY(1px)
+
+.toolActive
+    border-color: $color-main
+    background: $color-dark-3
+    box-shadow: 0 0 0 1px rgba(230, 174, 16, 0.35)
+
+.toolIcon
+    display: flex
+    align-items: center
+    justify-content: center
+    line-height: 0
+
+// The little corner shortcut letter on each tool, Aseprite-style.
+.toolKey
+    font-family: $font-family-game
+    font-size: 0.78em
+    line-height: 1
+    color: $color-accent
+    opacity: 0.85
+
+.toolActive .toolKey
+    color: $color-main
+    opacity: 1
+
+// TOP BAR: brand + Options/Back, floating across the top.
 .topBar
+    position: absolute
+    top: calc(0.6em + var(--inset-top))
+    left: calc(0.6em + var(--inset-left))
+    right: calc(0.6em + var(--inset-right))
+    z-index: 20
     display: flex
     align-items: center
     justify-content: space-between
-    gap: 1em
+    gap: 0.6em
+    pointer-events: none
 
-    .title
-        font-size: 2.4em
-        line-height: 1
-        color: $color-main
+    > *
+        pointer-events: auto
 
-// Editor body: sidebar of controls beside the paint canvas. On narrow phones
-// the sidebar stacks ABOVE the canvas so every control is reachable with a
-// thumb before the big paint surface.
-.editor
+.brand
+    +panel
+    font-family: $font-family-game
+    font-size: 1.6em
+    line-height: 1
+    color: $color-main
+    padding: 0.2em 0.6em
+
+    @media (max-width: 420px)
+        font-size: 1.2em
+
+.topActions
     display: flex
-    flex-direction: column
-    gap: 1em
+    gap: 0.4em
 
-    @media (min-width: 760px)
-        flex-direction: row
-        align-items: flex-start
+// A square icon button (gear, back, etc). 44px touch target, frosted panel.
+.iconButton
+    +panel
+    appearance: none
+    -webkit-appearance: none
+    color: $color-text
+    cursor: pointer
+    display: flex
+    align-items: center
+    justify-content: center
+    width: 46px
+    height: 46px
+    padding: 0
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
+    transition: border-color 80ms, color 80ms
 
-.sidebar
+    @media (hover: hover)
+        &:hover
+            border-color: $color-accent
+            color: $color-main
+
+    &:active
+        transform: translateY(1px)
+
+.iconButtonActive
+    border-color: $color-main
+    color: $color-main
+
+// STATUS BAR: a slim readout pinned to the bottom-centre (spawn count, size,
+// last message). Non-interactive, so it never blocks a paint stroke at the
+// canvas edge.
+.statusBar
+    +panel
+    position: absolute
+    bottom: calc(0.6em + var(--inset-bottom))
+    left: 50%
+    transform: translateX(-50%)
+    z-index: 20
+    display: flex
+    align-items: center
+    gap: 0.8em
+    padding: 0.25em 0.8em
+    font-family: $font-family-game
+    font-size: 1em
+    max-width: calc(100% - 1.2em)
+    white-space: nowrap
+    overflow: hidden
+    pointer-events: none
+
+.statusGood
+    color: $color-good
+
+.statusWarn
+    color: $color-main
+
+.statusDim
+    opacity: 0.6
+
+.statusMsg
+    color: $color-accent
+    overflow: hidden
+    text-overflow: ellipsis
+
+// OPTIONS POPOVER: a tidy panel anchored top-right that holds map settings +
+// actions, hidden until the gear is tapped. A transparent scrim behind it
+// dismisses on outside tap. On a narrow phone it widens toward full-width so
+// every control is reachable with a thumb.
+.scrim
+    position: fixed
+    inset: 0
+    z-index: 30
+
+.optionsPanel
+    +panel
+    position: absolute
+    top: calc(3.6em + var(--inset-top))
+    right: calc(0.6em + var(--inset-right))
+    z-index: 31
+    width: 300px
+    max-width: calc(100vw - 1.2em)
+    max-height: calc(100% - 5em - var(--inset-top) - var(--inset-bottom))
+    overflow-y: auto
     display: flex
     flex-direction: column
     gap: 0.7em
-    width: 100%
+    padding: 1em
+    font-family: $font-family-game
 
-    @media (min-width: 760px)
-        width: 260px
-        flex-shrink: 0
+.optionsHeader
+    display: flex
+    align-items: center
+    justify-content: space-between
+    font-size: 1.4em
+    color: $color-main
+    line-height: 1
+
+.closeButton
+    appearance: none
+    -webkit-appearance: none
+    background: none
+    border: 0
+    color: $color-text
+    cursor: pointer
+    display: flex
+    align-items: center
+    justify-content: center
+    width: 32px
+    height: 32px
+    -webkit-tap-highlight-color: transparent
+
+    @media (hover: hover)
+        &:hover
+            color: $color-main
 
 .field
     display: flex
@@ -65,54 +272,7 @@
 .hint
     font-size: 0.9em
     opacity: 0.7
-    margin-top: -0.3em
-
-.paletteLabel
-    font-size: 1.2em
-    color: $color-accent
-    margin-top: 0.3em
-
-// The brush palette: a responsive grid of tappable swatches. Each is at least
-// 44px tall so touch users clear the platform minimum.
-.palette
-    display: grid
-    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr))
-    gap: 0.4em
-
-.swatch
-    background: $color-dark-2
-    border: $border-size solid $color-border
-    border-radius: $border-radius
-    color: $color-text
-    cursor: pointer
-    display: flex
-    flex-direction: column
-    align-items: center
-    justify-content: center
-    gap: 0.2em
-    padding: 0.4em 0.2em
-    min-height: 56px
-    -webkit-tap-highlight-color: transparent
-    touch-action: manipulation
-    font-family: $font-family-game
-
-    &:active
-        transform: translateY(1px)
-
-.swatchActive
-    border-color: $color-main
-    background: $color-dark-3
-
-.swatchIcon
-    display: flex
-    align-items: center
-    justify-content: center
-    line-height: 0
-
-.swatchLabel
-    font-size: 0.85em
-    text-align: center
-    white-space: nowrap
+    line-height: 1.3
 
 .toggle
     display: flex
@@ -121,53 +281,55 @@
     font-size: 1em
     cursor: pointer
     padding: 0.3em 0
+    min-height: 44px
 
     input
         width: 20px
         height: 20px
         cursor: pointer
 
-.spawnNote
-    font-size: 0.95em
-    color: $color-good
-    opacity: 0.9
-
 .actions
     display: grid
     grid-template-columns: 1fr
     gap: 0.5em
-    margin-top: 0.3em
+    margin-top: 0.2em
 
     > *
         width: 100%
 
-.message
-    font-size: 0.95em
-    color: $color-main
-    word-break: break-word
-
 .fileInput
     display: none
 
-// The paint surface fills the rest of the row. A fixed aspect on phones keeps
-// it tall enough to paint comfortably; it grows on desktop.
-.canvasWrap
-    flex: 1 1 auto
-    width: 100%
-    min-width: 0
-    background: $color-dark-2
-    border: $border-size solid $color-border
-    border-radius: $border-radius
-    overflow: hidden
+// Styled tooltips for the rail tools + icon buttons. A CSS-only bubble that
+// appears on hover for pointer devices. The shortcut letter shown ON the tool
+// (.toolKey) and the aria-label/title keep shortcuts discoverable on touch,
+// where hover tooltips do not fire, so nothing is hover-only-broken.
+[data-tip]
+    @media (hover: hover)
+        &:hover::after
+            content: attr(data-tip)
+            position: absolute
+            left: calc(100% + 0.5em)
+            top: 50%
+            transform: translateY(-50%)
+            z-index: 40
+            background-color: $color-dark-3
+            color: $color-text
+            border: $border-size solid $color-border
+            border-radius: $border-radius
+            padding: 0.15em 0.5em
+            font-family: $font-family-game
+            font-size: 0.95em
+            line-height: 1.2
+            white-space: nowrap
+            pointer-events: none
 
-.canvas
-    display: block
-    width: 100%
-    height: 60vh
-    min-height: 320px
-    // Stop the browser from scrolling/zooming the page while a finger paints;
-    // the canvas owns the gesture.
-    touch-action: none
-    -webkit-tap-highlight-color: transparent
-    cursor: crosshair
-    image-rendering: pixelated
+// The top-bar icon buttons sit near the right edge, so their tooltips would
+// overflow off-screen; anchor those below the button instead of to its right.
+.topActions [data-tip]
+    @media (hover: hover)
+        &:hover::after
+            left: auto
+            right: 0
+            top: calc(100% + 0.4em)
+            transform: none
