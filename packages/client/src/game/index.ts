@@ -52,6 +52,10 @@ export class GameContext {
     // from inside the update tick, so the normal GameView teardown still runs.
     private lobbyClosedHandler?: () => void
 
+    // Consecutive update ticks the local player has been stranded on the respawn
+    // screen (see checkStuckRespawn). Reset whenever the player is fine.
+    private stuckRespawnTicks = 0
+
     initialized = false
 
     // The store hook itself - call .getState() / .setState() from non-React contexts.
@@ -183,6 +187,10 @@ export class GameContext {
 
             // Update local simulation
             this.game.update()
+
+            // Recover from a stuck "Respawning" state (a server/client spectator
+            // desync that otherwise strands the player on the respawn screen).
+            this.checkStuckRespawn()
 
             // Send packets
             sendPackets(this)
@@ -367,6 +375,35 @@ export class GameContext {
         const player = this.getClientPlayer()
         if (typeof player === "undefined") return
         this.setSpectator(!player.spectator)
+    }
+
+    // Auto-recover from a stuck "Respawning" state (the infinite-respawn bug):
+    // if the local player intends to PLAY (client-side NOT a spectator) but is
+    // dead with no respawn timer for a sustained window, the server most likely
+    // still has them flagged as a spectator - a desync (e.g. left over from the
+    // mid-game-join / loadout flow across a match restart) that strands them on
+    // the respawn screen forever. Re-assert "not a spectator" so the server
+    // un-spectates and its respawn loop spawns them. This only fires while the
+    // client is NOT spectating, so a deliberate spectator is never force-spawned.
+    private checkStuckRespawn() {
+        const player = this.getClientPlayer()
+        const stuck =
+            this.game.phase === PipPipGamePhase.MATCH &&
+            typeof player !== "undefined" &&
+            player.spectator === false &&
+            player.spawned === false &&
+            player.timings.spawnTimeout === 0
+        if (stuck === false || typeof player === "undefined") {
+            this.stuckRespawnTicks = 0
+            return
+        }
+        this.stuckRespawnTicks += 1
+        // ~1.5s at the 20Hz update tick - far longer than the single-tick gap a
+        // normal respawn spends at spawnTimeout 0, so this never fires in normal play.
+        if (this.stuckRespawnTicks >= 30) {
+            this.stuckRespawnTicks = 0
+            this.sendCode(encode.playerSpectate(player))
+        }
     }
 
     // Cycle the camera's spectate target among spawned non-spectator players,

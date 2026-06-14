@@ -394,4 +394,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 102| `f671ae8`   | Rapid Fire powerup: timed buff that speeds up weapon fire (networked) | `git revert f671ae8`|
 | 103| `a133d7b`   | A suicide counts as a death only (no kill, no damage-dealt credit, no kill feed) | `git revert a133d7b`|
 | 104| `1890c6e`   | Gamepad UI navigation (focus all buttons/cards/menus with a controller) + focus ring | `git revert 1890c6e`|
-| 105| (latest)    | Suicides show in the kill feed as "killed themselves" (still no kill/score; not a multi-kill) | `git revert <sha>` |
+| 105| `6cd84c2`   | Suicides show in the kill feed as "killed themselves" (still no kill/score; not a multi-kill) | `git revert 6cd84c2`|
+| 106| (latest)    | FIX infinite respawn (spectator desync): client auto-re-asserts not-spectator when stranded | `git revert <sha>` |
