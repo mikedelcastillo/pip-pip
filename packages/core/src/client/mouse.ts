@@ -94,6 +94,8 @@ export class MouseListener extends EventEmitter<MouseListenerEventMap>{
     private boundMouseHandler = this.mouseHandler.bind(this)
     private boundPreventHandler = this.preventHandler.bind(this)
     private boundWheelHandler = this.wheelHandler.bind(this)
+    private boundBlurHandler = this.clearHeld.bind(this)
+    private boundVisibilityHandler = this.visibilityHandler.bind(this)
 
     constructor(id = "Mouse"){
         super(id)
@@ -129,6 +131,23 @@ export class MouseListener extends EventEmitter<MouseListenerEventMap>{
         return { x, y }
     }
     
+    // Release every held button. A mouseup that happens while the window is
+    // blurred (Alt+Tab / Cmd+Tab / OS focus theft) goes to the OTHER application,
+    // so this listener never sees it and a held button would stay "down" forever -
+    // firing in the authoritative sim while the player is away. Resetting on blur
+    // (and when the tab is hidden) prevents that stuck input.
+    clearHeld(){
+        for(const button of [this.state.left, this.state.middle, this.state.right]){
+            button.down = false
+            button.dragging = false
+        }
+        this.emit("blur", undefined)
+    }
+
+    visibilityHandler(){
+        if(typeof document !== "undefined" && document.hidden) this.clearHeld()
+    }
+
     mouseHandler(e: MouseEvent){
         // Ignore inputs
         const t = e.target as HTMLElement
@@ -232,6 +251,10 @@ export class MouseListener extends EventEmitter<MouseListenerEventMap>{
         this.element.addEventListener("contextmenu", this.boundPreventHandler)
         this.element.addEventListener("wheel", this.boundWheelHandler)
         window.addEventListener("mouseup", this.boundMouseHandler)
+        window.addEventListener("blur", this.boundBlurHandler)
+        if(typeof document !== "undefined"){
+            document.addEventListener("visibilitychange", this.boundVisibilityHandler)
+        }
     }
 
     destroy(){
@@ -242,6 +265,10 @@ export class MouseListener extends EventEmitter<MouseListenerEventMap>{
             this.element.removeEventListener("contextmenu", this.boundPreventHandler)
             this.element.removeEventListener("wheel", this.boundWheelHandler)
             window.removeEventListener("mouseup", this.boundMouseHandler)
+            window.removeEventListener("blur", this.boundBlurHandler)
+            if(typeof document !== "undefined"){
+                document.removeEventListener("visibilitychange", this.boundVisibilityHandler)
+            }
         }
     }
 }

@@ -22,6 +22,8 @@ export class KeyboardListener extends EventEmitter<KeyboardListenerEventMap>{
     // leak the listener on every setTarget/destroy cycle.
     private boundDownHandler = this.downHandler.bind(this)
     private boundUpHandler = this.upHandler.bind(this)
+    private boundBlurHandler = this.clearHeld.bind(this)
+    private boundVisibilityHandler = this.visibilityHandler.bind(this)
 
     constructor(id = "Keyboard"){
         super(id)
@@ -49,11 +51,29 @@ export class KeyboardListener extends EventEmitter<KeyboardListenerEventMap>{
         this.state[id] = state
     }
 
+    // Clear every held key. A keyup that happens while the window is blurred
+    // (Alt+Tab / Cmd+Tab / OS focus theft) is delivered to the OTHER application,
+    // so this listener never sees it and the key would stay "down" forever -
+    // driving movement/fire in the authoritative sim while the player is away.
+    // Resetting on blur (and when the tab is hidden) prevents that stuck input.
+    clearHeld(){
+        this.state = {}
+        this.emit("blur", undefined)
+    }
+
+    visibilityHandler(){
+        if(typeof document !== "undefined" && document.hidden) this.clearHeld()
+    }
+
     setTarget(element: HTMLElement){
         this.destroy()
         this.element = element
         this.element.addEventListener("keydown", this.boundDownHandler)
         window.addEventListener("keyup", this.boundUpHandler)
+        window.addEventListener("blur", this.boundBlurHandler)
+        if(typeof document !== "undefined"){
+            document.addEventListener("visibilitychange", this.boundVisibilityHandler)
+        }
     }
 
     destroy(){
@@ -61,6 +81,10 @@ export class KeyboardListener extends EventEmitter<KeyboardListenerEventMap>{
         if(typeof this.element !== "undefined"){
             this.element.removeEventListener("keydown", this.boundDownHandler)
             window.removeEventListener("keyup", this.boundUpHandler)
+            window.removeEventListener("blur", this.boundBlurHandler)
+            if(typeof document !== "undefined"){
+                document.removeEventListener("visibilitychange", this.boundVisibilityHandler)
+            }
         }
     }
 }
