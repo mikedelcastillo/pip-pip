@@ -296,14 +296,36 @@ export class PipPipGame{
         this.events.emit("setHost", { player })
     }
 
+    // A player is eligible to be host only if it is a present, connected
+    // (non-idle), real (non-bot) player. Idle players are disconnected tabs and
+    // bots have no connection to drive host-only controls, so neither should
+    // ever hold the host slot.
+    isHostEligible(player: PipPlayer){
+        if(!(player.id in this.players)) return false
+        if(player.idle === true) return false
+        if(player.isBot === true) return false
+        return true
+    }
+
+    // Recompute the host so it is always a present, non-idle, non-bot player
+    // when one exists. Called on join/leave (PipPlayer add/remove) and every
+    // tick (update) so a host going idle/disconnecting hands off promptly.
+    //
+    // Keep the current host if it is still eligible (no needless churn / event
+    // spam). Otherwise promote the first eligible player — effectively the
+    // longest-present real, connected player, since insertion order is
+    // preserved. When the lobby has no eligible player (empty, or only bots /
+    // idle players remain) the host is cleared. A first player joining an empty
+    // lobby falls out of this naturally: they are the only eligible candidate,
+    // so they become host.
     setHostIfNeeded(){
-        if(this.options.assignHost === true){
-            if(this.playerCount === 0){
-                this.removeHost()
-            } else{
-                const players = Object.values(this.players)
-                this.setHost(players[0])
-            }
+        if(this.options.assignHost !== true) return
+        if(typeof this.host !== "undefined" && this.isHostEligible(this.host)) return
+        const candidate = Object.values(this.players).find(player => this.isHostEligible(player))
+        if(typeof candidate === "undefined"){
+            this.removeHost()
+        } else{
+            this.setHost(candidate)
         }
     }
 
@@ -317,6 +339,13 @@ export class PipPipGame{
     update(){
         this.tickNumber++
         this.lastTick = Date.now()
+
+        // Re-evaluate the host every tick (gated on assignHost). Joins/leaves
+        // already trigger this via PipPlayer add/remove, but a host going idle
+        // (disconnected tab) flips player.idle without going through here, so
+        // the per-tick check is what hands the host off to an active player.
+        this.setHostIfNeeded()
+
         if(this.phase === PipPipGamePhase.SETUP){
             // despawn all players
             this.despawnPlayers()
@@ -385,6 +414,19 @@ export class PipPipGame{
 
     updateSystems(){
         if(this.phase === PipPipGamePhase.MATCH){
+
+            // Anti-farm: despawn idle (disconnected) real players during MATCH
+            // so a closed/reloaded tab does not leave a free sitting-duck kill
+            // on the field. Bots are deliberately exempt — they are training
+            // targets and are never idle. Gated on triggerSpawns so only the
+            // authoritative server despawns; the client mirrors it via packets.
+            if(this.options.triggerSpawns === true){
+                for(const player of Object.values(this.players)){
+                    if(player.idle === true && player.isBot === false && player.spawned === true){
+                        player.setSpawned(false)
+                    }
+                }
+            }
 
             // Drive AI bots before inputs are consumed. The brain writes each
             // bot's inputs directly (their inputQueue is always empty, so the
@@ -722,6 +764,14 @@ export class PipPipGame{
 
     dealDamage(dealer: PipPlayer, target: PipPlayer, weaponDamage = dealer.ship.stats.bullet.damage.normal){
         if(this.options.triggerDamage === false) return
+
+        // Anti-farm: award NO damage/kill/score credit for hits against an idle
+        // (disconnected) real player. Idle players are already despawned during
+        // MATCH, but this is the authoritative backstop so a reload-the-tab
+        // exploit can never farm a disconnected enemy for free score. Bots stay
+        // farmable (never idle) so training still works. Same triggerDamage gate
+        // as above, so only the server enforces it.
+        if(target.idle === true && target.isBot === false) return
 
         // SHIELD buff (or legacy invincibility): the target takes ZERO health
         // loss. It still exists and collides — only the health hit is blocked.

@@ -346,4 +346,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 54 | `a12bb6f`   | Leave Lobby button (return to home, mobile + desktop)   | `git revert a12bb6f` |
 | 55 | `ae9d305`   | Tactical keybind Q/E (+ controls help)                  | `git revert ae9d305` |
 | 56 | `6aad0bc`   | Invisibility (cloak) power-up (timed buff)              | `git revert 6aad0bc` |
-| 57 | (latest)    | Map preview thumbnails in the map selector             | `git revert <sha>` |
+| 57 | `d84027c`   | Map preview thumbnails in the map selector             | `git revert d84027c` |
+| 58 | (latest)    | Host hand-off to active player + disconnect anti-farm  | `git revert <sha>` |
