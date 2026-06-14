@@ -33,6 +33,21 @@ which serves the prebuilt client from `packages/client/dist`.
 | `HRZN_FORCE_LATENCY` | No | Dev-only: artificial latency. | Keep **unset** in production. |
 | `HRZN_FORCE_JITTER` | No | Dev-only: artificial jitter. | Keep **unset** in production. |
 | `DEBUG_HRZN_EVENTS` | No | Dev-only: verbose event logging. | Keep **unset** in production. |
+| `TELEGRAM_TOKEN` | Optional | Bot token for the optional Telegram analytics/control bot. | Unset/empty = feature fully off (no polling, no broadcasts). Get a token from @BotFather. |
+| `TELEGRAM_USER_IDS` | Optional | Comma-separated numeric Telegram user ids that are admins. | Admins get broadcasts and may run privileged commands. Message the bot `/userinfo` to learn your id. Spaces/trailing commas tolerated. |
+
+## Telegram bot (optional)
+
+Set `TELEGRAM_TOKEN` to enable a small analytics/control bot; unset, the whole
+feature is off. Create a bot via @BotFather, set the token, message your bot
+`/userinfo` to learn your numeric id, then set `TELEGRAM_USER_IDS` to that id
+(comma-separated for multiple admins) and redeploy.
+
+Broadcasts to admins: server start, lobby created, player connects, a
+player-count milestone, and match started. Commands: `/userinfo`, `/start`,
+`/ping` are public; `/status`, `/stats`, `/players`, `/lobbies`, `/dice`,
+`/reboot` are admin only. Every call is wrapped and runs off the game tick, so a
+Telegram outage never crashes or blocks the server.
 
 ## Scaling: single replica only
 

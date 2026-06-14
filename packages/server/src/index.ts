@@ -8,13 +8,22 @@ import { ConnectionOf, LobbyOf, Server } from "@pip-pip/core/src/networking/serv
 import { Ticker } from "@pip-pip/core/src/common/ticker"
 
 import { CONNECTION_ID_LENGTH, LOBBY_ID_LENGTH, packetManager } from "@pip-pip/game/src/networking/packets"
-import { PipPipGame } from "@pip-pip/game/src/logic"
+import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { sendPacketToConnection } from "./connection-out"
 import { processLobbyPackets } from "./connection-in"
 
 import { PING_REFRESH } from "@pip-pip/game/src/logic/constants"
 import { getServerPort } from "@pip-pip/core/src/lib/server-env"
 import { getPublicLobbies } from "./public-lobbies"
+import {
+    createTelegramBot,
+    formatLobbyCreated,
+    formatMatchStarted,
+    formatPlayerConnect,
+    formatPlayerMilestone,
+    formatServerStart,
+    ServerSnapshot,
+} from "./telegram"
 
 type GamePacketManagerSerializerMap = ExtractSerializerMap<typeof packetManager>
 
@@ -64,6 +73,115 @@ const defaultLobbyOptions: LobbyTypeOptions = {
     userCreatable: true,
 }
 
+// Registry of the live game per lobby id, so the Telegram snapshot can count
+// bots (bots are players with no connection, so they are NOT in lobby.locals
+// or server.connections). Populated in the lobby initializer, cleared on
+// lobby destroy. Empty/no-op when the Telegram feature is disabled.
+const gamesByLobby = new Map<string, PipPipGame>()
+
+// When the server started, used for uptime/status reporting.
+const serverStartedAt = Date.now()
+
+// Region label for analytics messages. Railway injects RAILWAY_REPLICA_REGION;
+// fall back to a generic label so the message still reads cleanly off-platform.
+const serverRegion = process.env.RAILWAY_REPLICA_REGION || process.env.HRZN_REGION || "local"
+
+// Deployed build commit, read purely from Railway's injected git env vars
+// (short sha + commit subject). Falls back to "local dev" when those are absent,
+// so local development needs no git env vars set. Display-only.
+const serverCommit = (() => {
+    const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || "").slice(0, 7)
+    const subject = (process.env.RAILWAY_GIT_COMMIT_MESSAGE || "").split("\n")[0].trim()
+    const parts = [sha, subject].filter(part => part.length > 0)
+    return parts.length > 0 ? parts.join(" ") : "local dev"
+})()
+
+// Compute a fresh snapshot of live server state on demand (cheap; only runs
+// when a Telegram command or broadcast needs it, never in the game tick).
+function buildSnapshot(): ServerSnapshot{
+    const lobbies = Object.values(server.lobbies)
+    const players: string[] = []
+    let botCount = 0
+
+    for(const game of gamesByLobby.values()){
+        for(const player of Object.values(game.players)){
+            if(player.isBot === true){
+                botCount += 1
+            } else{
+                players.push(player.name)
+            }
+        }
+    }
+
+    const lobbySummaries = lobbies.map(lobby => ({
+        id: lobby.id,
+        name: lobby.locals.lobbyName ?? lobby.id,
+        isPublic: lobby.locals.isPublic === true,
+        playerCount: Object.keys(lobby.connections).length,
+    }))
+
+    return {
+        region: serverRegion,
+        port: server.options.port,
+        commit: serverCommit,
+        startedAt: serverStartedAt,
+        lobbyCount: lobbies.length,
+        publicLobbyCount: lobbySummaries.filter(lobby => lobby.isPublic).length,
+        totalPlayers: players.length,
+        botCount,
+        players,
+        lobbies: lobbySummaries,
+    }
+}
+
+// Optional Telegram bot. undefined (and a total no-op) when TELEGRAM_TOKEN is
+// unset. We start its poll loop only after server.start() succeeds (see run()).
+const telegramBot = createTelegramBot(
+    process.env.TELEGRAM_TOKEN,
+    process.env.TELEGRAM_USER_IDS,
+    buildSnapshot,
+)
+
+// Fire-and-forget broadcast helper: safe to call even when the bot is disabled
+// (no-op) and never throws into the caller (the bot swallows network errors).
+function telegramBroadcast(text: string){
+    if(typeof telegramBot === "undefined") return
+    void telegramBot.broadcast(text)
+}
+
+// Player-count milestones we announce once as they are first crossed. Tracked
+// across the whole server so we do not re-announce on every join past the line.
+const PLAYER_MILESTONES = [10, 25, 50, 100]
+let lastMilestoneAnnounced = 0
+
+function maybeAnnounceMilestone(totalPlayers: number){
+    for(const milestone of PLAYER_MILESTONES){
+        if(totalPlayers >= milestone && milestone > lastMilestoneAnnounced){
+            lastMilestoneAnnounced = milestone
+            telegramBroadcast(formatPlayerMilestone(milestone))
+        }
+    }
+}
+
+// Broadcast lobby-created + per-player-connect analytics by hooking the Server's
+// own events (no core changes needed). createLobby/addConnection/removeConnection
+// all fire on server.events.
+server.events.on("createLobby", ({ lobby }) => {
+    telegramBroadcast(formatLobbyCreated({
+        id: lobby.id,
+        name: lobby.locals.lobbyName ?? lobby.id,
+        isPublic: lobby.locals.isPublic === true,
+        playerCount: Object.keys(lobby.connections).length,
+    }))
+})
+
+server.events.on("addConnection", ({ connection }) => {
+    const snapshot = buildSnapshot()
+    const name = connection.locals.name ?? connection.id
+    telegramBroadcast(formatPlayerConnect(name, snapshot.totalPlayers))
+    maybeAnnounceMilestone(snapshot.totalPlayers)
+})
+
 export type GameTickContext = {
     lobby: PipPipLobby,
     game: PipPipGame, 
@@ -88,6 +206,10 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
         setScores: true,
         spawnPowerups: true,
     })
+
+    // Register this lobby's game so the Telegram snapshot can count bots/players.
+    // Cleared on lobby destroy below. No-op overhead when Telegram is disabled.
+    gamesByLobby.set(lobby.id, game)
 
     // Fill in lobby metadata defaults for any field a caller did not seed via
     // createLobby options (which were already Object.assign'd onto locals).
@@ -141,6 +263,19 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
             sendPacketToConnection(getConnectionContext(connection))
         }
 
+        // Telegram analytics: announce when a match kicks off. A phaseChange into
+        // COUNTDOWN is the moment startMatch fired, so we report it once here.
+        if(typeof telegramBot !== "undefined" && gameEvents.filter("phaseChange").length > 0){
+            if(game.phase === PipPipGamePhase.COUNTDOWN){
+                telegramBroadcast(formatMatchStarted({
+                    id: lobby.id,
+                    name: lobby.locals.lobbyName ?? lobby.id,
+                    isPublic: lobby.locals.isPublic === true,
+                    playerCount: Object.keys(lobby.connections).length,
+                }))
+            }
+        }
+
         lobbyEvents.flush()
         gameEvents.flush()
     })
@@ -162,6 +297,7 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
     })
     
     lobby.events.on("destroy", () => {
+        gamesByLobby.delete(lobby.id)
         debugTick.destroy()
         pingTick.destroy()
         updateTick.destroy()
@@ -194,6 +330,14 @@ async function run(){
     ]
 
     console.log(artLines.join("\n"))
+
+    // Start the optional Telegram bot only after the server is up. Disabled (and
+    // a no-op) when TELEGRAM_TOKEN is unset: telegramBot is then undefined.
+    if(typeof telegramBot !== "undefined"){
+        telegramBot.start()
+        telegramBroadcast(formatServerStart(buildSnapshot()))
+        console.log("[telegram] bot enabled")
+    }
 }
 
 run()
