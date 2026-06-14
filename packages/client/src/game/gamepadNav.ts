@@ -166,6 +166,7 @@ export function stickToDirection(x: number, y: number, threshold: number): NavDi
 export type GamepadNavDeps = {
     readPad: () => NavGamepadLike | null
     getPhase: () => PipPipGamePhase
+    loadoutOpen: () => boolean
 }
 
 // Selector for the open-modal backdrop. Modal.module.sass hashes the class, but
@@ -216,17 +217,24 @@ function hasGameContainer(): boolean {
 // THE GATE. UI navigation should drive focus only when it will not fight the
 // in-match gameplay controls. It is appropriate when ANY of:
 //   - a modal is open (the player is interacting with an overlay), OR
+//   - the loadout overlay is open (the dead/spectating player is picking a ship
+//     or choosing Deploy/Spectate mid-match - not flying), OR
 //   - there is no live game container (home screen / menus outside a match), OR
 //   - the current phase is not MATCH (SETUP lobby, COUNTDOWN, RESULTS).
-// It is therefore INACTIVE in exactly one situation: a live MATCH with the game
-// container mounted and no modal open - i.e. real gameplay, where processInputs
-// owns the stick and buttons. Pure given its inputs, so it is unit-testable.
+// It is therefore INACTIVE only during real, hands-on-the-stick gameplay: a live
+// MATCH with the game container mounted, no modal, and the loadout overlay closed
+// - where processInputs owns the stick and buttons. The loadout case matters
+// because LoadoutOverlay is NOT a Modal (it has no backdrop), so without this the
+// gate would stay closed and a controller could not reach its Deploy button. Pure
+// given its inputs, so it is unit-testable.
 export function isNavActive(
     phase: PipPipGamePhase,
     modalOpen: boolean,
     gameContainerPresent: boolean,
+    loadoutOpen: boolean,
 ): boolean {
     if (modalOpen) return true
+    if (loadoutOpen) return true
     if (!gameContainerPresent) return true
     return phase !== PipPipGamePhase.MATCH
 }
@@ -290,6 +298,7 @@ export type GamepadNav = {
 export function createGamepadNav(deps?: Partial<GamepadNavDeps>): GamepadNav {
     const readPad: () => NavGamepadLike | null = deps?.readPad ?? readNavGamepad
     const getPhase: () => PipPipGamePhase = deps?.getPhase ?? (() => PipPipGamePhase.SETUP)
+    const loadoutOpen: () => boolean = deps?.loadoutOpen ?? (() => false)
 
     let rafId = 0
     let running = false
@@ -387,7 +396,7 @@ export function createGamepadNav(deps?: Partial<GamepadNavDeps>): GamepadNav {
         // GATE: only drive UI focus when navigation is appropriate. Otherwise the
         // in-match gameplay controls own the pad, so return early without reading
         // any nav intent.
-        if (!isNavActive(getPhase(), isModalOpen(), hasGameContainer())) {
+        if (!isNavActive(getPhase(), isModalOpen(), hasGameContainer(), loadoutOpen())) {
             resetInputState()
             return
         }

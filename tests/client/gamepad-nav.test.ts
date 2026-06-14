@@ -129,22 +129,28 @@ describe("stickToDirection", () => {
 
 describe("isNavActive (the gate)", () => {
     it("is active whenever a modal is open, even mid-match", () => {
-        expect(isNavActive(PipPipGamePhase.MATCH, true, true)).toBe(true)
+        expect(isNavActive(PipPipGamePhase.MATCH, true, true, false)).toBe(true)
+    })
+
+    it("is active whenever the loadout overlay is open, even mid-match", () => {
+        // LoadoutOverlay is not a Modal, so the modal flag is false; the loadout
+        // flag must still open the gate so a controller can reach Deploy/Spectate.
+        expect(isNavActive(PipPipGamePhase.MATCH, false, true, true)).toBe(true)
     })
 
     it("is active when there is no live game container (home / menus)", () => {
-        expect(isNavActive(PipPipGamePhase.SETUP, false, false)).toBe(true)
-        expect(isNavActive(PipPipGamePhase.MATCH, false, false)).toBe(true)
+        expect(isNavActive(PipPipGamePhase.SETUP, false, false, false)).toBe(true)
+        expect(isNavActive(PipPipGamePhase.MATCH, false, false, false)).toBe(true)
     })
 
     it("is active in any non-MATCH phase with the container mounted", () => {
-        expect(isNavActive(PipPipGamePhase.SETUP, false, true)).toBe(true)
-        expect(isNavActive(PipPipGamePhase.COUNTDOWN, false, true)).toBe(true)
-        expect(isNavActive(PipPipGamePhase.RESULTS, false, true)).toBe(true)
+        expect(isNavActive(PipPipGamePhase.SETUP, false, true, false)).toBe(true)
+        expect(isNavActive(PipPipGamePhase.COUNTDOWN, false, true, false)).toBe(true)
+        expect(isNavActive(PipPipGamePhase.RESULTS, false, true, false)).toBe(true)
     })
 
-    it("is INACTIVE during live MATCH gameplay with no modal (gameplay owns the pad)", () => {
-        expect(isNavActive(PipPipGamePhase.MATCH, false, true)).toBe(false)
+    it("is INACTIVE during live MATCH gameplay with no modal or loadout (gameplay owns the pad)", () => {
+        expect(isNavActive(PipPipGamePhase.MATCH, false, true, false)).toBe(false)
     })
 })
 

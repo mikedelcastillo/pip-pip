@@ -81,6 +81,10 @@ export default function App() {
     useEffect(() => {
         const nav = createGamepadNav({
             getPhase: () => useGameStore.getState().phase,
+            // The mid-match loadout overlay is not a Modal (no backdrop), so feed
+            // its open state in directly: the gate must open for it too, or a
+            // controller could not reach its Deploy/Spectate buttons.
+            loadoutOpen: () => useUiStore.getState().showLoadout,
         })
         nav.start()
         return () => nav.stop()
