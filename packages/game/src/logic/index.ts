@@ -87,6 +87,13 @@ export enum PipPipGameMode {
 export const TEAM_UNASSIGNED = -1
 export const TDM_TEAMS = [0, 1] as const
 
+// Hard cap on the number of bots in a single match. Intentional and
+// load-bearing: every bot is server-simulated each tick (AI brain + physics +
+// collision), so the per-tick cost scales with bot count. Capping it keeps the
+// server CPU/RAM bounded. Enforced authoritatively in addBot, so no path can
+// exceed it.
+export const MAX_BOTS = 8
+
 export enum PipPipGamePhase {
     SETUP,
     COUNTDOWN,
@@ -260,11 +267,24 @@ export class PipPipGame{
         return id
     }
 
+    // How many bots are currently in the match.
+    botCount(){
+        let count = 0
+        for(const player of Object.values(this.players)){
+            if(player.isBot === true) count += 1
+        }
+        return count
+    }
+
     // Add one training-grounds bot. It self-registers into game.players (like
     // any PipPlayer) and is broadcast to every real client by the normal
     // per-player broadcast, since that iterates all players. During a live
     // MATCH the bot is spawned immediately so it joins the fight at once.
+    // Returns undefined (and adds nothing) once the match is already at the
+    // MAX_BOTS hard cap, so every path that adds bots (chat commands, host
+    // config, fill) is bounded here at the single authoritative point.
     addBot(){
+        if(this.botCount() >= MAX_BOTS) return undefined
         const bot = this.createPlayer(this.nextBotId())
         bot.isBot = true
         bot.setName("BOT-" + bot.id.slice(1).toUpperCase())
@@ -276,7 +296,10 @@ export class PipPipGame{
         const bots: PipPlayer[] = []
         const safeCount = Math.max(0, Math.floor(count))
         for(let i = 0; i < safeCount; i++){
-            bots.push(this.addBot())
+            const bot = this.addBot()
+            // Stop as soon as the hard cap is reached (addBot returns undefined).
+            if(typeof bot === "undefined") break
+            bots.push(bot)
         }
         return bots
     }

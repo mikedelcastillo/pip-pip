@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { MAX_BOTS, PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import {
     BOT_FIRE_RANGE,
@@ -68,6 +68,26 @@ describe("AI bot lifecycle", () => {
         const game = makeArena()
         const bot = game.addBot()
         expect(bot.spawned).toBe(true)
+    })
+
+    it("enforces the MAX_BOTS hard cap (8) across every add path", () => {
+        const game = new PipPipGame()
+        expect(MAX_BOTS).toBe(8)
+
+        // addBots can never overshoot the cap, even when asked for far more.
+        const added = game.addBots(100)
+        expect(added.length).toBe(MAX_BOTS)
+        expect(game.botCount()).toBe(MAX_BOTS)
+
+        // addBot at the cap adds nothing and reports it by returning undefined.
+        expect(game.addBot()).toBeUndefined()
+        expect(game.botCount()).toBe(MAX_BOTS)
+
+        // Clearing frees the slots so bots can be added again.
+        game.clearBots()
+        expect(game.botCount()).toBe(0)
+        expect(game.addBot()).not.toBeUndefined()
+        expect(game.botCount()).toBe(1)
     })
 })
 

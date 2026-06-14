@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { MAX_BOTS, PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { isBotCommand, processLobbyPackets } from "@pip-pip/server/src/connection-in"
 
 describe("isBotCommand", () => {
@@ -63,15 +63,16 @@ describe("host bot-command dispatch via processLobbyPackets", () => {
         expect(Object.values(game.players).filter(p => p.isBot).length).toBe(4)
     })
 
-    it("clamps an oversized /bots request", () => {
+    it("caps an oversized /bots request at the MAX_BOTS hard limit", () => {
         const game = new PipPipGame()
         const host = game.createPlayer("AA")
         game.setHost(host)
 
         processLobbyPackets(stubContext(game, "AA", "/bots 9999"))
 
-        // Clamped to MAX_BOTS_PER_COMMAND (16).
-        expect(Object.values(game.players).filter(p => p.isBot).length).toBe(16)
+        // The per-command clamp is 16, but the authoritative MAX_BOTS hard cap
+        // (8) wins, so a single match can never hold more than 8 bots.
+        expect(Object.values(game.players).filter(p => p.isBot).length).toBe(MAX_BOTS)
     })
 
     it("removes all bots when the host sends /clearbots", () => {
