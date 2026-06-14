@@ -28,8 +28,11 @@ export type PipGameMapBounds = {
 // segWall collision, instead of treating every tile as a square. Kept as a
 // plain string union (no import from grid-map) so map.ts stays the low-level
 // model the rest of the game depends on. "full" and "deco" both render as
-// squares; the four "diag_*" values render as the matching half-tile triangle.
+// squares; the four "diag_*" values render as the matching half-tile triangle;
+// the four "half_*" values render as a half-cell rectangle matching their
+// axis-aligned half-cell rect wall.
 export type PipGameTileShape = "full" | "diag_tl" | "diag_tr" | "diag_bl" | "diag_br" | "deco"
+    | "half_top" | "half_bottom" | "half_left" | "half_right"
 
 export type PipGameTile = {
     x: number, y: number,

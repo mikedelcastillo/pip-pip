@@ -5,6 +5,9 @@ import {
     loadGridMap,
     greedyMeshFullTiles,
     diagonalSegmentEndpoints,
+    halfTileRect,
+    isHalfShape,
+    validateGridMapData,
     paletteEntryAt,
     tileAt,
     isDiagonalShape,
@@ -282,6 +285,154 @@ describe("diagonal tiles", () => {
         // segments, and the radius is still the legacy half-tile thickness.
         expect(seg.cappedEnds).toBe(true)
         expect(seg.radius).toBe(TILE_SIZE / 2)
+    })
+})
+
+describe("half tiles", () => {
+    // The single-cell half-tile fixtures all sit at the grid origin (col 0,
+    // row 0) so the expected centres are easy to read against TILE_SIZE.
+    function halfMap(shape: GridMapData["palette"][number]["shape"]): GridMapData{
+        return {
+            name: "half",
+            cellSize: TILE_SIZE,
+            cols: 1,
+            rows: 1,
+            tiles: [1],
+            spawns: [],
+            palette: [{ key: "wall", shape }],
+        }
+    }
+
+    it("isHalfShape recognises the four half shapes and nothing else", () => {
+        expect(isHalfShape("half_top")).toBe(true)
+        expect(isHalfShape("half_bottom")).toBe(true)
+        expect(isHalfShape("half_left")).toBe(true)
+        expect(isHalfShape("half_right")).toBe(true)
+        expect(isHalfShape("full")).toBe(false)
+        expect(isHalfShape("diag_tl")).toBe(false)
+        expect(isHalfShape("deco")).toBe(false)
+    })
+
+    it("halfTileRect returns the exact offset centre + half dims per direction", () => {
+        const cell = TILE_SIZE // 72
+        const q = cell / 4 // 18
+        const half = cell / 2 // 36
+        // Cell (0,0) centres on (0,0); y increases downward so "top" = smaller y.
+        expect(halfTileRect("half_top", 0, 0, cell)).toEqual({ centerX: 0, centerY: -q, width: cell, height: half })
+        expect(halfTileRect("half_bottom", 0, 0, cell)).toEqual({ centerX: 0, centerY: q, width: cell, height: half })
+        expect(halfTileRect("half_left", 0, 0, cell)).toEqual({ centerX: -q, centerY: 0, width: half, height: cell })
+        expect(halfTileRect("half_right", 0, 0, cell)).toEqual({ centerX: q, centerY: 0, width: half, height: cell })
+        // Non-half shapes return undefined.
+        expect(halfTileRect("full", 0, 0, cell)).toBeUndefined()
+        expect(halfTileRect("diag_tl", 0, 0, cell)).toBeUndefined()
+    })
+
+    it("loads each half tile into ONE rect wall with the exact centre + half dims", () => {
+        const q = TILE_SIZE / 4 // 18
+        const half = TILE_SIZE / 2 // 36
+
+        const top = loadGridMap("ht", halfMap("half_top"))
+        expect(top.rectWalls.length).toBe(1)
+        expect(top.segWalls.length).toBe(0)
+        expect(top.rectWalls[0].center.x).toBe(0)
+        expect(top.rectWalls[0].center.y).toBe(-q)
+        expect(top.rectWalls[0].width).toBe(TILE_SIZE)
+        expect(top.rectWalls[0].height).toBe(half)
+
+        const bottom = loadGridMap("hb", halfMap("half_bottom"))
+        expect(bottom.rectWalls.length).toBe(1)
+        expect(bottom.rectWalls[0].center.x).toBe(0)
+        expect(bottom.rectWalls[0].center.y).toBe(q)
+        expect(bottom.rectWalls[0].width).toBe(TILE_SIZE)
+        expect(bottom.rectWalls[0].height).toBe(half)
+
+        const left = loadGridMap("hl", halfMap("half_left"))
+        expect(left.rectWalls.length).toBe(1)
+        expect(left.rectWalls[0].center.x).toBe(-q)
+        expect(left.rectWalls[0].center.y).toBe(0)
+        expect(left.rectWalls[0].width).toBe(half)
+        expect(left.rectWalls[0].height).toBe(TILE_SIZE)
+
+        const right = loadGridMap("hr", halfMap("half_right"))
+        expect(right.rectWalls.length).toBe(1)
+        expect(right.rectWalls[0].center.x).toBe(q)
+        expect(right.rectWalls[0].center.y).toBe(0)
+        expect(right.rectWalls[0].width).toBe(half)
+        expect(right.rectWalls[0].height).toBe(TILE_SIZE)
+    })
+
+    it("emits a render tile per half tile carrying the half shape + block key", () => {
+        const map = loadGridMap("ht", halfMap("half_top"))
+        expect(map.tiles.length).toBe(1)
+        expect(map.tiles[0].shape).toBe("half_top")
+        expect(map.tiles[0].block).toBe("wall")
+        expect(map.tiles[0].texture).toBe("wall")
+    })
+
+    it("does NOT greedy-mesh a half tile with an adjacent full tile", () => {
+        // A row: a full tile then a half tile. The full tile becomes its own
+        // 1x1 rect; the half tile becomes its own half-cell rect. They never
+        // merge, so there are exactly two rect walls of different sizes.
+        const data: GridMapData = {
+            name: "mix",
+            cellSize: TILE_SIZE,
+            cols: 2,
+            rows: 1,
+            tiles: [1, 2],
+            spawns: [],
+            palette: [
+                { key: "wall", shape: "full" },
+                { key: "wall", shape: "half_top" },
+            ],
+        }
+        const map = loadGridMap("mix", data)
+        // Two separate rect walls (one full, one half): never greedy-merged.
+        expect(map.rectWalls.length).toBe(2)
+        const full = map.rectWalls.find(w => w.width === TILE_SIZE && w.height === TILE_SIZE)
+        const halfWall = map.rectWalls.find(w => w.height === TILE_SIZE / 2)
+        expect(full).toBeDefined()
+        expect(halfWall).toBeDefined()
+        // The half tile sits in cell (1,0); its rect is the TOP half of that cell.
+        expect(halfWall?.center.x).toBe(TILE_SIZE)
+        expect(halfWall?.center.y).toBe(-TILE_SIZE / 4)
+        expect(halfWall?.width).toBe(TILE_SIZE)
+        // Greedy mesh only ever sees the one full cell.
+        expect(greedyMeshFullTiles(data).length).toBe(1)
+    })
+})
+
+describe("validateGridMapData accepts half shapes (and still rejects garbage)", () => {
+    function baseMap(shape: string): unknown{
+        return {
+            name: "v",
+            cellSize: TILE_SIZE,
+            cols: 1,
+            rows: 1,
+            tiles: [1],
+            spawns: [],
+            palette: [{ key: "wall", shape }],
+        }
+    }
+
+    it("accepts each of the four half shapes", () => {
+        for(const shape of ["half_top", "half_bottom", "half_left", "half_right"]){
+            expect(validateGridMapData(baseMap(shape))).not.toBeNull()
+        }
+    })
+
+    it("still accepts the existing shapes", () => {
+        for(const shape of ["full", "diag_tl", "diag_tr", "diag_bl", "diag_br", "deco"]){
+            expect(validateGridMapData(baseMap(shape))).not.toBeNull()
+        }
+    })
+
+    it("still rejects an unknown / garbage shape", () => {
+        expect(validateGridMapData(baseMap("half_diagonal"))).toBeNull()
+        expect(validateGridMapData(baseMap("nonsense"))).toBeNull()
+        expect(validateGridMapData(baseMap(""))).toBeNull()
+        // And still rejects structurally-broken input.
+        expect(validateGridMapData(null)).toBeNull()
+        expect(validateGridMapData({ name: 5 })).toBeNull()
     })
 })
 

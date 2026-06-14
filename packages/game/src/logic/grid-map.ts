@@ -19,7 +19,14 @@ import { PipGameMap, PipGameTile, PointRadius, PIP_MAP_DEFAULT_BOUNDS } from "@p
 // - "deco": renders a tile but contributes NO collision of its own. The
 //   migration uses it for legacy wall tiles whose collision is already carried
 //   by explicit `segments`, so the converted map keeps the exact same walls.
+// - "half_*": a half-tile that fills HALF the cell with a flat edge down the
+//   middle (top / bottom / left / right). Each collides as a SIMPLE
+//   AXIS-ALIGNED BOX: exactly one half-cell PointPhysicsRectWall, reusing the
+//   existing rect-collision path with NO new collision math. Half-tiles are NOT
+//   full cells, so they never join the full-tile greedy mesh; each emits its
+//   own rect wall.
 export type TileShape = "full" | "diag_tl" | "diag_tr" | "diag_bl" | "diag_br" | "deco"
+    | "half_top" | "half_bottom" | "half_left" | "half_right"
 
 // A palette entry pairs a material/texture key (used later for rendering) with a
 // collision shape. Maps reference palette entries by index, so a big map only
@@ -66,6 +73,46 @@ const DIAGONAL_SHAPES: TileShape[] = ["diag_tl", "diag_tr", "diag_bl", "diag_br"
 
 export function isDiagonalShape(shape: TileShape): boolean{
     return DIAGONAL_SHAPES.indexOf(shape) !== -1
+}
+
+// The half-tile palette shapes, for quick membership tests.
+const HALF_SHAPES: TileShape[] = ["half_top", "half_bottom", "half_left", "half_right"]
+
+export function isHalfShape(shape: TileShape): boolean{
+    return HALF_SHAPES.indexOf(shape) !== -1
+}
+
+// The world-space axis-aligned BOX for a half-tile at (col, row): an offset
+// CENTRE plus a width/height, each covering HALF the cell with a flat edge down
+// the middle. Coordinates match the loader's convention (cell (col,row) centres
+// on (col*cellSize, row*cellSize); y increases DOWNWARD so "top" = smaller y):
+//   half_top    -> top half:    centre (cx, cy - h), size full x half
+//   half_bottom -> bottom half: centre (cx, cy + h), size full x half
+//   half_left   -> left half:   centre (cx - h, cy), size half x full
+//   half_right  -> right half:  centre (cx + h, cy), size half x full
+// where h = cellSize / 4 (quarter of a cell = half of a half-cell), so the box
+// centre sits a quarter-cell off the cell centre. Each half-tile emits exactly
+// ONE PointPhysicsRectWall from this, reusing the existing rect-collision path
+// with no new collision math. Returns undefined for non-half shapes.
+export function halfTileRect(
+    shape: TileShape,
+    col: number,
+    row: number,
+    cellSize: number,
+): { centerX: number, centerY: number, width: number, height: number } | undefined{
+    if(isHalfShape(shape) === false) return undefined
+
+    const cx = col * cellSize
+    const cy = row * cellSize
+    // A quarter cell: the half-box centre sits this far off the cell centre.
+    const quarter = cellSize / 4
+    const half = cellSize / 2
+
+    if(shape === "half_top") return { centerX: cx, centerY: cy - quarter, width: cellSize, height: half }
+    if(shape === "half_bottom") return { centerX: cx, centerY: cy + quarter, width: cellSize, height: half }
+    if(shape === "half_left") return { centerX: cx - quarter, centerY: cy, width: half, height: cellSize }
+    // half_right
+    return { centerX: cx + quarter, centerY: cy, width: half, height: cellSize }
 }
 
 // Resolve a flat-array cell value to its palette entry, or undefined for empty
@@ -282,6 +329,26 @@ export class GridPipGameMap extends PipGameMap{
                 this.tiles.push(tile)
                 compare(x, y)
 
+                // HALF TILES: each becomes ONE axis-aligned half-cell rect wall
+                // (the offset centre + half dims from halfTileRect), reusing the
+                // existing rect-collision path with no new collision math. They
+                // are NOT greedy-meshed (isFullCell stays false for them), so a
+                // run of half-tiles is one rect each; the wall broadphase handles
+                // many rects efficiently.
+                if(isHalfShape(entry.shape)){
+                    const box = halfTileRect(entry.shape, col, row, cellSize)
+                    if(typeof box !== "undefined"){
+                        const wall = new PointPhysicsRectWall()
+                        wall.center.x = box.centerX + ox
+                        wall.center.y = box.centerY + oy
+                        wall.width = box.width
+                        wall.height = box.height
+                        this.rectWalls.push(wall)
+                        compare(wall.center.x - wall.width / 2, wall.center.y - wall.height / 2)
+                        compare(wall.center.x + wall.width / 2, wall.center.y + wall.height / 2)
+                    }
+                }
+
                 if(isDiagonalShape(entry.shape)){
                     const ends = diagonalSegmentEndpoints(entry.shape, col, row, cellSize)
                     if(typeof ends !== "undefined"){
@@ -368,7 +435,8 @@ export const GRID_DEFAULT_CELL_SIZE = TILE_SIZE
 export const MAX_CUSTOM_CELLS = 250 * 250
 
 // The valid palette shapes, for a defensive membership test in the validator.
-const VALID_TILE_SHAPES: TileShape[] = ["full", "diag_tl", "diag_tr", "diag_bl", "diag_br", "deco"]
+const VALID_TILE_SHAPES: TileShape[] = ["full", "diag_tl", "diag_tr", "diag_bl", "diag_br", "deco",
+    "half_top", "half_bottom", "half_left", "half_right"]
 
 // True for a finite integer (rejects NaN, Infinity and fractional values).
 function isInteger(value: unknown): value is number{

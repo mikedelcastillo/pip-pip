@@ -11,6 +11,7 @@ import {
     EditorHistory,
     DrawMode,
     SLOPE_BRUSHES,
+    HALF_BRUSHES,
     DEFAULT_MAP_NAME,
     parseCellKey,
     serializeGridMapData,
@@ -109,12 +110,19 @@ const SHORTCUT_FOR: Record<EditorBrush, string> = {
     diag_br: "X",
     deco: "D",
     spawn: "G",
+    // Half tiles are flyout-only: no clean non-clashing single key remains, so
+    // they carry no keyboard shortcut (empty string -> the tooltip shows none).
+    half_top: "",
+    half_bottom: "",
+    half_left: "",
+    half_right: "",
 }
 
 type ToolDef = { brush: EditorBrush, label: string, color: string, shortcut: string }
 
 // Human label per brush (the four slope directions show in the Auto-slope
-// dropdown). Pulled from the shared palette where possible.
+// dropdown; the four half directions show in the Half tool's flyout). Pulled
+// from the shared palette where possible.
 const LABEL_FOR: Record<EditorBrush, string> = {
     empty: "Erase",
     full: "Block",
@@ -125,6 +133,10 @@ const LABEL_FOR: Record<EditorBrush, string> = {
     diag_br: "Slope BR",
     deco: "Deco",
     spawn: "Spawn",
+    half_top: "Half Top",
+    half_bottom: "Half Bottom",
+    half_left: "Half Left",
+    half_right: "Half Right",
 }
 
 // The rail tools, top to bottom. The four explicit slopes are NOT here: they are
@@ -134,6 +146,7 @@ const TOOLS: ToolDef[] = [
     { brush: "empty", label: LABEL_FOR.empty, color: COLOR_GRID_STRONG, shortcut: SHORTCUT_FOR.empty },
     { brush: "full", label: LABEL_FOR.full, color: COLOR_BLOCK, shortcut: SHORTCUT_FOR.full },
     { brush: "auto", label: LABEL_FOR.auto, color: COLOR_SLOPE, shortcut: SHORTCUT_FOR.auto },
+    { brush: "half_top", label: "Half", color: COLOR_BLOCK, shortcut: SHORTCUT_FOR.half_top },
     { brush: "deco", label: LABEL_FOR.deco, color: COLOR_DECO, shortcut: SHORTCUT_FOR.deco },
     { brush: "spawn", label: LABEL_FOR.spawn, color: COLOR_SPAWN, shortcut: SHORTCUT_FOR.spawn },
 ]
@@ -141,6 +154,13 @@ const TOOLS: ToolDef[] = [
 // The explicit slope directions shown in the Auto slope dropdown.
 const SLOPE_TOOLS: ToolDef[] = SLOPE_BRUSHES.map((b) => ({
     brush: b, label: LABEL_FOR[b], color: COLOR_SLOPE, shortcut: SHORTCUT_FOR[b],
+}))
+
+// The explicit half-tile directions shown in the Half tool's direction flyout
+// (mirroring SLOPE_TOOLS under Auto slope). Half tiles are solid colliding
+// boxes, so they take the active material colour like blocks/slopes.
+const HALF_TOOLS: ToolDef[] = HALF_BRUSHES.map((b) => ({
+    brush: b, label: LABEL_FOR[b], color: COLOR_BLOCK, shortcut: SHORTCUT_FOR[b],
 }))
 
 // The DRAW MODES, orthogonal to the brush: the brush says WHAT to paint, the
@@ -290,6 +310,7 @@ export default function MapEditor(){
     const [message, setMessage] = useState("")
     const [optionsOpen, setOptionsOpen] = useState(false)
     const [slopeOpen, setSlopeOpen] = useState(false)
+    const [halfOpen, setHalfOpen] = useState(false)
     const [confirmLeave, setConfirmLeave] = useState(false)
     // Becomes true on the first paint/import/clear so the leave guard (Back
     // button + browser beforeunload) only fires when there is real work to lose.
@@ -1072,10 +1093,13 @@ export default function MapEditor(){
     const materialFace = blockFaceCss(material)
 
     // The rail-icon colour for a tool: block + slope tools (auto and the four
-    // explicit directions) show the ACTIVE material colour so the rail mirrors what
-    // a stroke will paint; deco/spawn/erase keep their fixed affordance colours.
+    // explicit directions) and the half tools all show the ACTIVE material colour
+    // so the rail mirrors what a stroke will paint; deco/spawn/erase keep their
+    // fixed affordance colours.
     const toolIconColor = useCallback((brushFor: EditorBrush, fallback: string): string => {
-        if(brushFor === "full" || brushFor === "auto" || SLOPE_BRUSHES.indexOf(brushFor) !== -1){
+        if(brushFor === "full" || brushFor === "auto"
+            || SLOPE_BRUSHES.indexOf(brushFor) !== -1
+            || HALF_BRUSHES.indexOf(brushFor) !== -1){
             return materialFace
         }
         return fallback
@@ -1180,6 +1204,66 @@ export default function MapEditor(){
                                                         </span>
                                                         <span className={styles.slopeItemLabel}>{s.label}</span>
                                                         <span className={styles.toolKey}>{s.shortcut}</span>
+                                                    </button>
+                                                </Tooltip>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        }
+                        if(tool.brush === "half_top"){
+                            // Half tile: a single tool whose active state covers the
+                            // whole half-brush group, with a DIRECTION FLYOUT listing
+                            // the four half shapes (mirroring the Auto-slope tool +
+                            // its slope flyout). The half shapes have no keyboard
+                            // shortcut, so the flyout is the one place a direction is
+                            // chosen. The rail icon mirrors whichever half is selected
+                            // (defaulting to half_top when none is).
+                            const halfActive = HALF_BRUSHES.indexOf(brush) !== -1
+                            const iconBrush: EditorBrush = halfActive ? brush : "half_top"
+                            return (
+                                <div key="half" className={styles.toolGroup}>
+                                    <Tooltip label={tool.label} placement="right">
+                                        <button
+                                            type="button"
+                                            className={`${styles.tool} ${halfActive ? styles.toolActive : ""}`}
+                                            onClick={() => setBrush("half_top")}
+                                            aria-pressed={halfActive}
+                                            aria-label={tool.label}
+                                            title={tool.label}
+                                        >
+                                            <span className={styles.toolIcon}>
+                                                <ToolIcon brush={iconBrush} color={toolIconColor(iconBrush, tool.color)} />
+                                            </span>
+                                        </button>
+                                    </Tooltip>
+                                    <Tooltip label="Half directions" placement="right">
+                                        <button
+                                            type="button"
+                                            className={styles.toolCaret}
+                                            onClick={() => setHalfOpen((o) => !o)}
+                                            aria-label="Half directions"
+                                            aria-expanded={halfOpen}
+                                            title="Half directions"
+                                        >&#9656;</button>
+                                    </Tooltip>
+                                    {halfOpen && (
+                                        <div className={styles.slopeFlyout} role="menu">
+                                            {HALF_TOOLS.map((s) => (
+                                                <Tooltip key={s.brush} label={s.label} placement="right">
+                                                    <button
+                                                        type="button"
+                                                        className={`${styles.slopeItem} ${brush === s.brush ? styles.slopeItemActive : ""}`}
+                                                        onClick={() => { setBrush(s.brush); setHalfOpen(false) }}
+                                                        aria-pressed={brush === s.brush}
+                                                        aria-label={s.label}
+                                                        title={s.label}
+                                                    >
+                                                        <span className={styles.toolIcon}>
+                                                            <ToolIcon brush={s.brush} color={toolIconColor(s.brush, s.color)} />
+                                                        </span>
+                                                        <span className={styles.slopeItemLabel}>{s.label}</span>
                                                     </button>
                                                 </Tooltip>
                                             ))}
@@ -1515,12 +1599,13 @@ function drawCheckerboard(ctx: CanvasRenderingContext2D, ox: number, oy: number,
 
 // Draw a single painted tile into a cell-sized box at (x, y). Full fills the
 // box; the four diagonals fill the right-angle-cornered triangle (matching how
-// grid-map.ts places the right angle in the named corner); deco fills a faded
-// box so it reads as non-colliding decoration. `faceColor` is the tile's MATERIAL
-// face colour (a CSS "#rrggbb" derived from the same TILE_BLOCK_STYLES the in-game
-// Pixi renderer uses), so the editor preview matches what the author will see in
-// a match. Deco is non-colliding decoration and ignores the material, painting a
-// fixed faded box so it always reads as deco.
+// grid-map.ts places the right angle in the named corner); the four half tiles
+// fill a half-cell rectangle (matching their axis-aligned half-cell rect wall);
+// deco fills a faded box so it reads as non-colliding decoration. `faceColor` is
+// the tile's MATERIAL face colour (a CSS "#rrggbb" derived from the same
+// TILE_BLOCK_STYLES the in-game Pixi renderer uses), so the editor preview
+// matches what the author will see in a match. Deco is non-colliding decoration
+// and ignores the material, painting a fixed faded box so it always reads as deco.
 function drawTile(ctx: CanvasRenderingContext2D, shape: string, faceColor: string, x: number, y: number, size: number){
     if(shape === "deco"){
         ctx.fillStyle = COLOR_DECO
@@ -1530,6 +1615,28 @@ function drawTile(ctx: CanvasRenderingContext2D, shape: string, faceColor: strin
     if(shape === "full"){
         ctx.fillStyle = faceColor
         ctx.fillRect(x, y, size, size)
+        return
+    }
+    // Half tiles: fill the half-cell rectangle with a flat edge down the middle,
+    // matching tilePolygon / the axis-aligned half-cell rect wall.
+    if(shape === "half_top"){
+        ctx.fillStyle = faceColor
+        ctx.fillRect(x, y, size, size / 2)
+        return
+    }
+    if(shape === "half_bottom"){
+        ctx.fillStyle = faceColor
+        ctx.fillRect(x, y + size / 2, size, size / 2)
+        return
+    }
+    if(shape === "half_left"){
+        ctx.fillStyle = faceColor
+        ctx.fillRect(x, y, size / 2, size)
+        return
+    }
+    if(shape === "half_right"){
+        ctx.fillStyle = faceColor
+        ctx.fillRect(x + size / 2, y, size / 2, size)
         return
     }
     // Diagonals: fill the triangle whose right angle sits in the named corner.
@@ -1593,6 +1700,26 @@ function ToolIcon({ brush, color }: { brush: EditorBrush, color: string }){
             <svg width={size} height={size} viewBox="0 0 20 20">
                 <polygon points="3,17 17,17 17,4" fill={color} opacity="0.9" />
                 <circle cx="6" cy="6" r="1.8" fill={color} />
+            </svg>
+        )
+    }
+    // Half tiles: a half-filled square. The filled rectangle covers the named
+    // half (top / bottom / left / right) with a flat edge down the middle, plus
+    // a faint outline of the whole cell so the empty half still reads as a cell.
+    if(brush === "half_top" || brush === "half_bottom" || brush === "half_left" || brush === "half_right"){
+        // x, y, width, height of the filled half within the 2..18 cell box.
+        let fx = 2
+        let fy = 2
+        let fw = 16
+        let fh = 16
+        if(brush === "half_top"){ fh = 8 }
+        else if(brush === "half_bottom"){ fy = 10; fh = 8 }
+        else if(brush === "half_left"){ fw = 8 }
+        else{ fx = 10; fw = 8 }
+        return (
+            <svg width={size} height={size} viewBox="0 0 20 20">
+                <rect x="2" y="2" width="16" height="16" fill="none" stroke={color} strokeWidth="1.5" opacity="0.45" />
+                <rect x={fx} y={fy} width={fw} height={fh} fill={color} />
             </svg>
         )
     }

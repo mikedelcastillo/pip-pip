@@ -30,6 +30,7 @@ import {
     brushAtCell,
     materialAtCell,
     materialKeyForBrush,
+    HALF_BRUSHES,
     EDITOR_MATERIALS,
     DEFAULT_MATERIAL_KEY,
     DRAW_MODES,
@@ -1428,5 +1429,82 @@ describe("materialAtCell (eyedropper picks colour too)", () => {
         materialAtCell(map, 9, 9)
         expect(map.tiles.size).toBe(tilesBefore)
         expect(map.palette.length).toBe(paletteBefore)
+    })
+})
+
+describe("half-tile shapes (editor model)", () => {
+    it("HALF_BRUSHES lists the four half directions", () => {
+        expect(HALF_BRUSHES).toEqual(["half_top", "half_bottom", "half_left", "half_right"])
+    })
+
+    it("EDITOR_PALETTE has a seed entry for each of the four half shapes", () => {
+        for(const brush of ["half_top", "half_bottom", "half_left", "half_right"] as const){
+            const entry = EDITOR_PALETTE.find((e) => e.brush === brush)
+            expect(entry).toBeDefined()
+            // The palette entry's shape matches its brush, with the default block key.
+            expect(entry?.shape).toBe(brush)
+            expect(entry?.key).toBe("tile_default")
+        }
+        // Each half brush round-trips to a palette entry on a fresh map.
+        const map = new EditorMap()
+        for(const brush of ["half_top", "half_bottom", "half_left", "half_right"] as const){
+            const value = paletteValueForBrush(brush)
+            expect(map.palette[value - 1].shape).toBe(brush)
+        }
+    })
+
+    it("paints a half brush and stores a value whose palette entry has the right shape", () => {
+        const map = new EditorMap()
+        expect(map.setCell(2, 3, "half_top")).toBe(true)
+        const value = map.tileAt(2, 3)
+        expect(map.palette[value - 1].shape).toBe("half_top")
+        // Painting in an explicit material stores {shape, key} for the half tile.
+        expect(map.setCell(4, 4, "half_right", "teal")).toBe(true)
+        const tealValue = map.tileAt(4, 4)
+        expect(map.palette[tealValue - 1]).toEqual({ shape: "half_right", key: "teal" })
+    })
+
+    it("brushAtCell maps a half-tile cell back to its half brush", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "half_top")
+        map.setCell(1, 0, "half_bottom")
+        map.setCell(0, 1, "half_left")
+        map.setCell(1, 1, "half_right")
+        expect(brushAtCell(map, 0, 0)).toBe("half_top")
+        expect(brushAtCell(map, 1, 0)).toBe("half_bottom")
+        expect(brushAtCell(map, 0, 1)).toBe("half_left")
+        expect(brushAtCell(map, 1, 1)).toBe("half_right")
+    })
+
+    it("round-trips half tiles through toGridMapData -> loadGridMap", () => {
+        const map = new EditorMap("Halves")
+        map.setCell(0, 0, "half_top")
+        map.setCell(1, 0, "half_bottom")
+        map.setCell(0, 1, "half_left")
+        map.setCell(1, 1, "half_right")
+
+        const data = map.toGridMapData()
+        // The exported palette carries each half shape.
+        for(const shape of ["half_top", "half_bottom", "half_left", "half_right"]){
+            expect(data.palette.some((e) => e.shape === shape)).toBe(true)
+        }
+
+        // It loads into the real game loader: four half-cell rect walls (one per
+        // half tile), no segment walls, and four render tiles carrying the shapes.
+        const playable = loadGridMap("halves", data)
+        expect(playable.rectWalls.length).toBe(4)
+        expect(playable.segWalls.length).toBe(0)
+        expect(playable.tiles.length).toBe(4)
+        const shapes = playable.tiles.map((t) => t.shape).sort()
+        expect(shapes).toEqual(["half_bottom", "half_left", "half_right", "half_top"])
+    })
+
+    it("a half brush evicts a spawn like every other shape brush (mutual exclusion)", () => {
+        const map = new EditorMap()
+        map.setCell(3, 3, "spawn")
+        expect(map.hasSpawn(3, 3)).toBe(true)
+        expect(map.setCell(3, 3, "half_left")).toBe(true)
+        expect(map.hasSpawn(3, 3)).toBe(false)
+        expect(map.tileAt(3, 3)).not.toBe(0)
     })
 })

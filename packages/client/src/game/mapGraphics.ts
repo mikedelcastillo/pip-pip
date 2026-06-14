@@ -144,6 +144,48 @@ export function tilePolygon(tile: PipGameTile): TilePoint[]{
         ]
     }
 
+    // Half tiles: a half-cell rectangle (4 points) matching the axis-aligned
+    // half-cell rect wall the loader builds. The flat edge runs down the middle
+    // of the cell (y increases downward, so "top" = smaller y). The renderer
+    // strokes a full polygon outline for any non-3-point shape, which is correct
+    // for these rectangles.
+    if(shape === "half_top"){
+        // Top half: from the top edge down to the cell's vertical midline.
+        return [
+            { x: left, y: top },
+            { x: right, y: top },
+            { x: right, y: tile.y },
+            { x: left, y: tile.y },
+        ]
+    }
+    if(shape === "half_bottom"){
+        // Bottom half: from the cell's vertical midline down to the bottom edge.
+        return [
+            { x: left, y: tile.y },
+            { x: right, y: tile.y },
+            { x: right, y: bottom },
+            { x: left, y: bottom },
+        ]
+    }
+    if(shape === "half_left"){
+        // Left half: from the left edge across to the cell's horizontal midline.
+        return [
+            { x: left, y: top },
+            { x: tile.x, y: top },
+            { x: tile.x, y: bottom },
+            { x: left, y: bottom },
+        ]
+    }
+    if(shape === "half_right"){
+        // Right half: from the cell's horizontal midline across to the right edge.
+        return [
+            { x: tile.x, y: top },
+            { x: right, y: top },
+            { x: right, y: bottom },
+            { x: tile.x, y: bottom },
+        ]
+    }
+
     // "full" and "deco" both render as the whole square.
     return [
         { x: left, y: top },

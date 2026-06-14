@@ -18,11 +18,18 @@ import { TILE_SIZE } from "@pip-pip/game/src/logic/constants"
 // Every other brush writes a tile of the named shape; "spawn" is special-cased:
 // it does not write a tile but toggles a spawn marker at the cell. Keeping spawn
 // in the same brush enum lets the palette UI present one uniform list of
-// paintable things.
+// paintable things. The four "half_*" brushes paint a half-tile (half the cell,
+// flat edge down the middle) that collides as a simple axis-aligned half-cell
+// box; they live in a direction flyout under the single "Half" tool.
 export type EditorBrush = "empty" | "full" | "auto" | "diag_tl" | "diag_tr" | "diag_bl" | "diag_br" | "deco" | "spawn"
+    | "half_top" | "half_bottom" | "half_left" | "half_right"
 
 // The four explicit slope directions, tucked under the Auto slope tool.
 export const SLOPE_BRUSHES: EditorBrush[] = ["diag_tl", "diag_tr", "diag_bl", "diag_br"]
+
+// The four explicit half-tile directions, tucked under the single "Half" tool's
+// direction flyout (mirroring how the slope directions live under Auto slope).
+export const HALF_BRUSHES: EditorBrush[] = ["half_top", "half_bottom", "half_left", "half_right"]
 
 // A DRAW MODE is orthogonal to the brush: the BRUSH says WHAT to paint (block /
 // slope / deco / spawn / erase) and the MODE says HOW. "freehand" is the default
@@ -48,6 +55,12 @@ export type Cell = [number, number]
 // direction from neighbours); the four explicit directions keep the Q/W/A/X
 // corner cluster for power users but live in a dropdown under Auto slope. Kept
 // here (DOM-free) so the shortcut-key -> brush mapping is unit-testable.
+//
+// The four half-tile brushes (half_top/half_bottom/half_left/half_right)
+// intentionally have NO keyboard shortcut: the obvious single keys are already
+// claimed (B=Block, S=Auto slope, D=Deco, the Q/W/A/X cluster=slopes) and no
+// clean non-clashing letters remain, so the half shapes are flyout-only (under
+// the "Half" tool) rather than colliding with an existing shortcut.
 export const BRUSH_SHORTCUTS: Record<string, EditorBrush> = {
     e: "empty",
     b: "full",
@@ -93,6 +106,10 @@ export const EDITOR_PALETTE: { brush: EditorBrush, shape: TileShape, key: string
     { brush: "diag_tr", shape: "diag_tr", key: "tile_default", label: "Slope TR" },
     { brush: "diag_bl", shape: "diag_bl", key: "tile_default", label: "Slope BL" },
     { brush: "diag_br", shape: "diag_br", key: "tile_default", label: "Slope BR" },
+    { brush: "half_top", shape: "half_top", key: "tile_default", label: "Half Top" },
+    { brush: "half_bottom", shape: "half_bottom", key: "tile_default", label: "Half Bottom" },
+    { brush: "half_left", shape: "half_left", key: "tile_default", label: "Half Left" },
+    { brush: "half_right", shape: "half_right", key: "tile_default", label: "Half Right" },
     { brush: "deco", shape: "deco", key: "tile_hidden", label: "Deco" },
 ]
 
@@ -588,7 +605,8 @@ export function brushAtCell(map: EditorMap, col: number, row: number): EditorBru
     const entry = map.palette[value - 1]
     if(typeof entry === "undefined") return "empty"
     // Every concrete tile shape shares its name with the brush that paints it
-    // (full/diag_*/deco), so the palette entry's shape IS the picked brush.
+    // (full/diag_*/half_*/deco), so the palette entry's shape IS the picked brush.
+    // TileShape is a subset of EditorBrush, so returning it stays type-safe.
     return entry.shape
 }
 
