@@ -26,6 +26,7 @@ export type PipPipGameEventMap = {
     playerRemoveShip: { player: PipPlayer, ship: PipShip },
     playerSpawned: { player: PipPlayer },
     playerScoreChanged: { player: PipPlayer },
+    playerTeamChange: { player: PipPlayer },
 
     setHost: { player: PipPlayer },
     removeHost: undefined,
@@ -73,7 +74,17 @@ export enum PipPipGameMode {
     // Timed match: the highest kill count when the clock runs out wins. Ties
     // (two or more players sharing the top kill count) are allowed.
     KILL_FRENZY,
+    // Two balanced teams; a team's score is the sum of its members' kills.
+    // First team to settings.maxKills (combined) wins. Friendly fire is off
+    // (teammates cannot hurt each other). Drives useTeams + friendlyFire in the
+    // host config path.
+    TEAM_DEATHMATCH,
 }
+
+// The two TEAM_DEATHMATCH teams. -1 marks an unassigned player (lobby / before
+// startMatch). Kept here so logic and the networking layer share one source.
+export const TEAM_UNASSIGNED = -1
+export const TDM_TEAMS = [0, 1] as const
 
 export enum PipPipGamePhase {
     SETUP,
@@ -307,6 +318,13 @@ export class PipPipGame{
         this.winnerIds = []
         this.resultsTimer = 0
         this.setPhase(PipPipGamePhase.COUNTDOWN)
+        // TEAM_DEATHMATCH: assign balanced teams for the fresh match. Gated on
+        // triggerSpawns (the authoritative server) like spawning, so the client
+        // never invents team assignments - it mirrors them from playerTeam
+        // packets. Free-for-all modes leave every player unassigned.
+        if(this.options.triggerSpawns === true && this.settings.mode === PipPipGameMode.TEAM_DEATHMATCH){
+            this.assignTeams()
+        }
         if(this.options.triggerSpawns === true){
             const players = Object.values(this.players)
             for(const player of players){
@@ -455,7 +473,64 @@ export class PipPipGame{
             // tied at that count (so a tie naturally yields multiple winners, and
             // a match with zero kills yields no winner at all).
             this.endMatch(this.topScorers())
+            return
         }
+        if(this.settings.mode === PipPipGameMode.TEAM_DEATHMATCH){
+            const target = this.settings.maxKills
+            // maxKills === 0 means "no kill cap", so the match never ends on its
+            // own (same as DEATHMATCH).
+            if(target <= 0) return
+            // The first team whose combined kills reach the cap wins; its members
+            // become the winners (reusing the RESULTS / winnerIds machinery).
+            const winningTeam = TDM_TEAMS.find(team => this.teamScore(team) >= target)
+            if(typeof winningTeam === "undefined") return
+            this.endMatch(this.teamPlayers(winningTeam))
+        }
+    }
+
+    // The players currently on a given TEAM_DEATHMATCH team. Pure read; used by
+    // team scoring, team assignment balancing, and endMatch's winner list.
+    teamPlayers(team: number): PipPlayer[] {
+        return Object.values(this.players).filter(player => player.team === team)
+    }
+
+    // A team's TEAM_DEATHMATCH score: the sum of its members' kills. Used by the
+    // win condition and mirrored to the HUD. Pure read of current scores.
+    teamScore(team: number): number {
+        let total = 0
+        for(const player of this.teamPlayers(team)){
+            total += player.score.kills
+        }
+        return total
+    }
+
+    // Pick the team a NEW (or rebalancing) player should join: the smaller of the
+    // two teams, breaking a tie toward team 0. Counts only non-spectator players
+    // so spectators never skew the balance. Used by assignTeams (match start) and
+    // when a player joins/deploys mid-TDM.
+    smallerTeam(): number {
+        const sizes = TDM_TEAMS.map(team =>
+            this.teamPlayers(team).filter(player => player.spectator === false).length)
+        return sizes[0] <= sizes[1] ? TDM_TEAMS[0] : TDM_TEAMS[1]
+    }
+
+    // Split every non-spectator player into two BALANCED teams, alternating so
+    // the teams differ by at most one. Spectators are left unassigned (-1) so they
+    // never count toward a team or its score. Called from startMatch on the
+    // authoritative side; setTeam emits playerTeamChange so each assignment rides
+    // the wire. Bots are players too, so they are assigned here like anyone else.
+    assignTeams(){
+        // Unassign spectators outright so a leftover team from a previous match
+        // never lingers on someone sitting out.
+        for(const player of Object.values(this.players)){
+            if(player.spectator === true){
+                player.setTeam(TEAM_UNASSIGNED)
+            }
+        }
+        const active = Object.values(this.players).filter(player => player.spectator === false)
+        active.forEach((player, index) => {
+            player.setTeam(TDM_TEAMS[index % TDM_TEAMS.length])
+        })
     }
 
     // The player(s) with the strictly highest kill count, or an empty array when
@@ -523,6 +598,15 @@ export class PipPipGame{
 
     addPlayerMidGame(player: PipPlayer){
         if(this.phase === PipPipGamePhase.SETUP) return
+        // TEAM_DEATHMATCH: a mid-match joiner fills the SMALLER team so the sides
+        // stay balanced. Gated on triggerSpawns (authoritative) so the client
+        // mirrors the team from the playerTeam packet rather than guessing. Bots
+        // count here too (they are assigned before spawning below). A real player
+        // is assigned now even though they are parked as a spectator, so when they
+        // deploy they are already on a team.
+        if(this.options.triggerSpawns === true && this.settings.mode === PipPipGameMode.TEAM_DEATHMATCH){
+            player.setTeam(this.smallerTeam())
+        }
         // Bots are training targets: they must join the fight immediately, so
         // spawn them at once exactly as before.
         if(player.isBot === true){
@@ -914,6 +998,19 @@ export class PipPipGame{
         // farmable (never idle) so training still works. Same triggerDamage gate
         // as above, so only the server enforces it.
         if(target.idle === true && target.isBot === false) return
+
+        // FRIENDLY FIRE OFF (team modes): a teammate cannot hurt another
+        // teammate. Gated on useTeams so free-for-all modes are unaffected. The
+        // dealer.id !== target.id guard is crucial - it leaves SELF-damage
+        // (suicide / standing on your own grenade) untouched, since a player is
+        // trivially on their own team. Enemies (different team) take damage
+        // normally. Unassigned players (team -1) only block against another
+        // unassigned player, which never happens in a live TDM match.
+        if(
+            this.settings.useTeams === true &&
+            dealer.team === target.team &&
+            dealer.id !== target.id
+        ) return
 
         // SHIELD buff (or legacy invincibility): the target takes ZERO health
         // loss. It still exists and collides — only the health hit is blocked.

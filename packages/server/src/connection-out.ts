@@ -52,6 +52,7 @@ export function getFullGameState(context: ConnectionContext): number[][] {
         messages.push(encode.playerIdle(player))
         messages.push(encode.playerSpectate(player))
         messages.push(encode.playerSetShip(player))
+        messages.push(encode.playerTeam(player))
         messages.push(encode.playerPositionSync(player))
         messages.push(encode.playerPosition(player))
         messages.push(encode.playerPing(player))
@@ -178,6 +179,16 @@ export function getPartialGameState(context: ConnectionContext): number[][] {
     for(const event of gameEvents.filter("playerSetShip")){
         const { player } = event.playerSetShip
         messages.push(encode.playerSetShip(player))
+    }
+
+    // Send team assignments (TEAM_DEATHMATCH). Fires on the balanced split at
+    // match start, on a mid-match join filling the smaller team, and whenever a
+    // player's team otherwise changes, so every client agrees on team colors +
+    // team scores. A fresh joiner's team also rides the full game state they get
+    // on connect (getFullGameState pushes playerTeam per player).
+    for(const event of gameEvents.filter("playerTeamChange")){
+        const { player } = event.playerTeamChange
+        messages.push(encode.playerTeam(player))
     }
 
     // player spawned

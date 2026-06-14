@@ -109,7 +109,10 @@ export class PipPlayer{
     // to tell bots apart from real, connection-backed players.
     isBot = false
 
-    team = 0
+    // TEAM_DEATHMATCH team (0 or 1). -1 marks an unassigned player: the default
+    // for every player outside a live TDM match (free-for-all modes never read
+    // it, and a TDM player is assigned a real team at startMatch / on join).
+    team = -1
 
     score: PlayerScores = {
         kills: 0,
@@ -216,6 +219,16 @@ export class PipPlayer{
     setIdle(idle: boolean){
         this.idle = idle
         this.game.events.emit("playerIdleChange", { player: this })
+    }
+
+    // Assign this player's TEAM_DEATHMATCH team (0 or 1; -1 unassigned). Emits
+    // playerTeamChange so the per-player broadcast can put the team on the wire
+    // and every client agrees on team colors + team scores. A no-op (no event)
+    // when the team is unchanged, so re-assigning the same team never spams.
+    setTeam(team: number){
+        if(this.team === team) return
+        this.team = team
+        this.game.events.emit("playerTeamChange", { player: this })
     }
 
     // Toggle this player into/out of spectator mode. A spectator can never

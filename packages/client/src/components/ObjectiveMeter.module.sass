@@ -58,6 +58,57 @@ $hud-skew: -14deg
     to
         opacity: 1
 
+// ---- TEAM_DEATHMATCH face: two team totals over a center-split bar ----
+.teams
+    min-width: clamp(10em, 44vw, 15em)
+    gap: 0.25em
+
+.teamScores
+    display: flex
+    align-items: baseline
+    gap: 0.4em
+    font-size: clamp(15px, 4.2vw, 22px)
+    white-space: nowrap
+
+    .teamName
+        text-transform: uppercase
+        letter-spacing: 0.06em
+        font-size: 0.7em
+
+    .teamScore
+        font-size: 1em
+
+    .teamSep
+        color: transparentize($color-text, 0.5)
+
+// Two bars meeting in the middle: the left team fills toward the center from the
+// right edge, the right team fills toward the center from the left edge, so the
+// two race inward toward the kill cap.
+.teamBars
+    display: flex
+    width: 100%
+    height: 0.55em
+    gap: 0.2em
+
+    .teamBarLeft, .teamBarRight
+        position: relative
+        flex: 1 1 0
+        background-color: transparentize($color-dark-1, 0.15)
+        border: $border-size solid $color-border
+        overflow: hidden
+        transform: skewX($hud-skew)
+
+    .teamBarLeft .teamBarFill
+        right: 0
+    .teamBarRight .teamBarFill
+        left: 0
+
+    .teamBarFill
+        position: absolute
+        top: 0
+        bottom: 0
+        transition: width 200ms linear
+
 // ---- DEATHMATCH face: the king line over a progress bar ----
 .deathmatch
     min-width: clamp(9em, 40vw, 13em)

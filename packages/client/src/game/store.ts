@@ -37,6 +37,9 @@ export type GameStorePlayer = {
     shipType: ShipType,
     isHost: boolean,
     isClient: boolean,
+    // TEAM_DEATHMATCH team (0 or 1; -1 unassigned), mirrored from the networked
+    // player.team so the HUD + scoreboard can color by team and total team scores.
+    team: number,
     // Respawn state, networked to every player (client.ts applies playerTimings),
     // so the scoreboard can show a "Respawning Ns" indicator for anyone who is
     // currently dead. spawnTimeout is in ticks; convert with ticksToSeconds.
@@ -80,6 +83,7 @@ export function playerToGameStore(player: PipPlayer): GameStorePlayer {
         shipType: player.shipType,
         isHost: GAME_CONTEXT.game.host?.id === player.id,
         isClient: GAME_CONTEXT.client.connectionId === player.id,
+        team: player.team,
         spawned: player.spawned,
         spawnTimeout: player.timings.spawnTimeout,
     }

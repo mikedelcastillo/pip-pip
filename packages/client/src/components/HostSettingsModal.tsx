@@ -53,6 +53,10 @@ export default function HostSettingsModal({ onClose }: Props) {
     const [matchMinutes, setMatchMinutes] = useState(3)
 
     const isFrenzy = mode === PipPipGameMode.KILL_FRENZY
+    const isTeam = mode === PipPipGameMode.TEAM_DEATHMATCH
+    // TEAM_DEATHMATCH reuses the DEATHMATCH kills-to-win stepper bounds, so both
+    // share the kills target (and neither reads matchMinutes).
+    const usesKills = !isFrenzy
 
     const stepPlayers = (delta: number) =>
         setMaxPlayers((current) => clampPlayers(current + delta))
@@ -103,7 +107,7 @@ export default function HostSettingsModal({ onClose }: Props) {
                 <div className={styles.sectionTitle}>Mode</div>
                 <div className={styles.toggleRow}>
                     <GameButton
-                        accent={!isFrenzy}
+                        accent={mode === PipPipGameMode.DEATHMATCH}
                         onClick={() => setMode(PipPipGameMode.DEATHMATCH)}
                     >
                         Deathmatch
@@ -114,30 +118,38 @@ export default function HostSettingsModal({ onClose }: Props) {
                     >
                         Kill Frenzy
                     </GameButton>
+                    <GameButton
+                        accent={isTeam}
+                        onClick={() => setMode(PipPipGameMode.TEAM_DEATHMATCH)}
+                    >
+                        Team Deathmatch
+                    </GameButton>
                 </div>
                 <div className={styles.hint}>
                     {isFrenzy
                         ? "Timed match. Most kills when the clock runs out wins."
-                        : "Free-for-all. First to the kill target wins."}
+                        : isTeam
+                            ? "Two teams, friendly fire off. First team to the kill target wins. Needs at least 2 players."
+                            : "Free-for-all. First to the kill target wins."}
                 </div>
             </div>
 
-            {isFrenzy ? (
-                <div className={styles.section}>
-                    <div className={styles.sectionTitle}>Match Length (min)</div>
-                    <div className={styles.stepperRow}>
-                        <GameButton accent onClick={() => stepMinutes(-1)}>-</GameButton>
-                        <div className={styles.stepperValue}>{matchMinutes}</div>
-                        <GameButton accent onClick={() => stepMinutes(1)}>+</GameButton>
-                    </div>
-                </div>
-            ) : (
+            {usesKills ? (
                 <div className={styles.section}>
                     <div className={styles.sectionTitle}>Kills to Win</div>
                     <div className={styles.stepperRow}>
                         <GameButton accent onClick={() => stepKills(-5)}>-</GameButton>
                         <div className={styles.stepperValue}>{killsToWin}</div>
                         <GameButton accent onClick={() => stepKills(5)}>+</GameButton>
+                    </div>
+                </div>
+            ) : (
+                <div className={styles.section}>
+                    <div className={styles.sectionTitle}>Match Length (min)</div>
+                    <div className={styles.stepperRow}>
+                        <GameButton accent onClick={() => stepMinutes(-1)}>-</GameButton>
+                        <div className={styles.stepperValue}>{matchMinutes}</div>
+                        <GameButton accent onClick={() => stepMinutes(1)}>+</GameButton>
                     </div>
                 </div>
             )}

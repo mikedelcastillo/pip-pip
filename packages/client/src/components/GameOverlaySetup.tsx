@@ -28,6 +28,9 @@ function modeBadge(mode: PipPipGameMode, maxKills: number, matchMinutes: number)
     if (mode === PipPipGameMode.KILL_FRENZY) {
         return { name: "Kill Frenzy", detail: `${matchMinutes || DEFAULT_MINUTES} min` }
     }
+    if (mode === PipPipGameMode.TEAM_DEATHMATCH) {
+        return { name: "Team Deathmatch", detail: maxKills > 0 ? `First team to ${maxKills}` : "Teams" }
+    }
     return { name: "Deathmatch", detail: maxKills > 0 ? `First to ${maxKills}` : "Free for all" }
 }
 
@@ -53,6 +56,10 @@ export default function GameOverlaySetup() {
 
     const badge = useMemo(() => modeBadge(mode, maxKills, matchMinutes), [mode, maxKills, matchMinutes])
     const isFrenzy = mode === PipPipGameMode.KILL_FRENZY
+    const isTeam = mode === PipPipGameMode.TEAM_DEATHMATCH
+    // KILL_FRENZY steps the match clock; DEATHMATCH + TEAM_DEATHMATCH step the
+    // (shared) kills-to-win target.
+    const usesKills = !isFrenzy
 
     // Always send a sane pair so neither target is lost on a switch (the store
     // values come from the server, but guard the degenerate 0 just in case).
@@ -111,7 +118,7 @@ export default function GameOverlaySetup() {
                                 <>
                                     <div className={styles.modeButtons}>
                                         <GameButton
-                                            accent={!isFrenzy}
+                                            accent={mode === PipPipGameMode.DEATHMATCH}
                                             onClick={() => pickMode(PipPipGameMode.DEATHMATCH)}
                                         >
                                             Deathmatch
@@ -122,15 +129,21 @@ export default function GameOverlaySetup() {
                                         >
                                             Kill Frenzy
                                         </GameButton>
+                                        <GameButton
+                                            accent={isTeam}
+                                            onClick={() => pickMode(PipPipGameMode.TEAM_DEATHMATCH)}
+                                        >
+                                            Team Deathmatch
+                                        </GameButton>
                                     </div>
                                     <div className={styles.targetRow}>
                                         <span className={styles.targetLabel}>
-                                            {isFrenzy ? "Match Minutes" : "Kills to Win"}
+                                            {usesKills ? "Kills to Win" : "Match Minutes"}
                                         </span>
                                         <div className={styles.stepper}>
                                             <GameButton accent onClick={() => stepTarget(-1)}>-</GameButton>
                                             <div className={styles.stepperValue}>
-                                                {isFrenzy ? safeMinutes : safeKills}
+                                                {usesKills ? safeKills : safeMinutes}
                                             </div>
                                             <GameButton accent onClick={() => stepTarget(1)}>+</GameButton>
                                         </div>
@@ -145,7 +158,9 @@ export default function GameOverlaySetup() {
                             <div className={styles.modeHint}>
                                 {isFrenzy
                                     ? "Most kills when the clock runs out wins."
-                                    : "Free-for-all. First to the kill target wins."}
+                                    : isTeam
+                                        ? "Two teams, friendly fire off. First team to the kill target wins. Needs at least 2 players."
+                                        : "Free-for-all. First to the kill target wins."}
                             </div>
                         </div>
                     </section>

@@ -252,9 +252,19 @@ export function processLobbyPackets(context: GameTickContext){
         // next gameState broadcast.
         for(const { mode, maxKills, matchMinutes } of packets.gameMode || []){
             if(game.host?.id === connection.id){
-                if(mode === PipPipGameMode.DEATHMATCH || mode === PipPipGameMode.KILL_FRENZY){
+                if(
+                    mode === PipPipGameMode.DEATHMATCH ||
+                    mode === PipPipGameMode.KILL_FRENZY ||
+                    mode === PipPipGameMode.TEAM_DEATHMATCH
+                ){
+                    // TEAM_DEATHMATCH turns on teams + friendly-fire-off; the
+                    // free-for-all modes turn them back off, so switching modes
+                    // in the lobby always lands a consistent settings pair.
+                    const isTeam = mode === PipPipGameMode.TEAM_DEATHMATCH
                     game.setSettings({
                         mode,
+                        useTeams: isTeam,
+                        friendlyFire: !isTeam,
                         maxKills: clamp(maxKills, MODE_MIN_KILLS, MODE_MAX_KILLS),
                         matchMinutes: clamp(matchMinutes, MODE_MIN_MINUTES, MODE_MAX_MINUTES),
                     })

@@ -241,14 +241,19 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
     const requestedMode = lobby.locals.mode
     const mode = requestedMode === PipPipGameMode.KILL_FRENZY
         ? PipPipGameMode.KILL_FRENZY
-        : PipPipGameMode.DEATHMATCH
+        : requestedMode === PipPipGameMode.TEAM_DEATHMATCH
+            ? PipPipGameMode.TEAM_DEATHMATCH
+            : PipPipGameMode.DEATHMATCH
     const maxKills = typeof lobby.locals.maxKills === "number"
         ? Math.max(1, Math.min(255, Math.floor(lobby.locals.maxKills)))
         : game.settings.maxKills
     const matchMinutes = typeof lobby.locals.matchMinutes === "number"
         ? Math.max(1, Math.min(60, Math.floor(lobby.locals.matchMinutes)))
         : game.settings.matchMinutes
-    game.setSettings({ mode, maxKills, matchMinutes })
+    // TEAM_DEATHMATCH runs with teams on and friendly fire off; the free-for-all
+    // modes run with neither, so a freshly hosted lobby lands a consistent pair.
+    const isTeam = mode === PipPipGameMode.TEAM_DEATHMATCH
+    game.setSettings({ mode, maxKills, matchMinutes, useTeams: isTeam, friendlyFire: !isTeam })
     // Reflect the resolved values back onto locals so any later read is accurate.
     lobby.locals.mode = mode
     lobby.locals.maxKills = maxKills

@@ -11,6 +11,18 @@ import { WORLD_QUANT_RANGE } from "../logic/constants"
 export const CONNECTION_ID_LENGTH = 2
 export const LOBBY_ID_LENGTH = 4
 
+// playerTeam wire mapping: the team is 0 or 1 in a live TEAM_DEATHMATCH match,
+// or -1 (TEAM_UNASSIGNED) outside one. A $uint8 cannot carry -1, so the
+// unassigned team rides as 255 and is mapped back on decode. Both sides share
+// these helpers so the mapping can never drift.
+export const TEAM_WIRE_UNASSIGNED = 255
+export function encodeTeam(team: number): number {
+    return team < 0 ? TEAM_WIRE_UNASSIGNED : team
+}
+export function decodeTeam(team: number): number {
+    return team === TEAM_WIRE_UNASSIGNED ? -1 : team
+}
+
 // Fixed-point world position serializer shared by every position field on the
 // all-to-all broadcast. Every field that decodes a world coordinate MUST use
 // this same instance so they share one quantization lattice.
@@ -59,6 +71,14 @@ export const packetManager = new PacketManager({
     playerSetShip: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
         shipIndex: $uint8,
+    }),
+    // TEAM_DEATHMATCH team assignment, broadcast so every client agrees on team
+    // colors + team scores. The team is 0 or 1 in a live TDM match and -1 when
+    // unassigned (free-for-all, lobby, or a spectator); -1 cannot ride a $uint8,
+    // so it is mapped to TEAM_WIRE_UNASSIGNED (255) here and back on decode.
+    playerTeam: new Packet({
+        playerId: $string(CONNECTION_ID_LENGTH),
+        team: $uint8,
     }),
     playerPosition: new Packet({
         playerId: $string(CONNECTION_ID_LENGTH),
@@ -338,6 +358,10 @@ export const encode = {
     playerSetShip: (player: PipPlayer) => packetManager.serializers.playerSetShip.encode({
         playerId: player.id,
         shipIndex: player.shipIndex,
+    }),
+    playerTeam: (player: PipPlayer) => packetManager.serializers.playerTeam.encode({
+        playerId: player.id,
+        team: encodeTeam(player.team),
     }),
     playerPosition: (player: PipPlayer) => packetManager.serializers.playerPosition.encode({
         playerId: player.id,

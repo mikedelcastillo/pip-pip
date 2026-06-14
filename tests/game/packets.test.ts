@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { packetManager } from "@pip-pip/game/src/networking/packets"
+import { packetManager, encodeTeam, decodeTeam, TEAM_WIRE_UNASSIGNED } from "@pip-pip/game/src/networking/packets"
 import { POWERUP_TYPE_TO_CODE, POWERUP_CODE_TO_TYPE } from "@pip-pip/game/src/logic/powerup"
 
 // These guard the wire format shared by client and server. A change to a packet's
@@ -11,6 +11,36 @@ describe("game packetManager wire format", () => {
             packetManager.encode("playerSetShip", { playerId: "ab", shipIndex: 5 }),
         )
         expect(decoded.playerSetShip?.[0]).toEqual({ playerId: "ab", shipIndex: 5 })
+    })
+
+    it("round-trips playerTeam for both real teams (string id + uint8)", () => {
+        const t0 = packetManager.decode(
+            packetManager.encode("playerTeam", { playerId: "ab", team: 0 }),
+        )
+        expect(t0.playerTeam?.[0]).toEqual({ playerId: "ab", team: 0 })
+
+        const t1 = packetManager.decode(
+            packetManager.encode("playerTeam", { playerId: "cd", team: 1 }),
+        )
+        expect(t1.playerTeam?.[0]).toEqual({ playerId: "cd", team: 1 })
+    })
+
+    it("maps the unassigned team (-1) to/from its wire sentinel (255)", () => {
+        // -1 cannot ride a uint8, so encodeTeam sends 255 and decodeTeam reverses
+        // it. Real teams pass straight through.
+        expect(encodeTeam(-1)).toBe(TEAM_WIRE_UNASSIGNED)
+        expect(encodeTeam(0)).toBe(0)
+        expect(encodeTeam(1)).toBe(1)
+        expect(decodeTeam(TEAM_WIRE_UNASSIGNED)).toBe(-1)
+        expect(decodeTeam(0)).toBe(0)
+        expect(decodeTeam(1)).toBe(1)
+
+        // Full wire round-trip of the sentinel through the packet itself.
+        const decoded = packetManager.decode(
+            packetManager.encode("playerTeam", { playerId: "ef", team: encodeTeam(-1) }),
+        )
+        expect(decoded.playerTeam?.[0]?.team).toBe(TEAM_WIRE_UNASSIGNED)
+        expect(decodeTeam(decoded.playerTeam?.[0]?.team ?? 0)).toBe(-1)
     })
 
     it("round-trips playerSpectate exactly (string id + bool)", () => {

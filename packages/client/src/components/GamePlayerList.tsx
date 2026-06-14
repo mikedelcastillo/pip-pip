@@ -3,6 +3,7 @@ import { PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { useGameStore, ticksToSeconds } from "../game/store"
 import type { GameStorePlayer } from "../game/store"
 import { shipAssets } from "../game/assets"
+import { isTeamMode, teamColor } from "../game/teams"
 import { GAME_CONTEXT } from "../game"
 import styles from "./GamePlayerList.module.sass"
 
@@ -50,9 +51,21 @@ function getRowClass(player: GameStorePlayer): string {
 export default function GamePlayerList() {
     const playersRaw = useGameStore((s) => s.players)
     const phase = useGameStore((s) => s.phase)
+    const mode = useGameStore((s) => s.mode)
+    // In a team mode, group the scoreboard by team first (team 0, then team 1,
+    // then any unassigned), keeping the normal score ordering inside each team.
+    const teamMode = isTeamMode(mode)
     const players = useMemo(
-        () => [...playersRaw].sort(comparePlayers),
-        [playersRaw],
+        () => [...playersRaw].sort((a, b) => {
+            if (teamMode && a.team !== b.team) {
+                // Sort real teams (0, 1) ahead of unassigned (-1).
+                const aKey = a.team < 0 ? Number.MAX_SAFE_INTEGER : a.team
+                const bKey = b.team < 0 ? Number.MAX_SAFE_INTEGER : b.team
+                return aKey - bKey
+            }
+            return comparePlayers(a, b)
+        }),
+        [playersRaw, teamMode],
     )
 
     // The respawn indicator is only meaningful mid-match; in setup/lobby no one
@@ -85,7 +98,12 @@ export default function GamePlayerList() {
                                 />
                             </td>
                             <td className={styles.name}>
-                                <span className={styles.text}>{player.name}</span>
+                                <span
+                                    className={styles.text}
+                                    style={teamMode && player.team >= 0 ? { color: teamColor(player.team) } : undefined}
+                                >
+                                    {player.name}
+                                </span>
                                 {player.isClient && (
                                     <span className={`${styles.tag} ${styles.you}`}>You</span>
                                 )}

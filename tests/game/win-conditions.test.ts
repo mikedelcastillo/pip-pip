@@ -148,6 +148,50 @@ describe("KILL_FRENZY win condition", () => {
     })
 })
 
+// Adding TEAM_DEATHMATCH must NOT change how the two free-for-all modes resolve.
+// These pin the existing behavior explicitly so a regression in the shared
+// checkWinCondition path shows up here.
+describe("free-for-all win conditions are unchanged by TEAM_DEATHMATCH", () => {
+    it("DEATHMATCH still ends on the first player to reach maxKills (single winner)", () => {
+        const game = makeAuthoritativeGame()
+        const winner = new PipPlayer(game, "AA")
+        const other = new PipPlayer(game, "BB")
+        startLiveMatch(game, { mode: PipPipGameMode.DEATHMATCH, maxKills: 6 })
+
+        // Two players share a team value, but DEATHMATCH leaves useTeams off, so
+        // team scoring never applies - the lone top scorer wins as before.
+        winner.team = 0
+        other.team = 0
+        other.score.kills = 5
+        winner.score.kills = 6
+
+        game.update()
+
+        expect(game.phase).toBe(PipPipGamePhase.RESULTS)
+        expect(game.winnerIds).toEqual(["AA"])
+    })
+
+    it("KILL_FRENZY still ignores maxKills and ends only on the clock", () => {
+        const game = makeAuthoritativeGame()
+        const a = new PipPlayer(game, "AA")
+        startLiveMatch(game, { mode: PipPipGameMode.KILL_FRENZY, maxKills: 5, matchMinutes: 1 })
+
+        // Far past the kill cap, but KILL_FRENZY never ends on kills.
+        a.score.kills = 50
+        game.update()
+        expect(game.phase).toBe(PipPipGamePhase.MATCH)
+
+        // It still ends when the clock runs out, with the top scorer winning.
+        const ticks = game.matchTimer + 1
+        for(let i = 0; i < ticks; i++){
+            if(game.phase !== PipPipGamePhase.MATCH) break
+            game.update()
+        }
+        expect(game.phase).toBe(PipPipGamePhase.RESULTS)
+        expect(game.winnerIds).toEqual(["AA"])
+    })
+})
+
 describe("non-authoritative client does not end matches", () => {
     it("never transitions to RESULTS on its own (no setScores/triggerPhases)", () => {
         // A client-style instance: none of the authoritative flags set.

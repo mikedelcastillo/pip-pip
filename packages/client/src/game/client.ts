@@ -2,7 +2,7 @@ import { Vector2 } from "@pip-pip/core/src/physics"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { POWERUP_CODE_TO_TYPE } from "@pip-pip/game/src/logic/powerup"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
-import { encode } from "@pip-pip/game/src/networking/packets"
+import { encode, decodeTeam } from "@pip-pip/game/src/networking/packets"
 import { GameContext, getClientPlayer } from "."
 import { useGameStore } from "./store"
 import { showAlert } from "../store/alert"
@@ -91,6 +91,13 @@ export const processPackets = (gameContext: GameContext) => {
         // Set player ship
         for (const { playerId, shipIndex } of packets.playerSetShip || []) {
             game.players[playerId]?.setShip(shipIndex)
+        }
+
+        // Set player team (TEAM_DEATHMATCH). The wire carries 255 for the
+        // unassigned team; decodeTeam maps it back to -1. Mirrors the server's
+        // assignment so the HUD + scoreboard show team colors and team scores.
+        for (const { playerId, team } of packets.playerTeam || []) {
+            game.players[playerId]?.setTeam(decodeTeam(team))
         }
 
         // Powerup spawned: create it locally (server-authoritative; the client
