@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { useGameStore, fraction } from "../game/store"
 import { useUiStore } from "../store/ui"
 import { Binding, keyMatchesBindings } from "../store/keybindings"
+import GameButton from "./GameButton"
 import GameChat from "./GameChat"
 import GamePlayerList from "./GamePlayerList"
 import PauseMenu from "./PauseMenu"
@@ -74,6 +75,13 @@ export default function GameOverlayMatch() {
     const [chatOpen, setChatOpen] = useState(false)
     const [chatPrefill, setChatPrefill] = useState("")
     const openChatBindings = useUiStore((s) => s.keyBindings.openChat)
+    const setShowLoadout = useUiStore((s) => s.setShowLoadout)
+
+    // Open the mid-match loadout screen so a spectator can pick a ship and Deploy
+    // back into the game. The player is already a spectator, so simply showing the
+    // overlay is enough; its Deploy button clears the spectator flag and the
+    // server's respawn loop spawns them in. This is the always-available way back.
+    const openLoadout = useCallback(() => setShowLoadout(true), [setShowLoadout])
 
     // Hide the chat again and hand focus back to the canvas (document.body) so
     // movement/fire keys register immediately after closing. Stable identity so
@@ -172,12 +180,26 @@ export default function GameOverlayMatch() {
                 </div>
             )}
 
-            {/* Spectating: no ship, so a banner replaces the combat HUD. */}
+            {/* Spectating: no ship, so a control panel replaces the combat HUD.
+                Placed at the BOTTOM of the screen so the gamemode objective meter
+                at the top never overlaps it. Shows who is being watched, the
+                cycle/free-roam hints, and an always-available Deploy button that
+                opens the loadout screen to get back into the game. pointer-events
+                are re-enabled on the panel so the Deploy button is clickable
+                through the otherwise click-through HUD. */}
             {spectating && (
-                <div className={styles.spectateBanner}>
-                    <span className={styles.label}>Spectating</span>
-                    <span className={styles.target}>{spectateTargetName || " - "}</span>
-                    <span className={styles.hint}>&larr; / &rarr; to switch</span>
+                <div className={styles.spectatePanel}>
+                    <div className={styles.spectateInfo}>
+                        <span className={styles.label}>Spectating</span>
+                        <span className={styles.target}>{spectateTargetName || " - "}</span>
+                    </div>
+                    <div className={styles.spectateHints}>
+                        <span className={styles.hint}>Space / &larr; / &rarr; switch player</span>
+                        <span className={styles.hint}>WASD free camera</span>
+                    </div>
+                    <GameButton onClick={openLoadout} className={styles.deployBtn}>
+                        Deploy
+                    </GameButton>
                 </div>
             )}
 

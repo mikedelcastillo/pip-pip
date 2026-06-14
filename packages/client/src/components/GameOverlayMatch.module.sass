@@ -257,21 +257,33 @@ $health-low: $color-bad
             height: 100%
             transition: width 120ms linear
 
-// ---- Spectator banner (top-center) ----
-.spectateBanner
+// ---- Spectator control panel (BOTTOM-center) ----
+// Moved to the bottom so the gamemode objective meter (ObjectiveMeter, top-center)
+// never overlaps the spectate labels/controls. The panel itself re-enables pointer
+// events so its Deploy button is clickable through the click-through HUD root.
+.spectatePanel
     position: absolute
-    top: $screen-margin-dynamic
     left: 50%
+    bottom: $screen-margin-dynamic
     transform: translateX(-50%)
-    z-index: 10
+    z-index: 20
+    pointer-events: auto
     display: flex
+    flex-direction: column
     align-items: center
-    gap: 0.6em
-    padding: 0.3em 0.8em
+    gap: 0.5em
+    padding: 0.6em 1em
+    max-width: calc(100% - #{$screen-margin-dynamic} * 2)
     background-color: $hud-panel
     border: $border-size solid $color-border
     border-radius: $border-radius
-    white-space: nowrap
+    text-align: center
+
+    .spectateInfo
+        display: flex
+        align-items: center
+        gap: 0.6em
+        white-space: nowrap
 
     .label
         color: $color-accent
@@ -281,9 +293,19 @@ $health-low: $color-bad
     .target
         color: $color-main
 
+    .spectateHints
+        display: flex
+        flex-wrap: wrap
+        align-items: center
+        justify-content: center
+        gap: 0.3em 0.8em
+
     .hint
         font-size: 0.7em
         color: transparentize($color-text, 0.3)
+
+    .deployBtn
+        margin-top: 0.1em
 
 // ---- Chat, top-left under the minimap ----
 // Hidden in-match until summoned (the openChat key or the touch button), so the

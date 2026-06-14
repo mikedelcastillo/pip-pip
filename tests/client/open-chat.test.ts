@@ -15,6 +15,7 @@ vi.mock("../../packages/client/src/game/store", () => ({
 }))
 // Each child is replaced with a trivial component double. The factory is inlined
 // (not a shared const) because vi.mock is hoisted above any module-level binding.
+vi.mock("../../packages/client/src/components/GameButton", () => ({ default: () => null }))
 vi.mock("../../packages/client/src/components/GameChat", () => ({ default: () => null }))
 vi.mock("../../packages/client/src/components/GamePlayerList", () => ({ default: () => null }))
 vi.mock("../../packages/client/src/components/PauseMenu", () => ({ default: () => null }))

@@ -413,4 +413,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 121| `fe5fc35`   | FIX A* nav over-blocked corridors (bots got stuck / drove into walls): cell-CENTRE sampling + correct clearance (ship radius + wall radius, was a full diameter) + finer cells (0.75x, was 1.75x wider than a corridor) | `git revert fe5fc35`|
 | 122| `92cadad`   | Bots seek + grab powerups (health when hurt, close buffs/ammo opportunistically) while still aiming at enemies | `git revert 92cadad`|
 | 123| `d6b1326`   | TDM team health-bar colors (teammate green / enemy red) + debug bot-path overlay (` toggles; client-side A* display of each bot's route + target) | `git revert d6b1326`|
-| 124| (latest)    | Harden bot nav: stuck detection + unstick escape (BFS to nearest open cell) + wall-avoidance nudge + escape when path unreachable, so bots stop wedging in pockets | `git revert <sha>` |
+| 124| `82da816`   | Harden bot nav: stuck detection + unstick escape (BFS to nearest open cell) + wall-avoidance nudge + escape when path unreachable, so bots stop wedging in pockets | `git revert 82da816`|
+| 125| (latest)    | Spectator controls: Space/Right/Left (+pad) cycle watched players, WASD free-roams the camera, bottom Deploy panel to return (fixes top objective overlap) | `git revert <sha>` |

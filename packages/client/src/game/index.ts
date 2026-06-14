@@ -26,6 +26,7 @@ import { processInputs } from "./ui"
 import { processChat } from "./chat"
 import { CACHE_NAME_KEY, sanitize } from "@pip-pip/game/src/logic/utils"
 import { AudioManager } from "./audio"
+import { nextSpectateTargetId, resolveSpectateTarget } from "./spectate"
 
 export class GameContext {
     game!: PipPipGame
@@ -47,6 +48,15 @@ export class GameContext {
     // (the chosen spectate target). Empty string means "no target chosen yet";
     // the renderer falls back to the first spawned non-spectator player.
     spectateTargetId = ""
+
+    // Free-roam camera: while spectating, pressing a move key (WASD) detaches the
+    // camera from the spectated player so it can be panned freely. `spectateFreeRoam`
+    // flips true on the first pan and back to false when the player re-locks onto a
+    // target by cycling (space / left / right). `spectateCamera` holds the free
+    // camera's world position; it is seeded from the renderer's current camera the
+    // moment free-roam begins so the pan starts exactly where the view already is.
+    spectateFreeRoam = false
+    spectateCamera = { x: 0, y: 0 }
 
     audio = new AudioManager()
     // The document-level audio-resume handler. Stored so unmountGameView can
@@ -404,6 +414,9 @@ export class GameContext {
         const player = this.getClientPlayer()
         if (typeof player === "undefined") return
         player.setSpectator(spectator)
+        // Deploying back into the game ends any free-roam pan, so the next time
+        // the player spectates the camera starts locked onto a target again.
+        if (spectator === false) this.spectateFreeRoam = false
         this.sendCode(encode.playerSpectate(player))
     }
 
@@ -456,33 +469,42 @@ export class GameContext {
 
     // Cycle the camera's spectate target among spawned non-spectator players,
     // in id order. `dir` is +1 (next) or -1 (previous). No-op if nobody is
-    // spawned to watch.
+    // spawned to watch. Cycling always re-locks the camera onto a player, so it
+    // also exits free-roam (the only way back from a free-panned camera).
     cycleSpectateTarget(dir: number) {
-        const targets = Object.values(this.game.players)
-            .filter((p) => p.spawned === true && p.spectator === false)
-            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-        if (targets.length === 0) {
-            this.spectateTargetId = ""
-            return
-        }
-        const current = targets.findIndex((p) => p.id === this.spectateTargetId)
-        const step = dir < 0 ? -1 : 1
-        const nextIndex = ((current + step) % targets.length + targets.length) % targets.length
-        this.spectateTargetId = targets[current === -1 ? 0 : nextIndex].id
+        this.spectateFreeRoam = false
+        this.spectateTargetId = nextSpectateTargetId(
+            Object.values(this.game.players),
+            this.spectateTargetId,
+            dir,
+        )
     }
 
     // The player the spectate camera should follow: the chosen target if it is
     // still spawned & not spectating, otherwise the first spawned non-spectator.
     getSpectateTarget(): PipPlayer | undefined {
-        const chosen = this.game.players[this.spectateTargetId]
-        if (typeof chosen !== "undefined" && chosen.spawned === true && chosen.spectator === false) {
-            return chosen
-        }
-        const fallback = Object.values(this.game.players)
-            .filter((p) => p.spawned === true && p.spectator === false)
-            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
-        if (typeof fallback !== "undefined") this.spectateTargetId = fallback.id
-        return fallback
+        const target = resolveSpectateTarget(Object.values(this.game.players), this.spectateTargetId)
+        if (typeof target !== "undefined") this.spectateTargetId = target.id
+        return target
+    }
+
+    // Begin free-roam at a given world position (the renderer seeds this with its
+    // current camera position so the pan starts where the view already is). A
+    // no-op if free-roam is already active, so the seed only happens once per
+    // detach and an ongoing pan is never yanked back to the followed player.
+    beginSpectateFreeRoam(x: number, y: number) {
+        if (this.spectateFreeRoam === true) return
+        this.spectateFreeRoam = true
+        this.spectateCamera.x = x
+        this.spectateCamera.y = y
+    }
+
+    // Pan the free-roam camera by a world-space delta. No-op unless free-roam is
+    // active, so a stray call while locked onto a target cannot move the camera.
+    panSpectateCamera(dx: number, dy: number) {
+        if (this.spectateFreeRoam === false) return
+        this.spectateCamera.x += dx
+        this.spectateCamera.y += dy
     }
 }
 

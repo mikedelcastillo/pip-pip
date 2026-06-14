@@ -14,6 +14,9 @@ export const KEYBINDINGS_KEY = "pip-pip:keybindings"
 // wiring lives in the game store and currently still reads Tab directly.
 // `openChat` opens the in-match chat input (the chat is hidden until then); it is
 // handled in GameOverlayMatch, NOT processInputs, so it never feeds the ship.
+// `spectateNext` / `spectatePrev` cycle which player the camera spectates while
+// dead/spectating; they share keys with movement/fire but only act while the
+// local player is a spectator (see processInputs), so normal play is untouched.
 export type GameAction =
     | "moveUp"
     | "moveDown"
@@ -24,6 +27,8 @@ export type GameAction =
     | "reload"
     | "scoreboard"
     | "openChat"
+    | "spectateNext"
+    | "spectatePrev"
 
 // Ordered list - the single source of truth for iteration (UI rows, validation,
 // merge). Keeping it explicit avoids relying on object key order.
@@ -37,6 +42,8 @@ export const GAME_ACTIONS: readonly GameAction[] = [
     "reload",
     "scoreboard",
     "openChat",
+    "spectateNext",
+    "spectatePrev",
 ] as const
 
 // Human-readable labels for the UI. Kept here (next to the action list) so the
@@ -51,6 +58,8 @@ export const ACTION_LABELS: Record<GameAction, string> = {
     reload: "Reload",
     scoreboard: "Scoreboard",
     openChat: "Open Chat",
+    spectateNext: "Spectate next",
+    spectatePrev: "Spectate previous",
 }
 
 // A single binding for an action. Three kinds, so one action can be triggered by
@@ -106,6 +115,12 @@ export const DEFAULT_KEYBINDINGS: KeyBindings = {
     reload: [keyBinding("KeyR")],
     scoreboard: [keyBinding("Tab")],
     openChat: [keyBinding("Slash"), keyBinding("KeyT")],
+    // While spectating, Space and Right cycle to the next watched player and
+    // Left to the previous. These share keys with fire/aim, but the spectate
+    // path only reads them while the local player is a spectator, so normal play
+    // is unaffected.
+    spectateNext: [keyBinding("Space"), keyBinding("ArrowRight")],
+    spectatePrev: [keyBinding("ArrowLeft")],
 }
 
 // Sensible gamepad defaults for a standard-mapping controller. Left stick drives
@@ -122,6 +137,8 @@ export const DEFAULT_GAMEPAD_BINDINGS: GamepadBindings = {
     reload: 2, // X / square
     scoreboard: 3, // Y / triangle
     openChat: -1, // no pad default: typing needs a keyboard / on-screen button
+    spectateNext: 5, // RB / R1: cycle to the next spectated player
+    spectatePrev: 4, // LB / L1: cycle to the previous spectated player
 }
 
 // Deep-clone a default binding list so callers never share the module's frozen

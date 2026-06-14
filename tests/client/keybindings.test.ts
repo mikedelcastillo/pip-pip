@@ -36,6 +36,11 @@ describe("DEFAULT_KEYBINDINGS", () => {
             reload: [{ kind: "key", code: "KeyR" }],
             scoreboard: [{ kind: "key", code: "Tab" }],
             openChat: [{ kind: "key", code: "Slash" }, { kind: "key", code: "KeyT" }],
+            // Spectate cycling: Space + Right go to the next watched player, Left
+            // to the previous. These deliberately reuse combat/aim keys because the
+            // spectate path only reads them while the local player is a spectator.
+            spectateNext: [{ kind: "key", code: "Space" }, { kind: "key", code: "ArrowRight" }],
+            spectatePrev: [{ kind: "key", code: "ArrowLeft" }],
         })
     })
 
@@ -224,8 +229,13 @@ describe("bindingId / bindingsEqual", () => {
 })
 
 describe("findDuplicateKeys", () => {
-    it("is empty when every binding is unique across actions", () => {
-        expect(findDuplicateKeys(DEFAULT_KEYBINDINGS).size).toBe(0)
+    it("flags only the intentional Space overlap in the defaults", () => {
+        // Space is deliberately shared by `fire` and `spectateNext` (the spectate
+        // keys reuse combat keys, gated on spectator state), so it is the one and
+        // only default duplicate. Nothing else collides across the defaults.
+        const dupes = findDuplicateKeys(DEFAULT_KEYBINDINGS)
+        expect(dupes.has("key:Space")).toBe(true)
+        expect(dupes.size).toBe(1)
     })
 
     it("reports a binding shared by two actions", () => {
@@ -244,6 +254,10 @@ describe("findDuplicateKeys", () => {
             fire: [keyBinding("Space"), keyBinding("Space")],
             // strip the mouse default off the other actions so nothing else collides
             tactical: [keyBinding("KeyQ")],
+            // spectateNext defaults to Space too, so drop it here to isolate the
+            // within-list dedup behavior under test (otherwise Space would legitimately
+            // collide across fire + spectateNext).
+            spectateNext: [keyBinding("ArrowRight")],
         }
         const dupes = findDuplicateKeys(keys)
         expect(dupes.has("key:Space")).toBe(false)

@@ -19,6 +19,17 @@ const WHEEL_THRESHOLD = 1
 // there is a single local client.
 const aimState = createAimState()
 
+// How fast the free-roam spectator camera pans, in world units per update tick,
+// at full stick/key deflection. Tuned to feel brisk without overshooting the map.
+const SPECTATE_PAN_SPEED = 18
+
+// Edge-detect the spectate cycle actions so each press cycles the target exactly
+// once (a held key does not rapid-cycle). Module-level: a single local client.
+const spectateCycleState = {
+    prevNext: false,
+    prevPrev: false,
+}
+
 export function processInputs(context: GameContext){
     const { mouse, keyboard, game } = context
     const clientPlayer = getClientPlayer(game)
@@ -60,6 +71,67 @@ export function processInputs(context: GameContext){
     if(actionActive("moveRight")) xInput += 1
 
     const hasKeyboardInput = xInput !== 0 || yInput !== 0
+
+    // SPECTATOR controls. A spectator has no ship, so their inputs never drive a
+    // ship; instead the same keys steer the camera. Space / Right cycle to the
+    // next watched player, Left to the previous (edge-detected so a held key does
+    // not rapid-cycle); WASD frees the camera into free-roam and pans it. This
+    // runs ONLY while the local player is a spectator, so normal play below is
+    // completely untouched. We return early afterwards: a spectator has no weapon,
+    // aim, or input stream to advance.
+    if(clientPlayer.spectator === true){
+        // Poll the pad up front so its left stick (free-roam) and cycle buttons
+        // are read this tick - the normal poll lives on the live-player path we
+        // skip below. Read the raw pad once and reuse it for both the poll and the
+        // cycle-button check.
+        const pad = readFirstGamepad()
+        pollGamepad(gamepadState, pad, {
+            fire: gamepadBindings.fire,
+            tactical: gamepadBindings.tactical,
+            reload: gamepadBindings.reload,
+        })
+
+        // Cycle the spectate target on a press of either bound key OR the bound
+        // pad button. Edge-detected (held does not rapid-cycle) and direction-keyed:
+        // spectateNext (Space / Right / RB) goes forward, spectatePrev (Left / LB)
+        // back. Cycling also exits free-roam (see cycleSpectateTarget).
+        const padDown = (index: number) =>
+            pad !== null && index >= 0 && index < pad.buttons.length && pad.buttons[index].pressed === true
+        const next = actionActive("spectateNext") || padDown(gamepadBindings.spectateNext)
+        const prev = actionActive("spectatePrev") || padDown(gamepadBindings.spectatePrev)
+        if(next && spectateCycleState.prevNext === false) context.cycleSpectateTarget(1)
+        if(prev && spectateCycleState.prevPrev === false) context.cycleSpectateTarget(-1)
+        spectateCycleState.prevNext = next
+        spectateCycleState.prevPrev = prev
+
+        // WASD (or a left-stick deflection) detaches the camera into free-roam and
+        // pans it. The renderer seeds beginSpectateFreeRoam with the live camera
+        // position, so the pan starts exactly where the view already is. A pad's
+        // left stick contributes the same way so a controller can free-roam too.
+        let panX = xInput, panY = yInput
+        if(gamepadState.active && gamepadState.moveActive){
+            panX += Math.cos(gamepadState.movementAngle) * gamepadState.movementAmount
+            panY += Math.sin(gamepadState.movementAngle) * gamepadState.movementAmount
+        }
+        if(touchState.active && touchState.moveActive){
+            panX += Math.cos(touchState.movementAngle) * touchState.movementAmount
+            panY += Math.sin(touchState.movementAngle) * touchState.movementAmount
+        }
+        const panMag = Math.hypot(panX, panY)
+        if(panMag > 0.001){
+            // Seed free-roam from the renderer's current camera so the detach is
+            // seamless, then pan. Clamp deflection so a diagonal is not faster.
+            const cam = context.renderer.camera.position
+            context.beginSpectateFreeRoam(cam.x, cam.y)
+            const scale = SPECTATE_PAN_SPEED / Math.max(1, panMag)
+            context.panSpectateCamera(panX * scale, panY * scale)
+        }
+
+        // A spectator never feeds a ship: clear any leftover movement intent and
+        // skip the weapon/aim/inputSeq machinery below.
+        clientPlayer.inputs.movementAmount = 0
+        return
+    }
 
     if(hasKeyboardInput){
         clientPlayer.inputs.movementAngle = Math.atan2(yInput, xInput)

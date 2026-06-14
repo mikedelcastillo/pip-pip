@@ -434,11 +434,6 @@ export class PipPipRenderer{
     private gameEventSubscriptions: Array<() => void> = []
     private destroyed = false
 
-    // Edge-detect arrow keys so each press cycles the spectate target exactly
-    // once (held keys do not rapid-cycle).
-    private prevSpectateLeft = false
-    private prevSpectateRight = false
-
     camera = {
         position: {
             x: 0, y: 0,
@@ -781,22 +776,29 @@ export class PipPipRenderer{
 
         // Resolve the camera follow target up front. Normally the local player
         // follows their own ship; a spectator (no ship of their own) follows a
-        // chosen spawned player instead. Cycling is handled below.
+        // chosen spawned player instead. Cycling + free-roam panning are driven by
+        // processInputs each update tick (see ui.ts), so the renderer only reads
+        // the resulting state here.
         const clientPlayer = gameContext.getClientPlayer()
         const isSpectating = typeof clientPlayer !== "undefined" && clientPlayer.spectator === true
 
-        if(isSpectating){
-            // Edge-triggered target cycling with the left/right arrow keys.
-            const left = gameContext.keyboard.state.ArrowLeft === true
-            const right = gameContext.keyboard.state.ArrowRight === true
-            if(left && this.prevSpectateLeft === false) gameContext.cycleSpectateTarget(-1)
-            if(right && this.prevSpectateRight === false) gameContext.cycleSpectateTarget(1)
-            this.prevSpectateLeft = left
-            this.prevSpectateRight = right
+        // A spectator who has freed the camera (WASD) follows nobody: the camera
+        // target is the free-roam position, panned by processInputs. Otherwise a
+        // spectator follows the chosen target, and a live player follows their own
+        // ship. Free-roam target is applied here so the smoothing below still eases
+        // the camera toward it rather than snapping.
+        const freeRoaming = isSpectating && gameContext.spectateFreeRoam === true
+        if(freeRoaming){
+            this.camera.target.x = gameContext.spectateCamera.x
+            this.camera.target.y = gameContext.spectateCamera.y
         }
 
-        // The player whose interpolated position the camera tracks this frame.
-        const followPlayer = isSpectating ? gameContext.getSpectateTarget() : clientPlayer
+        // The player whose interpolated position the camera tracks this frame. In
+        // free-roam there is no followed player (the target above already drives
+        // the camera), so it stays undefined.
+        const followPlayer = freeRoaming
+            ? undefined
+            : isSpectating ? gameContext.getSpectateTarget() : clientPlayer
 
         // update players
         const players = Object.values(this.players)
