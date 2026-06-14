@@ -52,6 +52,13 @@ export type GridMapData = {
     spawns: [number, number][],
     palette: TilePaletteEntry[],
     segments?: GridSegment[],
+    // Optional cell-space origin: cell (col, row) loads at world position
+    // ((col + originCol) * cellSize, (row + originRow) * cellSize). The migration
+    // sets these to the legacy map's min tile coords so converted maps sit at the
+    // EXACT world position they always did. Hand-authored (editor) maps omit them
+    // and default to 0.
+    originCol?: number,
+    originRow?: number,
 }
 
 // The diagonal palette shapes, for quick membership tests.
@@ -202,6 +209,16 @@ export class GridPipGameMap extends PipGameMap{
 
         const cellSize = source.cellSize
 
+        // World-origin offset (world units). Migrated maps carry their original
+        // (possibly negative) cell origin so the loaded map sits at the EXACT same
+        // world coordinates the legacy loader produced: the migration is then a
+        // true positional no-op, so a client running an older map build still
+        // agrees with the server on where walls + spawns are (avoiding ships that
+        // look like they spawned outside the map). New hand-authored maps omit it
+        // and default to 0.
+        const ox = (source.originCol ?? 0) * cellSize
+        const oy = (source.originRow ?? 0) * cellSize
+
         let minX = Infinity
         let maxX = -Infinity
         let minY = Infinity
@@ -217,8 +234,8 @@ export class GridPipGameMap extends PipGameMap{
         // SPAWNS: cell coordinates -> world spawn points (mirrors the legacy
         // loader, which scales tile coords by TILE_SIZE and uses SPAWN_DIAMETER).
         for(const [col, row] of source.spawns){
-            const x = col * cellSize
-            const y = row * cellSize
+            const x = col * cellSize + ox
+            const y = row * cellSize + oy
             this.spawns.push(new PointRadius(x, y, SPAWN_DIAMETER / 2))
             compare(x, y)
         }
@@ -231,8 +248,8 @@ export class GridPipGameMap extends PipGameMap{
             const wall = new PointPhysicsRectWall()
             // Cell (c,r) is centred on (c*cellSize, r*cellSize). The block spans
             // columns [col, col+width-1]; its centre column is col + (width-1)/2.
-            wall.center.x = (rect.col + (rect.width - 1) / 2) * cellSize
-            wall.center.y = (rect.row + (rect.height - 1) / 2) * cellSize
+            wall.center.x = (rect.col + (rect.width - 1) / 2) * cellSize + ox
+            wall.center.y = (rect.row + (rect.height - 1) / 2) * cellSize + oy
             wall.width = rect.width * cellSize
             wall.height = rect.height * cellSize
             this.rectWalls.push(wall)
@@ -249,8 +266,8 @@ export class GridPipGameMap extends PipGameMap{
                 const entry = paletteEntryAt(source, value)
                 if(typeof entry === "undefined") continue
 
-                const x = col * cellSize
-                const y = row * cellSize
+                const x = col * cellSize + ox
+                const y = row * cellSize + oy
                 const tile: PipGameTile = { x, y, texture: entry.key }
                 this.tiles.push(tile)
                 compare(x, y)
@@ -260,14 +277,14 @@ export class GridPipGameMap extends PipGameMap{
                     if(typeof ends !== "undefined"){
                         const seg = new PointPhysicsSegmentWall(
                             undefined,
-                            ends.startX, ends.startY, ends.endX, ends.endY,
+                            ends.startX + ox, ends.startY + oy, ends.endX + ox, ends.endY + oy,
                         )
                         // Match the legacy seg radius so diagonals collide with the
                         // same half-tile thickness the old segment walls used.
                         seg.radius = cellSize / 2
                         this.segWalls.push(seg)
-                        compare(ends.startX, ends.startY)
-                        compare(ends.endX, ends.endY)
+                        compare(ends.startX + ox, ends.startY + oy)
+                        compare(ends.endX + ox, ends.endY + oy)
                     }
                 }
             }
@@ -280,12 +297,12 @@ export class GridPipGameMap extends PipGameMap{
             for(const [sc, sr, ec, er] of source.segments){
                 const seg = new PointPhysicsSegmentWall(
                     undefined,
-                    sc * cellSize, sr * cellSize, ec * cellSize, er * cellSize,
+                    sc * cellSize + ox, sr * cellSize + oy, ec * cellSize + ox, er * cellSize + oy,
                 )
                 seg.radius = cellSize / 2
                 this.segWalls.push(seg)
-                compare(sc * cellSize, sr * cellSize)
-                compare(ec * cellSize, er * cellSize)
+                compare(sc * cellSize + ox, sr * cellSize + oy)
+                compare(ec * cellSize + ox, er * cellSize + oy)
             }
         }
 

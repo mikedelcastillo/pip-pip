@@ -118,5 +118,12 @@ export function convertJSONMapToGrid(name: string, source: JSONMapSource): GridM
         spawns,
         palette: DECO_PALETTE,
         segments,
+        // Carry the legacy origin so the loaded map sits at the EXACT world
+        // coordinates it did before (cell (col,row) -> world ((col+minCol)*TILE,
+        // (row+minRow)*TILE) = the original tile*TILE). This makes the migration a
+        // true positional no-op - critical so a client on an older build still
+        // agrees with the server on where the map is (no spawning "outside").
+        originCol: minCol,
+        originRow: minRow,
     }
 }
