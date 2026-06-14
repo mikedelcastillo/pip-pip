@@ -472,6 +472,12 @@ export interface GameStoreState {
     sync: () => void
 }
 
+// Monotonic id for kill/powerup feed entries, used PURELY as the React list key.
+// The old `Date.now() + feed.length` scheme collided once a feed hit its cap: the
+// slice pins length at MAX, so a same-millisecond batch (a multi-kill, or several
+// pickups in one tick) produced duplicate keys. A plain counter is always unique.
+let feedEntrySeq = 0
+
 export const useGameStore = create<GameStoreState>((set, get) => ({
     loading: false,
 
@@ -536,9 +542,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     clearChatMessages: () => set({ chatMessages: [], killFeed: [], powerupFeed: [] }),
     addKill: (killerName, killedName, killerShipIndex) => set((s) => {
         const entry: KillEntry = {
-            // Date.now() can collide within a tick, so disambiguate the React
-            // key with the current feed length.
-            id: Date.now() + s.killFeed.length,
+            id: feedEntrySeq++,
             killerName,
             killedName,
             killerShipIndex,
@@ -548,15 +552,22 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     }),
     addPowerupPickup: (playerId, playerName, type) => set((s) => {
         const entry: PowerupEntry = {
-            // Same Date.now()-collision guard as addKill: disambiguate the React
-            // key with the current feed length.
-            id: Date.now() + s.powerupFeed.length,
+            id: feedEntrySeq++,
             playerId,
             playerName,
             type,
             time: Date.now(),
         }
-        return { powerupFeed: [...s.powerupFeed, entry].slice(-POWERUP_FEED_MAX) }
+        // A timed buff has at most ONE live feed row per player: drop any prior
+        // entry for the same player+buff (an expired-but-not-yet-evicted one, or a
+        // refresh) before appending, so visibleTacticalPowerups - which keys the
+        // live remaining ticks on player+type - can never resurrect a stale row or
+        // show two identical countdowns. Instant pickups (health/ammo) are not
+        // deduped; each is its own transient line.
+        const base = isTimedBuff(type)
+            ? s.powerupFeed.filter((e) => !(e.playerId === playerId && e.type === type))
+            : s.powerupFeed
+        return { powerupFeed: [...base, entry].slice(-POWERUP_FEED_MAX) }
     }),
     addOutgoingMessage: (text) => set((s) => ({
         outgoingMessages: [...s.outgoingMessages, text.trim().substring(0, CHAT_MAX_MESSAGE_LENGTH)],

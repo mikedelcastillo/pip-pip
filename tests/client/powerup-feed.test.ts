@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import {
     PowerupEntry,
     BuffRemaining,
@@ -10,6 +10,7 @@ import {
     formatBuffTime,
     powerupLabel,
     powerupColor,
+    useGameStore,
 } from "../../packages/client/src/game/store"
 
 function makeEntry(overrides: Partial<PowerupEntry> = {}): PowerupEntry {
@@ -183,5 +184,37 @@ describe("visibleTacticalPowerups", () => {
 
     it("returns an empty array for an empty feed", () => {
         expect(visibleTacticalPowerups([], remaining, 10_000)).toEqual([])
+    })
+})
+
+describe("addPowerupPickup feed identity", () => {
+    beforeEach(() => {
+        useGameStore.setState({ powerupFeed: [] })
+    })
+
+    it("keeps only the latest entry for a player's repeated timed buff (no zombie row)", () => {
+        const { addPowerupPickup } = useGameStore.getState()
+        addPowerupPickup("AA", "Alice", "haste")
+        addPowerupPickup("AA", "Alice", "haste") // re-pickup / refresh
+
+        const aaHaste = useGameStore.getState().powerupFeed
+            .filter((e) => e.playerId === "AA" && e.type === "haste")
+        expect(aaHaste).toHaveLength(1)
+    })
+
+    it("keeps separate entries for different players and buff types", () => {
+        const { addPowerupPickup } = useGameStore.getState()
+        addPowerupPickup("AA", "Alice", "haste")
+        addPowerupPickup("BB", "Bob", "haste")
+        addPowerupPickup("AA", "Alice", "shield")
+        expect(useGameStore.getState().powerupFeed).toHaveLength(3)
+    })
+
+    it("gives every entry a unique id, even at the feed cap", () => {
+        const { addPowerupPickup } = useGameStore.getState()
+        // Instant pickups are NOT deduped, so 12 distinct ones exercise the cap.
+        for(let i = 0; i < 12; i++) addPowerupPickup("p" + i, "n", "health")
+        const ids = useGameStore.getState().powerupFeed.map((e) => e.id)
+        expect(new Set(ids).size).toBe(ids.length)
     })
 })
