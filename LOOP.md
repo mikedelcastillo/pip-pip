@@ -366,4 +366,6 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 74 | `b0497bb`   | FIX infinite respawn at match start (stranded-despawn + leftover timer) | `git revert b0497bb` |
 | 75 | `b93470c`   | Optional Google Analytics (GA4, gated by VITE_GA_MEASUREMENT_ID) | `git revert b93470c` |
 | 76 | `f0339e8`   | Remove redundant SFX toggle from home menu (in Settings) | `git revert f0339e8` |
-| 77 | (latest)    | FIX touch sticks never worked (HUD overlay ate the touches) | `git revert <sha>` |
+| 77 | `dbaae59`   | FIX touch sticks never worked (HUD overlay ate the touches) | `git revert dbaae59`|
+| 78 | `296a0c1`   | Branded asset-load retry screen (replaces native alert/prompt) | `git revert 296a0c1`|
+| 79 | (latest)    | Three new maps: Drift (open BR), Clash (TDM arena), Nexus (symmetric) + generator | `git revert <sha>` |

@@ -6,7 +6,7 @@ export type PipMapType = {
     name: string,
     texture: string,
     // Background colour for this map (0xRRGGBB). The client tints the canvas to
-    // it on setMap so each map has a distinct mood. Pure data — dark, on-theme
+    // it on setMap so each map has a distinct mood. Pure data: dark, on-theme
     // space hues.
     background: number,
     createMap: () => PipGameMap,
@@ -59,4 +59,32 @@ PIP_MAPS.push({
     texture: "default",
     background: 0x201510,
     createMap: () => new JSONPipGameMap("galaxy", GALAXY_MAP),
+})
+
+
+import DRIFT_MAP from "./drift.map.json"
+PIP_MAPS.push({
+    id: "drift",
+    name: "Drift",
+    texture: "default",
+    background: 0x0E1518,
+    createMap: () => new JSONPipGameMap("drift", DRIFT_MAP),
+})
+
+import CLASH_MAP from "./clash.map.json"
+PIP_MAPS.push({
+    id: "clash",
+    name: "Clash",
+    texture: "default",
+    background: 0x1A0F0F,
+    createMap: () => new JSONPipGameMap("clash", CLASH_MAP),
+})
+
+import NEXUS_MAP from "./nexus.map.json"
+PIP_MAPS.push({
+    id: "nexus",
+    name: "Nexus",
+    texture: "default",
+    background: 0x12081C,
+    createMap: () => new JSONPipGameMap("nexus", NEXUS_MAP),
 })
