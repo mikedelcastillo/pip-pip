@@ -324,4 +324,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 45 | `2e1d903`   | Opt-in CRT graphics toggle (Settings, persisted)  | `git revert 2e1d903`|
 | 46 | `576f962`   | Fix H2 player-snap distance typo (vertical jumps) | `git revert 576f962`|
 | 47 | `766f7b2`   | Harden $string to fixed byte width (M6, C1 class) | `git revert 766f7b2`|
-| 48 | (latest)    | Fix client prediction/reconciliation (mid-join + respawn offset) | `git revert <sha>` |
+| 48 | `1882b8d`   | Fix client prediction/reconciliation (mid-join + respawn offset) | `git revert 1882b8d` |
+| 49 | (latest)    | Playwright e2e harness (mobile-touch + desktop-click)   | `git revert <sha>` |

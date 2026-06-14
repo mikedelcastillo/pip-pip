@@ -109,3 +109,8 @@ packages/client/src/**/*.js.map
 
 # Review-only preview artifacts (regenerable)
 assets/*preview*
+
+# Playwright e2e output
+test-results/
+playwright-report/
+.playwright/
