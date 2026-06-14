@@ -1,68 +1,304 @@
 @import "../styles/variables"
 
-.toolbar
+// Translucent panel fills, matching the new lobby screen's visual language
+// (GameOverlaySetup): dark see-through panels with an amber accent stripe.
+$row-bg: transparentize($color-dark-3, 0.25)
+$row-bg-hover: transparentize($color-dark-3, 0.05)
+$panel-bg: transparentize($color-dark-1, 0.15)
+
+@keyframes browserRowIn
+    from
+        opacity: 0
+        transform: translateY(6px)
+    to
+        opacity: 1
+        transform: translateY(0)
+
+@keyframes loaderPulse
+    0%, 80%, 100%
+        opacity: 0.25
+        transform: scale(0.7)
+    40%
+        opacity: 1
+        transform: scale(1)
+
+.browser
     display: flex
-    justify-content: flex-end
+    flex-direction: column
+    // Roomy on desktop, but never force the modal wider than a narrow phone;
+    // rows truncate their text instead of overflowing. min-height lets the inner
+    // list own the vertical scroll inside the modal body.
+    width: min(26em, 100%)
+    min-height: 0
+
+// ---- Toolbar: live open-match tally on the left, Refresh on the right ----
+.toolbar
+    flex: 0 0 auto
+    display: flex
+    align-items: center
+    justify-content: space-between
+    gap: 0.8em
     padding-bottom: 0.6em
 
-.message
-    text-align: center
-    color: $color-text
-    opacity: 0.8
-    padding: 1.2em 0
+.tally
+    display: flex
+    align-items: baseline
+    gap: 0.35em
+    min-width: 0
+    // The tally font tracks the modal body size; keep it from crowding Refresh.
+    overflow: hidden
 
+    .tallyNum
+        font-size: 1.4em
+        line-height: 1
+        color: $color-main
+
+    .tallyLabel
+        font-size: 0.85em
+        line-height: 1
+        color: transparentize($color-text, 0.4)
+        white-space: nowrap
+
+    .tallyDim
+        font-size: 0.85em
+        line-height: 1
+        color: transparentize($color-text, 0.5)
+
+// ---- Match list ----
 .list
-    display: grid
+    display: flex
+    flex-direction: column
     gap: 0.4em
-    // Prefer a roomy 18em on desktop, but never force the modal wider than the
-    // phone screen — the rows truncate their text instead of overflowing.
-    width: min(18em, 100%)
+    // Scroll the list inside the modal body on a tall screen; the toolbar stays
+    // pinned above it. A capped height keeps the modal from outgrowing a phone.
+    min-height: 0
+    max-height: min(60vh, 28em)
+    overflow-y: auto
+    overflow-x: hidden
+    // Thin, on-brand scrollbar (CS2/Krunker density cue).
+    scrollbar-width: thin
+    scrollbar-color: $color-accent transparent
+    // A little right padding so rows don't sit flush against the scrollbar.
+    padding-right: 0.15em
 
+    &::-webkit-scrollbar
+        width: 0.4em
+
+    &::-webkit-scrollbar-track
+        background: transparent
+
+    &::-webkit-scrollbar-thumb
+        background-color: transparentize($color-accent, 0.35)
+        border-radius: $border-radius
+
+// ---- A single match row (the whole row is the tap target) ----
 .row
+    // Reset the native <button> so it inherits the page font/colour and lays out
+    // like the old <div> row (see GameButton for the same reset rationale).
+    background: none
+    border: 0
+    font: inherit
+    color: inherit
+    text-align: inherit
+    -webkit-appearance: none
+    appearance: none
+
     cursor: pointer
     display: flex
     align-items: center
     justify-content: space-between
-    gap: 1em
-    padding: 0.4em 0.6em
-    background-color: $color-dark-3
+    gap: 0.8em
+    // Generous vertical padding keeps the whole row a comfortable touch target
+    // (well above the 44px platform minimum) on a phone.
+    padding: 0.55em 0.7em
+    min-height: 44px
+    background-color: $row-bg
     border: $border-size solid $color-border
+    // Amber accent stripe down the left edge, the lobby screen's HUD cue.
+    border-left: 4px solid transparentize($color-main, 0.45)
     border-radius: $border-radius
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
+    animation: browserRowIn 200ms ease-out both
+    transition: transform 90ms ease-out, border-color 90ms ease-out, background-color 90ms ease-out
 
-    &:hover
+    // Pointer devices get a subtle hover lift + brightened accent; touch devices
+    // fall through to :active so they still get press feedback.
+    @media (hover: hover)
+        &:hover
+            background-color: $row-bg-hover
+            border-color: $color-border
+            border-left-color: $color-main
+            transform: translateY(-1px)
+
+    // Keyboard focus mirrors hover so the row is reachable by Tab + Enter.
+    &:focus-visible
+        outline: none
         border-color: $color-accent
+        border-left-color: $color-main
+
+    &:active
+        transform: translateY(1px)
+        background-color: $row-bg-hover
+        border-left-color: $color-main
 
     .info
-        overflow: hidden
         // Allow the flex item to shrink below its content width so the name/meta
-        // ellipsis actually kicks in on a narrow phone instead of overflowing.
+        // ellipsis kicks in on a narrow phone instead of overflowing.
         min-width: 0
+        overflow: hidden
 
         .name
             color: $color-main
-            line-height: 1.1
+            font-size: 1.05em
+            line-height: 1.15
             white-space: nowrap
             overflow: hidden
             text-overflow: ellipsis
 
         .meta
-            color: $color-text
-            opacity: 0.7
+            display: flex
+            align-items: center
+            color: transparentize($color-text, 0.35)
             font-size: 0.7em
-            line-height: 1.2
+            line-height: 1.3
             white-space: nowrap
             overflow: hidden
-            text-overflow: ellipsis
+
+            .host
+                color: transparentize($color-text, 0.2)
+                overflow: hidden
+                text-overflow: ellipsis
+                // Cap the host name so a long name can't crowd out the map label.
+                flex: 0 1 auto
+                min-width: 0
+
+            .map
+                color: $color-accent
+                overflow: hidden
+                text-overflow: ellipsis
+                flex: 0 1 auto
+                min-width: 0
 
             .dot
-                padding: 0 0.4em
+                flex: 0 0 auto
+                padding: 0 0.45em
+                color: transparentize($color-text, 0.6)
 
     .right
         display: flex
         align-items: center
-        gap: 0.6em
+        gap: 0.7em
         flex-shrink: 0
 
-        .count
-            color: $color-text
-            line-height: 1
+// ---- Players badge: "3 / 8" with a fill bar, coloured by fullness ----
+.badge
+    display: flex
+    flex-direction: column
+    align-items: stretch
+    gap: 0.25em
+    min-width: 3.4em
+    padding: 0.15em 0.4em
+    background-color: transparentize($color-dark-1, 0.25)
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+
+    .badgeCount
+        font-size: 0.95em
+        line-height: 1
+        text-align: center
+        white-space: nowrap
+
+    .badgeBar
+        display: block
+        height: 0.25em
+        background-color: transparentize($color-text, 0.85)
+        border-radius: $border-radius
+        overflow: hidden
+
+        .badgeBarFill
+            display: block
+            height: 100%
+            border-radius: $border-radius
+            transition: width 200ms ease-out
+
+    // Open lobbies read amber (inviting); busy ones warm; full ones go red and
+    // the count dims so a player's eye skips them.
+    &[data-state="open"]
+        .badgeCount
+            color: $color-main
+        .badgeBarFill
+            background-color: $color-main
+
+    &[data-state="busy"]
+        border-color: transparentize($color-main, 0.3)
+        .badgeCount
+            color: $color-main-darker
+        .badgeBarFill
+            background-color: $color-main-darker
+
+    &[data-state="full"]
+        border-color: transparentize($color-bad, 0.4)
+        .badgeCount
+            color: transparentize($color-text, 0.45)
+        .badgeBarFill
+            background-color: $color-bad
+
+// ---- Desktop Join hint (secondary; the whole row is already tappable) ----
+.joinHint
+    flex: 0 0 auto
+    min-width: 3em
+    padding: 0.1em 0.55em
+    text-align: center
+    font-size: 0.95em
+    line-height: 1.4
+    color: $color-dark-3
+    background-color: $color-main
+    border-radius: $border-radius
+
+    // On a narrow phone the whole row taps, so drop the redundant hint to give
+    // the name and badge all the width they need.
+    @media (max-width: 26em)
+        display: none
+
+// ---- Loading / empty / error states ----
+.state
+    display: flex
+    flex-direction: column
+    align-items: center
+    gap: 0.5em
+    padding: 1.6em 1em
+    text-align: center
+    background-color: $panel-bg
+    border: $border-size solid $color-border
+    border-left: 4px solid transparentize($color-main, 0.45)
+    border-radius: $border-radius
+
+    .stateTitle
+        font-size: 1.3em
+        line-height: 1
+        color: $color-main
+
+    .stateText
+        font-size: 0.9em
+        line-height: 1.25
+        color: transparentize($color-text, 0.3)
+
+.loader
+    display: flex
+    align-items: center
+    gap: 0.4em
+    padding-bottom: 0.2em
+
+    span
+        width: 0.5em
+        height: 0.5em
+        border-radius: 50%
+        background-color: $color-main
+        animation: loaderPulse 1.1s ease-in-out infinite
+
+        &:nth-child(2)
+            animation-delay: 0.15s
+
+        &:nth-child(3)
+            animation-delay: 0.3s
