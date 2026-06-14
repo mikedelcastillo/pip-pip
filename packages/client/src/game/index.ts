@@ -1,6 +1,7 @@
 import type { NavigateFunction } from "react-router-dom"
 import { useGameStore } from "./store"
 import { useUiStore } from "../store/ui"
+import { showAlert } from "../store/alert"
 import { PipPipGame, PipPipGamePhase, PipPipGameMode } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { KeyboardListener } from "@pip-pip/core/src/client/keyboard"
@@ -375,7 +376,7 @@ export async function hostGame(navigate: NavigateFunction) {
         navigate(`/${lobby.lobbyId}`)
     } catch (e) {
         console.warn(e)
-        alert("Could not host a game!")
+        showAlert("Could not host a game!", "Could not host")
     }
     setLoading(false, "")
 }

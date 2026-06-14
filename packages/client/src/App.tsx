@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { RouterProvider } from "react-router-dom"
 import GameLoading from "./components/GameLoading"
 import AssetLoadError from "./components/AssetLoadError"
+import AlertModal from "./components/AlertModal"
 import { assetLoader } from "./game/assets"
 import { useUiStore } from "./store/ui"
 import { router } from "./router"
@@ -44,5 +45,6 @@ export default function App() {
         {loadedAssets && <RouterProvider router={router} future={{ v7_startTransition: true }} />}
         {loadError && <AssetLoadError onRetry={retry} />}
         <GameLoading />
+        <AlertModal />
     </>
 }

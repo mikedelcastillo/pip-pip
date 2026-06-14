@@ -4,6 +4,7 @@ import { CACHE_NAME_KEY } from "@pip-pip/game/src/logic/utils"
 import { PipPipGameMode } from "@pip-pip/game/src/logic"
 import { GAME_CONTEXT } from "../game"
 import { useUiStore } from "../store/ui"
+import { showAlert } from "../store/alert"
 import Modal from "./Modal"
 import GameButton from "./GameButton"
 import GameInput from "./GameInput"
@@ -81,7 +82,7 @@ export default function HostSettingsModal({ onClose }: Props) {
             navigate(`/${lobby.lobbyId}`)
         } catch (e) {
             console.warn(e)
-            alert("Could not host a game!")
+            showAlert("Could not host a game!", "Could not host")
         }
         setLoading(false, "")
     }
