@@ -53,6 +53,23 @@ body, html
     width: 100%
     height: 100%
 
+// Controller / keyboard focus ring. Amber, on-brand, and unmistakable on a TV.
+// Scoped to :focus-visible so it only appears for keyboard/controller focus and
+// never draws an ugly outline around a control a mouse user just clicked. The
+// .gamepad-nav-focus class is stamped by the gamepad-nav service so the ring also
+// shows on engines whose :focus-visible heuristics skip programmatic .focus().
+// Covers real buttons AND the role=button ship/map cards (any focusable control).
+\:focus-visible,
+.gamepad-nav-focus
+    outline: 3px solid $color-main
+    outline-offset: 2px
+    border-radius: $border-radius
+
+// Never show the ring for a plain mouse :focus (only :focus-visible / the nav
+// class do), so click users are unaffected.
+\:focus:not(:focus-visible):not(.gamepad-nav-focus)
+    outline: none
+
 .center-container
     width: 100%
     // Fill the viewport but allow growth: when the content is taller than the

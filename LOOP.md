@@ -392,4 +392,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 100| `fdccbbb`   | Multi-kill banners (Double/Triple/Multi/Monster Kill) for the local player | `git revert fdccbbb`|
 | 101| `635b86b`   | End-of-match top-3 podium + MVP on the results screen | `git revert 635b86b`|
 | 102| `f671ae8`   | Rapid Fire powerup: timed buff that speeds up weapon fire (networked) | `git revert f671ae8`|
-| 103| (latest)    | A suicide counts as a death only (no kill, no damage-dealt credit, no kill feed) | `git revert <sha>` |
+| 103| `a133d7b`   | A suicide counts as a death only (no kill, no damage-dealt credit, no kill feed) | `git revert a133d7b`|
+| 104| (latest)    | Gamepad UI navigation (focus all buttons/cards/menus with a controller) + focus ring | `git revert <sha>` |

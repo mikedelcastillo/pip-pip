@@ -60,6 +60,20 @@ export default function ShipSelect({ allowInMatch = false }: { allowInMatch?: bo
                             key={ship.id}
                             className={cardClasses.join(" ")}
                             onClick={() => select(index)}
+                            // Keyboard + controller reachable: a real focus target
+                            // with a button role and label, activated on Enter/Space
+                            // (Space's default page-scroll is prevented). The
+                            // existing onClick still handles mouse/touch.
+                            role="button"
+                            tabIndex={enabled ? 0 : -1}
+                            aria-label={`Select ${ship.name}`}
+                            aria-pressed={index === activeIndex}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                    if (e.key === " ") e.preventDefault()
+                                    select(index)
+                                }
+                            }}
                         >
                             <div className={styles.preview}>
                                 <img src={shipAssets[ship.texture as keyof typeof shipAssets]} alt={ship.name} />

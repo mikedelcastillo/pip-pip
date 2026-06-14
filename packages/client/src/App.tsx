@@ -6,7 +6,9 @@ import AlertModal from "./components/AlertModal"
 import { assetLoader } from "./game/assets"
 import { GAME_CONTEXT } from "./game"
 import { shouldPlayClickFor } from "./game/audio"
+import { createGamepadNav } from "./game/gamepadNav"
 import { useUiStore } from "./store/ui"
+import { useGameStore } from "./game/store"
 import { router } from "./router"
 
 export default function App() {
@@ -67,6 +69,22 @@ export default function App() {
         })()
         return () => { cancelled = true }
     }, [setLoading, retryToken])
+
+    // Gamepad UI navigation. A self-contained service polls the controller on an
+    // animation-frame loop and drives UI focus (move/activate/back) whenever the
+    // player is NOT in active in-match gameplay (a modal is open, the phase is not
+    // MATCH, or there is no live game container). During a live match with no
+    // modal open it stays out of the way so the gameplay controls in processInputs
+    // own the stick and buttons. Phase is read live from the game store; the
+    // service caches nothing across the gate so a phase change is picked up at
+    // once. Started on mount, stopped on unmount.
+    useEffect(() => {
+        const nav = createGamepadNav({
+            getPhase: () => useGameStore.getState().phase,
+        })
+        nav.start()
+        return () => nav.stop()
+    }, [])
 
     const retry = useCallback(() => setRetryToken((n) => n + 1), [])
 

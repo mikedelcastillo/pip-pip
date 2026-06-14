@@ -6,7 +6,7 @@ import MapPreview from "./MapPreview"
 import styles from "./MapSelect.module.sass"
 
 // A cheap, read-only preview digest for each map. We instantiate each map once
-// (throwaway, never added to the world) to read its wall counts — mirroring how
+// (throwaway, never added to the world) to read its wall counts, mirroring how
 // ShipSelect builds its stat lines from a preview ship. No hardcoded numbers.
 function getMapPreviews(): number[] {
     return PIP_MAPS.map((mapType) => {
@@ -40,6 +40,21 @@ export default function MapSelect() {
                             key={mapType.id}
                             className={cardClasses.join(" ")}
                             onClick={() => select(index)}
+                            // Keyboard + controller reachable: a real focus target
+                            // with a button role and label, activated on Enter/Space
+                            // (Space's default page-scroll is prevented). The
+                            // existing onClick still handles mouse/touch. Only the
+                            // host can change the map, so non-hosts are not tabbable.
+                            role="button"
+                            tabIndex={isHost ? 0 : -1}
+                            aria-label={`Select map ${mapType.name}`}
+                            aria-pressed={index === activeIndex}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                    if (e.key === " ") e.preventDefault()
+                                    select(index)
+                                }
+                            }}
                         >
                             <div className={styles.preview}>
                                 <MapPreview mapType={mapType} />
