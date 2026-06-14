@@ -1,6 +1,6 @@
 import { PointPhysicsRectWall, PointPhysicsSegmentWall } from "@pip-pip/core/src/physics"
 import { distancePointToSegment, segmentsIntersect } from "@pip-pip/core/src/math"
-import { SHIP_DAIMETER } from "./constants"
+import { SHIP_DAIMETER, TILE_SIZE } from "./constants"
 import { PipGameMap, PipGameMapBounds } from "./map"
 
 // Coarse navigation grid + line-of-sight + A* used by the bot brain to route
@@ -11,28 +11,21 @@ import { PipGameMap, PipGameMapBounds } from "./map"
 // every few ticks - never per tick - so this LOWERS server CPU compared with a
 // per-tick straight-line chase that drives bots into walls.
 
-// The nav-grid cell size as a multiple of the ship DIAMETER. It MUST be smaller
-// than a real corridor so a corridor has open cells to route through: at ~0.75x
-// (cell < ship diameter < a 1-tile gap) the grid can represent the gaps the ship
-// actually fits, while staying coarse enough that A* is cheap. (Was 1.75x, which
-// made cells WIDER than a 1-tile corridor, so every corridor read as blocked and
-// bots could never path - they drove straight into walls.)
-export const NAV_CELL_DIAMETER_FACTOR = 0.75
-
 // Extra clearance (in ship radii) beyond the bare ship radius kept between a
 // routed cell and a wall. A cell is blocked when its CENTRE comes within
-// shipRadius*(1 + this) + the wall's radius. A small buffer keeps the bot off the
-// surface without closing the ~1-tile gaps it can fit. (Was 1, i.e. a FULL ship
-// diameter of clearance, which closed every normal corridor.)
-export const NAV_WALL_MARGIN_FACTOR = 0.1
+// shipRadius*(1 + this) + the wall's radius. 0 = exactly one ship radius: any
+// MORE clearance and a 1-tile corridor (gap = TILE_SIZE, the ship just fits)
+// reads as blocked, since the corridor cell centre sits TILE_SIZE from the
+// flanking wall spines and shipRadius + wallRadius already nearly equals that.
+export const NAV_WALL_MARGIN_FACTOR = 0
 
-// Hard cap on the total number of nav-grid cells. A real map fits comfortably
-// under this, but a degenerate or test arena with enormous bounds would
-// otherwise allocate millions of cells (and a per-cell wall scan) on the build.
-// When the requested cell size would exceed this budget, buildNavGrid grows the
-// cell size so cols*rows stays at/under the cap - the grid just gets coarser,
-// which only makes A* cheaper. Bounds the one-time build cost.
-export const NAV_MAX_CELLS = 4096
+// Hard cap on the total number of nav-grid cells. The nav grid is TILE-aligned
+// (one cell per map tile), so this must comfortably hold a large tile map: 65536
+// = up to a 256x256 tile map at full resolution. The grid is built ONCE per map
+// and cached, so a high cap only costs a single (bounded) build. Past the cap
+// buildNavGrid coarsens the cell size (which breaks tile alignment), so it is set
+// high enough that no real map ever hits it.
+export const NAV_MAX_CELLS = 65536
 
 // A waypoint in world coordinates (a cell centre on the routed path).
 export type NavPoint = {
@@ -62,9 +55,15 @@ function pointToBoxDistance(
     return Math.sqrt(dx * dx + dy * dy)
 }
 
-// The default cell size for a ship of diameter SHIP_DAIMETER.
+// The default nav cell size: ONE MAP TILE (TILE_SIZE). The map is a grid of
+// tiles and the bounds start at a half-tile offset, so a TILE_SIZE grid lands
+// each cell CENTRE exactly on a tile centre - a wall tile becomes a blocked
+// cell, a corridor tile an open cell. This is what finally makes 1-tile-wide
+// corridors navigable: an off-tile-aligned grid (the old ship-relative cell
+// size) put every cell centre near a wall, so no corridor cell was ever open
+// and bots could not route through a maze.
 export function defaultNavCellSize(){
-    return SHIP_DAIMETER * NAV_CELL_DIAMETER_FACTOR
+    return TILE_SIZE
 }
 
 // The default clearance margin (ship radius + wall margin) used when marking a

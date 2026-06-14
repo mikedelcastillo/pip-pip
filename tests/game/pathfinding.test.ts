@@ -41,6 +41,52 @@ function seg(sx: number, sy: number, ex: number, ey: number, radius = 25){
     return wall
 }
 
+// One map tile is 72 world units; a wall segment's half-thickness is TILE/2 = 36.
+// A 1-tile-wide corridor is therefore exactly a ship-fits-just gap, and the
+// regression below pins that the (tile-aligned) default grid keeps it OPEN.
+const TILE = 72
+
+describe("tile-aligned nav grid (1-tile corridors are navigable)", () => {
+    // Bounds whose min sits at a half-tile offset, exactly like a real map, so a
+    // TILE-sized default grid lands each cell centre on a tile centre.
+    const corridorBounds: PipGameMapBounds = {
+        min: { x: -TILE / 2, y: -TILE / 2 },
+        max: { x: 4 * TILE - TILE / 2, y: 6 * TILE - TILE / 2 },
+    }
+    // Two vertical walls one tile apart (spines at tile 0 and tile 2), leaving a
+    // 1-tile corridor at tile 1 (world x = 72). Radius TILE/2 like the real maps.
+    const walls = [
+        seg(0, -TILE, 0, 6 * TILE, TILE / 2),
+        seg(2 * TILE, -TILE, 2 * TILE, 6 * TILE, TILE / 2),
+    ]
+
+    it("opens the corridor cell and blocks the wall cells (default cell size)", () => {
+        const grid = buildNavGrid(corridorBounds, [], walls)
+        // Default grid is one cell per tile.
+        expect(grid.cellSize).toBe(TILE)
+        // The corridor tile (world x = 72) is OPEN: a ship centred there clears
+        // both flanking walls.
+        const corridor = worldToCell(grid, TILE, 2 * TILE)
+        expect(isCellOpen(grid, corridor.col, corridor.row)).toBe(true)
+        // The wall tiles (x = 0 and x = 144) are BLOCKED.
+        const leftWall = worldToCell(grid, 0, 2 * TILE)
+        const rightWall = worldToCell(grid, 2 * TILE, 2 * TILE)
+        expect(isCellOpen(grid, leftWall.col, leftWall.row)).toBe(false)
+        expect(isCellOpen(grid, rightWall.col, rightWall.row)).toBe(false)
+    })
+
+    it("finds a path ALONG a 1-tile corridor (top to bottom)", () => {
+        const grid = buildNavGrid(corridorBounds, [], walls)
+        const path = findPath(grid, TILE, 0, TILE, 5 * TILE, [], walls)
+        expect(path.length).toBeGreaterThan(0)
+        // Every waypoint stays in the open corridor column (never inside a wall).
+        for(const wp of path){
+            const cell = worldToCell(grid, wp.x, wp.y)
+            expect(isCellOpen(grid, cell.col, cell.row)).toBe(true)
+        }
+    })
+})
+
 describe("nav grid", () => {
     it("marks cells overlapping a wall blocked and open cells open", () => {
         // One big rect wall sitting in the centre of the arena.
