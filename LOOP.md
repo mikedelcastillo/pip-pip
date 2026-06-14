@@ -347,4 +347,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 55 | `ae9d305`   | Tactical keybind Q/E (+ controls help)                  | `git revert ae9d305` |
 | 56 | `6aad0bc`   | Invisibility (cloak) power-up (timed buff)              | `git revert 6aad0bc` |
 | 57 | `d84027c`   | Map preview thumbnails in the map selector             | `git revert d84027c` |
-| 58 | (latest)    | Host hand-off to active player + disconnect anti-farm  | `git revert <sha>` |
+| 58 | `131826c`   | Host hand-off to active player + disconnect anti-farm  | `git revert 131826c` |
+| 59 | (latest)    | Graceful "Lobby Not Found" modal (replaces alert)      | `git revert <sha>` |
