@@ -4,9 +4,8 @@ import {
     EditorStorage,
     EDITOR_PALETTE,
     EDITOR_STORAGE_KEY,
-    MIN_GRID,
-    MAX_GRID,
-    clampGrid,
+    cellKey,
+    parseCellKey,
     paletteValueForBrush,
     paletteValueForShape,
     autoSlopeShape,
@@ -33,12 +32,11 @@ function fakeStorage(): EditorStorage & { map: Map<string, string> }{
     }
 }
 
-describe("clampGrid", () => {
-    it("clamps below/above the allowed range and floors fractions", () => {
-        expect(clampGrid(1)).toBe(MIN_GRID)
-        expect(clampGrid(9999)).toBe(MAX_GRID)
-        expect(clampGrid(12.9)).toBe(12)
-        expect(clampGrid(Number.NaN)).toBe(MIN_GRID)
+describe("cellKey / parseCellKey", () => {
+    it("round-trips arbitrary (including negative and far) coordinates", () => {
+        expect(parseCellKey(cellKey(0, 0))).toEqual([0, 0])
+        expect(parseCellKey(cellKey(-7, 3))).toEqual([-7, 3])
+        expect(parseCellKey(cellKey(1000, -2000))).toEqual([1000, -2000])
     })
 })
 
@@ -59,9 +57,9 @@ describe("paletteValueForBrush", () => {
     })
 })
 
-describe("EditorMap painting", () => {
+describe("EditorMap painting (unbounded, sparse)", () => {
     it("paints a tile and reports a change only when the value differs", () => {
-        const map = new EditorMap(8, 8)
+        const map = new EditorMap()
         expect(map.tileAt(2, 3)).toBe(0)
         expect(map.setCell(2, 3, "full")).toBe(true)
         expect(map.tileAt(2, 3)).toBe(paletteValueForBrush("full"))
@@ -70,79 +68,146 @@ describe("EditorMap painting", () => {
     })
 
     it("erases with the empty brush", () => {
-        const map = new EditorMap(8, 8)
+        const map = new EditorMap()
         map.setCell(1, 1, "diag_tl")
         expect(map.tileAt(1, 1)).not.toBe(0)
         expect(map.setCell(1, 1, "empty")).toBe(true)
         expect(map.tileAt(1, 1)).toBe(0)
+        // Erasing an already-empty cell is a no-op.
+        expect(map.setCell(1, 1, "empty")).toBe(false)
     })
 
-    it("ignores out-of-bounds paints", () => {
-        const map = new EditorMap(4, 4)
-        expect(map.setCell(-1, 0, "full")).toBe(false)
-        expect(map.setCell(4, 0, "full")).toBe(false)
-        expect(map.setCell(0, 99, "full")).toBe(false)
+    it("paints at ANY coordinate, including negative and very far cells", () => {
+        const map = new EditorMap()
+        expect(map.setCell(-5, -9, "full")).toBe(true)
+        expect(map.setCell(0, 0, "full")).toBe(true)
+        expect(map.setCell(1000, 1000, "deco")).toBe(true)
+        expect(map.tileAt(-5, -9)).toBe(paletteValueForBrush("full"))
+        expect(map.tileAt(1000, 1000)).toBe(paletteValueForBrush("deco"))
+        // Only the three painted cells exist in the sparse model.
+        expect(map.tiles.size).toBe(3)
     })
 
-    it("toggles spawn markers without touching the tile", () => {
-        const map = new EditorMap(8, 8)
-        map.setCell(3, 3, "full")
+    it("toggles spawn markers on an empty cell", () => {
+        const map = new EditorMap()
         expect(map.hasSpawn(3, 3)).toBe(false)
         map.setCell(3, 3, "spawn")
         expect(map.hasSpawn(3, 3)).toBe(true)
-        // The tile survives under the spawn.
-        expect(map.tileAt(3, 3)).toBe(paletteValueForBrush("full"))
         // Toggling again removes the spawn.
         map.setCell(3, 3, "spawn")
         expect(map.hasSpawn(3, 3)).toBe(false)
     })
 
     it("clears all tiles and spawns", () => {
-        const map = new EditorMap(6, 6)
+        const map = new EditorMap()
         map.setCell(0, 0, "full")
         map.setCell(1, 1, "spawn")
         map.clear()
-        expect(map.tiles.every((v) => v === 0)).toBe(true)
+        expect(map.tiles.size).toBe(0)
         expect(map.spawns.length).toBe(0)
     })
 })
 
-describe("EditorMap resize", () => {
-    it("preserves cells that still fit and drops the rest", () => {
-        const map = new EditorMap(8, 8)
-        map.setCell(1, 1, "full")
-        map.setCell(7, 7, "full")
-        map.setCell(7, 7, "spawn")
-        map.resize(4, 4)
-        expect(map.cols).toBe(4)
-        expect(map.rows).toBe(4)
-        // The in-range cell survives, the out-of-range one is gone.
-        expect(map.tileAt(1, 1)).toBe(paletteValueForBrush("full"))
-        expect(map.tileAt(7, 7)).toBe(0)
-        // Out-of-range spawn is dropped.
+describe("EditorMap spawn / tile mutual exclusion", () => {
+    it("painting a tile onto a spawn cell removes the spawn", () => {
+        const map = new EditorMap()
+        map.setCell(4, 4, "spawn")
+        expect(map.hasSpawn(4, 4)).toBe(true)
+        // Painting a full block over the spawn evicts the spawn.
+        expect(map.setCell(4, 4, "full")).toBe(true)
+        expect(map.tileAt(4, 4)).toBe(paletteValueForBrush("full"))
+        expect(map.hasSpawn(4, 4)).toBe(false)
         expect(map.spawns.length).toBe(0)
     })
 
-    it("grows without losing existing cells and zero-pads the new area", () => {
-        const map = new EditorMap(4, 4)
-        map.setCell(3, 3, "full")
-        map.resize(8, 8)
-        expect(map.tiles.length).toBe(64)
-        expect(map.tileAt(3, 3)).toBe(paletteValueForBrush("full"))
-        expect(map.tileAt(5, 5)).toBe(0)
+    it("toggling a spawn onto a tile cell removes the tile", () => {
+        const map = new EditorMap()
+        map.setCell(2, 5, "diag_tr")
+        expect(map.tileAt(2, 5)).not.toBe(0)
+        // Dropping a spawn over the tile evicts the tile.
+        map.setCell(2, 5, "spawn")
+        expect(map.hasSpawn(2, 5)).toBe(true)
+        expect(map.tileAt(2, 5)).toBe(0)
     })
 
-    it("clamps both dimensions into range on resize", () => {
-        const map = new EditorMap(8, 8)
-        map.resize(1, 9999)
-        expect(map.cols).toBe(MIN_GRID)
-        expect(map.rows).toBe(MAX_GRID)
+    it("every shape brush (full/slope/deco/auto) evicts a spawn", () => {
+        for(const brush of ["full", "diag_bl", "deco", "auto"] as const){
+            const map = new EditorMap()
+            map.setCell(1, 1, "spawn")
+            map.setCell(1, 1, brush)
+            expect(map.hasSpawn(1, 1)).toBe(false)
+            expect(map.tileAt(1, 1)).not.toBe(0)
+        }
+    })
+
+    it("reports a change when a tile is repainted only because a spawn was evicted", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full")
+        map.setCell(0, 0, "spawn")
+        // The spawn replaced the tile, so the cell is now empty + spawned.
+        expect(map.tileAt(0, 0)).toBe(0)
+        // Re-painting full both writes the tile AND evicts the spawn: a change.
+        expect(map.setCell(0, 0, "full")).toBe(true)
+        expect(map.hasSpawn(0, 0)).toBe(false)
+        expect(map.tileAt(0, 0)).toBe(paletteValueForBrush("full"))
+    })
+})
+
+describe("EditorMap export bounding box", () => {
+    it("computes cols/rows from the bbox and offsets the dense tiles to (0,0)", () => {
+        const map = new EditorMap("Offset")
+        // Paint a 2x2 block of cells offset from the origin.
+        map.setCell(5, 7, "full")
+        map.setCell(6, 7, "full")
+        map.setCell(5, 8, "diag_tl")
+        map.setCell(6, 8, "deco")
+
+        const data = map.toGridMapData()
+        // bbox is cols [5,6], rows [7,8] -> 2x2.
+        expect(data.cols).toBe(2)
+        expect(data.rows).toBe(2)
+        expect(data.tiles.length).toBe(4)
+        // The min-corner cell (5,7) maps to dense (0,0).
+        expect(data.tiles[0]).toBe(paletteValueForBrush("full"))
+        expect(data.tiles[1]).toBe(paletteValueForBrush("full"))
+        expect(data.tiles[2]).toBe(paletteValueForShape("diag_tl"))
+        expect(data.tiles[3]).toBe(paletteValueForBrush("deco"))
+        // Fresh authored map loads at the origin.
+        expect(data.originCol).toBe(0)
+        expect(data.originRow).toBe(0)
+    })
+
+    it("includes far / negative cells AND spawns in the bbox, translating spawns too", () => {
+        const map = new EditorMap("Far")
+        map.setCell(-3, -4, "full")
+        map.setCell(10, 20, "full")
+        map.setCell(0, 0, "spawn")
+
+        const data = map.toGridMapData()
+        // cols span [-3,10] = 14, rows span [-4,20] = 25.
+        expect(data.cols).toBe(14)
+        expect(data.rows).toBe(25)
+        // The spawn at (0,0) translates by the bbox min (-3,-4) -> (3,4).
+        expect(data.spawns).toEqual([[3, 4]])
+        // The min corner tile sits at dense (0,0).
+        expect(data.tiles[0]).toBe(paletteValueForBrush("full"))
+    })
+
+    it("exports a sane minimal map when nothing is painted", () => {
+        const map = new EditorMap("Empty")
+        const data = map.toGridMapData()
+        expect(data.cols).toBe(1)
+        expect(data.rows).toBe(1)
+        expect(data.tiles).toEqual([0])
+        expect(data.spawns).toEqual([])
+        // An empty map still loads (bounds fall back to the default box).
+        expect(() => loadGridMap("empty", data)).not.toThrow()
     })
 })
 
 describe("GridMapData round trip", () => {
     it("serializes then parses back to an equivalent editor map", () => {
-        const map = new EditorMap(10, 6, "Round Trip")
+        const map = new EditorMap("Round Trip")
         map.setCell(2, 2, "full")
         map.setCell(3, 2, "diag_tr")
         map.setCell(4, 4, "deco")
@@ -155,52 +220,56 @@ describe("GridMapData round trip", () => {
         const rebuilt = EditorMap.fromGridMapData(parsed)
 
         expect(rebuilt.name).toBe("Round Trip")
-        expect(rebuilt.cols).toBe(10)
-        expect(rebuilt.rows).toBe(6)
-        expect(rebuilt.tiles).toEqual(map.tiles)
-        expect(rebuilt.spawns).toEqual(map.spawns)
         expect(rebuilt.palette).toEqual(map.palette)
+
+        // Re-exporting the rebuilt map yields the same dense GridMapData: the
+        // sparse offset round-trips through the bbox. (The sparse keys differ
+        // because import re-anchors the bbox min to (0,0), which is exactly the
+        // unbounded contract: only the loaded geometry must hold.)
+        const reexported = rebuilt.toGridMapData()
+        expect(reexported.cols).toBe(data.cols)
+        expect(reexported.rows).toBe(data.rows)
+        expect(reexported.tiles).toEqual(data.tiles)
+        expect(reexported.spawns).toEqual(data.spawns)
     })
 
     it("trims the exported name and falls back to a default when blank", () => {
-        const named = new EditorMap(4, 4, "  Padded  ")
+        const named = new EditorMap("  Padded  ")
         expect(named.toGridMapData().name).toBe("Padded")
-        const blank = new EditorMap(4, 4, "   ")
+        const blank = new EditorMap("   ")
         expect(blank.toGridMapData().name.length).toBeGreaterThan(0)
     })
 
-    it("normalises a partial/oversized imported map", () => {
-        // cols/rows out of range, a too-short tiles array, and an out-of-bounds
-        // spawn: fromGridMapData should clamp, zero-pad, and drop respectively.
-        const partial = {
-            name: "Partial",
+    it("imports an exported map back into the sparse model", () => {
+        const data = {
+            name: "Imported",
             cellSize: 72,
             cols: 2,
             rows: 2,
-            tiles: [1],
-            spawns: [[0, 0], [99, 99]],
+            tiles: [1, 0, 0, paletteValueForBrush("deco")],
+            spawns: [[1, 0]],
             palette: EDITOR_PALETTE.map((e) => ({ key: e.key, shape: e.shape })),
         }
-        const map = EditorMap.fromGridMapData(partial as never)
-        expect(map.cols).toBe(MIN_GRID)
-        expect(map.rows).toBe(MIN_GRID)
-        expect(map.tiles.length).toBe(MIN_GRID * MIN_GRID)
-        expect(map.tiles[0]).toBe(1)
-        // Only the in-bounds spawn survives.
-        expect(map.spawns).toEqual([[0, 0]])
+        const map = EditorMap.fromGridMapData(data as never)
+        // Only the two non-empty dense cells populate the sparse map.
+        expect(map.tiles.size).toBe(2)
+        expect(map.tileAt(0, 0)).toBe(1)
+        expect(map.tileAt(1, 1)).toBe(paletteValueForBrush("deco"))
+        expect(map.spawns).toEqual([[1, 0]])
     })
 })
 
-describe("GridMapData feeds loadGridMap", () => {
-    it("produces a playable map with the painted spawns and walls", () => {
-        const map = new EditorMap(6, 6, "Playable")
-        // A solid floor row of full blocks and one diagonal, plus two spawns.
-        for(let col = 0; col < 6; col++){
-            map.setCell(col, 5, "full")
+describe("export feeds loadGridMap (offset map loads at the right geometry)", () => {
+    it("produces a playable map with the painted spawns and walls, offset to (0,0)", () => {
+        const map = new EditorMap("Playable")
+        // A solid floor row of full blocks offset from the origin, plus a
+        // diagonal and two spawns, all at arbitrary coordinates.
+        for(let col = 30; col < 36; col++){
+            map.setCell(col, 25, "full")
         }
-        map.setCell(2, 4, "diag_tr")
-        map.setCell(1, 0, "spawn")
-        map.setCell(4, 0, "spawn")
+        map.setCell(32, 24, "diag_tr")
+        map.setCell(31, 20, "spawn")
+        map.setCell(34, 20, "spawn")
 
         const playable = loadGridMap("editor-test", map.toGridMapData())
 
@@ -251,7 +320,7 @@ describe("autoSlopeShape (neighbour-aware auto slope)", () => {
 
 describe("EditorMap auto-slope brush", () => {
     it("paints the corner-matching slope from full neighbours", () => {
-        const map = new EditorMap(5, 5)
+        const map = new EditorMap()
         // Walls above and to the left of (2,2) -> top-left corner -> diag_tl.
         map.setCell(2, 1, "full")
         map.setCell(1, 2, "full")
@@ -261,7 +330,7 @@ describe("EditorMap auto-slope brush", () => {
     })
 
     it("paints a full block when neighbours do not form a corner", () => {
-        const map = new EditorMap(5, 5)
+        const map = new EditorMap()
         // No solid neighbours -> auto resolves to a full block.
         expect(map.setCell(2, 2, "auto")).toBe(true)
         expect(map.tileAt(2, 2)).toBe(paletteValueForShape("full"))
@@ -313,7 +382,7 @@ describe("brushForKey shortcut mapping", () => {
 describe("localStorage autosave round-trip", () => {
     it("saves a map and restores an equivalent one from a fake storage", () => {
         const storage = fakeStorage()
-        const map = new EditorMap(12, 9, "Saved Map")
+        const map = new EditorMap("Saved Map")
         map.setCell(1, 1, "full")
         map.setCell(2, 1, "diag_br")
         map.setCell(5, 5, "deco")
@@ -327,10 +396,9 @@ describe("localStorage autosave round-trip", () => {
         expect(restored).not.toBe(null)
         const safe = restored as EditorMap
         expect(safe.name).toBe("Saved Map")
-        expect(safe.cols).toBe(12)
-        expect(safe.rows).toBe(9)
-        expect(safe.tiles).toEqual(map.tiles)
-        expect(safe.spawns).toEqual(map.spawns)
+        // The restored map re-exports to the same dense GridMapData.
+        expect(safe.toGridMapData().tiles).toEqual(map.toGridMapData().tiles)
+        expect(safe.toGridMapData().spawns).toEqual(map.toGridMapData().spawns)
     })
 
     it("returns null when there is no saved draft", () => {
@@ -346,7 +414,9 @@ describe("localStorage autosave round-trip", () => {
 
     it("clearEditorMap forgets the draft so the next load is blank", () => {
         const storage = fakeStorage()
-        saveEditorMap(new EditorMap(4, 4, "Temp"), storage)
+        const temp = new EditorMap("Temp")
+        temp.setCell(0, 0, "full")
+        saveEditorMap(temp, storage)
         expect(loadEditorMap(storage)).not.toBe(null)
         clearEditorMap(storage)
         expect(storage.map.has(EDITOR_STORAGE_KEY)).toBe(false)

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { useNavigate } from "react-router-dom"
 import GameButton from "../components/GameButton"
 import GameInput from "../components/GameInput"
@@ -8,12 +9,8 @@ import {
     EditorMap,
     EditorBrush,
     SLOPE_BRUSHES,
-    MIN_GRID,
-    MAX_GRID,
-    DEFAULT_COLS,
-    DEFAULT_ROWS,
     DEFAULT_MAP_NAME,
-    clampGrid,
+    parseCellKey,
     serializeGridMapData,
     parseGridMapData,
     mapFileName,
@@ -29,11 +26,14 @@ import styles from "./MapEditor.module.sass"
 // paint canvas with a dark sprite-style checkerboard behind empty cells, a
 // compact vertical TOOL RAIL of brush tools, and an OPTIONS popover that hides
 // map settings + actions so the canvas stays uncluttered. Every tool and action
-// has a single-key keyboard shortcut (shown in a styled tooltip), painting works
+// has a single-key keyboard shortcut (shown in a portal tooltip), painting works
 // click-and-drag, an autosaved draft survives a reload, and leaving with unsaved
 // work asks for confirmation.
 //
-// The paintable grid lives in an EditorMap (pure model, see game/mapEditor.ts);
+// The canvas is UNBOUNDED: there is no fixed grid size, the author paints cells
+// at ANY coordinate (reachable by panning/zooming), and the exported cols/rows
+// are computed from the bounding box of everything painted at export time. The
+// paintable grid lives in a SPARSE EditorMap (pure model, see game/mapEditor.ts);
 // this view only renders it to a <canvas> and wires pointer (mouse + touch)
 // events to map.setCell. A second pass overlays the REAL collision/spawn
 // geometry from loadGridMap so the author sees exactly the walls the game will
@@ -64,6 +64,17 @@ const CHECKER_DIV = 2
 const BASE_CELL = 34
 const MIN_SCALE = 0.12
 const MAX_SCALE = 4
+
+// How many cells wide/tall a FRESH (empty) canvas fits to, so the author opens
+// at a comfortable zoom around the origin instead of a single giant cell. Once
+// anything is painted, Fit uses the real bounding box instead.
+const DEFAULT_FIT_SPAN = 20
+
+// How many cells of EMPTY grid to draw beyond the painted content + viewport, so
+// the author always sees a little room to paint into without the grid appearing
+// to be a hard edge. The canvas itself is unbounded; this is only how much of it
+// we bother stroking.
+const VIEWPORT_PADDING_CELLS = 2
 
 function clampScale(scale: number): number{
     return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale))
@@ -159,17 +170,15 @@ export default function MapEditor(){
     const initial = mapRef.current
     const [brush, setBrush] = useState<EditorBrush>("full")
     const [name, setName] = useState(initial.name)
-    const [colsInput, setColsInput] = useState(String(initial.cols))
-    const [rowsInput, setRowsInput] = useState(String(initial.rows))
     const [showCollision, setShowCollision] = useState(false)
     const [message, setMessage] = useState("")
     const [optionsOpen, setOptionsOpen] = useState(false)
     const [slopeOpen, setSlopeOpen] = useState(false)
     const [confirmLeave, setConfirmLeave] = useState(false)
-    // Becomes true on the first paint/resize/import/clear so the leave guard
-    // (Back button + browser beforeunload) only fires when there is real work to
-    // lose. A freshly restored draft counts as dirty too (see restore below).
-    const [dirty, setDirty] = useState<boolean>(initial.tiles.some((v) => v > 0) || initial.spawns.length > 0)
+    // Becomes true on the first paint/import/clear so the leave guard (Back
+    // button + browser beforeunload) only fires when there is real work to lose.
+    // A freshly restored draft counts as dirty too (see restore below).
+    const [dirty, setDirty] = useState<boolean>(initial.tiles.size > 0 || initial.spawns.length > 0)
 
     // The active brush is read inside imperative pointer handlers, which capture
     // their closure once; mirror it into a ref so a drag always paints the
@@ -230,18 +239,27 @@ export default function MapEditor(){
         return { w: Math.max(1, rect.width), h: Math.max(1, rect.height) }
     }, [])
 
-    // Fit + centre the whole grid in the canvas (the default view, and what the
-    // "Fit" button / a grid resize returns to). Leaves a small margin so edge
-    // cells are not flush against the frame.
+    // Fit + centre the painted content in the canvas (the default view, and what
+    // the "Fit" button returns to). The canvas is unbounded, so we fit the
+    // BOUNDING BOX of everything painted; an empty map falls back to a default
+    // span so a fresh canvas opens at a sensible zoom around the origin. Leaves a
+    // small margin so edge cells are not flush against the frame.
     const fitView = useCallback(() => {
         const map = mapRef.current
         const { w, h } = canvasSize()
-        const scale = clampScale(Math.min(w / (map.cols * BASE_CELL), h / (map.rows * BASE_CELL)) * 0.92)
+        const box = map.bounds()
+        const spanCols = box.empty ? DEFAULT_FIT_SPAN : box.maxCol - box.minCol + 1
+        const spanRows = box.empty ? DEFAULT_FIT_SPAN : box.maxRow - box.minRow + 1
+        const scale = clampScale(Math.min(w / (spanCols * BASE_CELL), h / (spanRows * BASE_CELL)) * 0.92)
         const cell = BASE_CELL * scale
         const v = viewRef.current
         v.scale = scale
-        v.offsetX = (w - map.cols * cell) / 2
-        v.offsetY = (h - map.rows * cell) / 2
+        // Place the bbox min cell so the painted content (or the default span,
+        // centred on the origin) sits centred in the viewport.
+        const originCol = box.empty ? -DEFAULT_FIT_SPAN / 2 : box.minCol
+        const originRow = box.empty ? -DEFAULT_FIT_SPAN / 2 : box.minRow
+        v.offsetX = (w - spanCols * cell) / 2 - originCol * cell
+        v.offsetY = (h - spanRows * cell) / 2 - originRow * cell
         v.ready = true
     }, [canvasSize])
 
@@ -274,8 +292,6 @@ export default function MapEditor(){
 
         const geo = geometry()
         const cell = geo.cell
-        const gridW = cell * map.cols
-        const gridH = cell * map.rows
         const ox = geo.ox
         const oy = geo.oy
 
@@ -284,43 +300,59 @@ export default function MapEditor(){
         ctx.fillStyle = "#0D090B"
         ctx.fillRect(0, 0, cssW, cssH)
 
+        // The canvas is UNBOUNDED, so we only draw the cells that fall inside the
+        // viewport (plus the painted-content extent), padded a little so there is
+        // visible room to paint into. Screen (0,0) maps to cell (-ox/cell,
+        // -oy/cell); the far corner maps to the cell under (cssW, cssH). We union
+        // that visible window with the painted bounding box so a Fit that zooms
+        // out still draws the whole map's checkerboard + grid.
+        const box = map.bounds()
+        let startCol = Math.floor(-ox / cell) - VIEWPORT_PADDING_CELLS
+        let startRow = Math.floor(-oy / cell) - VIEWPORT_PADDING_CELLS
+        let endCol = Math.ceil((cssW - ox) / cell) + VIEWPORT_PADDING_CELLS
+        let endRow = Math.ceil((cssH - oy) / cell) + VIEWPORT_PADDING_CELLS
+        if(box.empty === false){
+            startCol = Math.min(startCol, box.minCol - VIEWPORT_PADDING_CELLS)
+            startRow = Math.min(startRow, box.minRow - VIEWPORT_PADDING_CELLS)
+            endCol = Math.max(endCol, box.maxCol + 1 + VIEWPORT_PADDING_CELLS)
+            endRow = Math.max(endRow, box.maxRow + 1 + VIEWPORT_PADDING_CELLS)
+        }
+        const gridX = ox + startCol * cell
+        const gridY = oy + startRow * cell
+        const gridW = (endCol - startCol) * cell
+        const gridH = (endRow - startRow) * cell
+
         // Aseprite-style transparency checkerboard behind the grid, so empty
         // cells read as a sprite canvas rather than flat dark. Two squares per
-        // cell, clipped to the grid rectangle.
-        drawCheckerboard(ctx, ox, oy, gridW, gridH, cell / CHECKER_DIV)
+        // cell, clipped to the visible grid rectangle.
+        drawCheckerboard(ctx, gridX, gridY, gridW, gridH, cell / CHECKER_DIV)
 
-        // Painted tiles.
-        for(let row = 0; row < map.rows; row++){
-            for(let col = 0; col < map.cols; col++){
-                const value = map.tileAt(col, row)
-                if(value <= 0) continue
-                const entry = map.palette[value - 1]
-                if(typeof entry === "undefined") continue
-                drawTile(ctx, entry.shape, ox + col * cell, oy + row * cell, cell)
-            }
+        // Painted tiles: walk only the cells that actually exist (sparse model),
+        // skipping any outside the visible window so a far-away cell costs
+        // nothing to keep but nothing to draw off-screen.
+        for(const [key, value] of map.tiles){
+            const [col, row] = parseCellKey(key)
+            if(col < startCol || col >= endCol || row < startRow || row >= endRow) continue
+            const entry = map.palette[value - 1]
+            if(typeof entry === "undefined") continue
+            drawTile(ctx, entry.shape, ox + col * cell, oy + row * cell, cell)
         }
 
         // Grid lines on top of fills so cell edges stay legible while painting.
         ctx.strokeStyle = COLOR_GRID
         ctx.lineWidth = 1
         ctx.beginPath()
-        for(let col = 0; col <= map.cols; col++){
+        for(let col = startCol; col <= endCol; col++){
             const x = ox + col * cell + 0.5
-            ctx.moveTo(x, oy)
-            ctx.lineTo(x, oy + gridH)
+            ctx.moveTo(x, gridY)
+            ctx.lineTo(x, gridY + gridH)
         }
-        for(let row = 0; row <= map.rows; row++){
+        for(let row = startRow; row <= endRow; row++){
             const y = oy + row * cell + 0.5
-            ctx.moveTo(ox, y)
-            ctx.lineTo(ox + gridW, y)
+            ctx.moveTo(gridX, y)
+            ctx.lineTo(gridX + gridW, y)
         }
         ctx.stroke()
-
-        // A brighter border around the whole grid so its extent reads clearly
-        // against the full-screen backdrop.
-        ctx.strokeStyle = COLOR_GRID_STRONG
-        ctx.lineWidth = 2
-        ctx.strokeRect(ox - 1, oy - 1, gridW + 2, gridH + 2)
 
         // Spawn markers: a green ring centred on the cell.
         ctx.strokeStyle = COLOR_SPAWN
@@ -380,12 +412,12 @@ export default function MapEditor(){
     const cellFromEvent = useCallback((clientX: number, clientY: number) => {
         const canvas = canvasRef.current
         if(canvas === null) return null
-        const map = mapRef.current
         const rect = canvas.getBoundingClientRect()
         const { cell, ox, oy } = geometry()
+        // The canvas is unbounded, so every screen point maps to a paintable
+        // cell; no bounds check (the model accepts any integer coordinate).
         const col = Math.floor((clientX - rect.left - ox) / cell)
         const row = Math.floor((clientY - rect.top - oy) / cell)
-        if(map.inBounds(col, row) === false) return null
         return { col, row }
     }, [geometry])
 
@@ -530,24 +562,6 @@ export default function MapEditor(){
         return () => canvas.removeEventListener("wheel", onWheel)
     }, [applyZoom, applyPan, draw])
 
-    // Commit the size inputs to the model, clamping into [MIN_GRID, MAX_GRID].
-    // Called on blur / Enter so we don't resize on every keystroke.
-    const applySize = useCallback(() => {
-        const nextCols = clampGrid(parseInt(colsInput, 10))
-        const nextRows = clampGrid(parseInt(rowsInput, 10))
-        setColsInput(String(nextCols))
-        setRowsInput(String(nextRows))
-        const map = mapRef.current
-        if(map.cols !== nextCols || map.rows !== nextRows){
-            map.resize(nextCols, nextRows)
-            // Re-fit the viewport to the new grid (geometry() refits when !ready).
-            viewRef.current.ready = false
-            markDirty()
-            bump()
-            draw()
-        }
-    }, [colsInput, rowsInput, bump, draw, markDirty])
-
     // Keep the model name in sync as the author types.
     const onNameChange = useCallback((value: string) => {
         setName(value)
@@ -581,9 +595,7 @@ export default function MapEditor(){
                 const map = EditorMap.fromGridMapData(data)
                 mapRef.current = map
                 setName(map.name)
-                setColsInput(String(map.cols))
-                setRowsInput(String(map.rows))
-                // Re-fit the viewport to the imported grid.
+                // Re-fit the viewport to the imported content.
                 viewRef.current.ready = false
                 markDirty()
                 bump()
@@ -645,7 +657,7 @@ export default function MapEditor(){
 
     // Global keyboard shortcuts, Aseprite-style. A single key selects a tool
     // (via the pure brushForKey mapping); F fits the view; Cmd/Ctrl+S downloads.
-    // Ignored while typing in an input/textarea so size/name fields work, and
+    // Ignored while typing in an input/textarea so the name field works, and
     // while a modal is open so Escape/typing there is unaffected.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
@@ -682,6 +694,18 @@ export default function MapEditor(){
     }, [confirmLeave, onExport, fitNow])
 
     const spawnCount = mapRef.current.spawns.length
+    // The size the map would EXPORT at: the bounding box of everything painted.
+    // Recomputed off `version` (which bumps on every model mutation) so the
+    // status readout always reflects the live extent on an unbounded canvas.
+    const exportSize = useMemo(() => {
+        const box = mapRef.current.bounds()
+        return {
+            cols: box.empty ? 0 : box.maxCol - box.minCol + 1,
+            rows: box.empty ? 0 : box.maxRow - box.minRow + 1,
+        }
+        // The model is a ref, so `version` (bumped on every mutation) is the only
+        // meaningful dependency.
+    }, [version])
 
     return (
         <div className={styles.root}>
@@ -698,46 +722,50 @@ export default function MapEditor(){
                         const iconBrush: EditorBrush = SLOPE_BRUSHES.indexOf(brush) !== -1 ? brush : "auto"
                         return (
                             <div key="auto" className={styles.toolGroup}>
-                                <button
-                                    type="button"
-                                    className={`${styles.tool} ${slopeActive ? styles.toolActive : ""}`}
-                                    onClick={() => setBrush("auto")}
-                                    aria-pressed={slopeActive}
-                                    aria-label={`${tool.label} (${tool.shortcut})`}
-                                    title={`${tool.label} (${tool.shortcut})`}
-                                    data-tip={`${tool.label} (${tool.shortcut})`}
-                                >
-                                    <span className={styles.toolIcon}>
-                                        <ToolIcon brush={iconBrush} color={tool.color} />
-                                    </span>
-                                    <span className={styles.toolKey}>{tool.shortcut}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    className={styles.toolCaret}
-                                    onClick={() => setSlopeOpen((o) => !o)}
-                                    aria-label="Slope directions"
-                                    aria-expanded={slopeOpen}
-                                    title="Slope directions"
-                                >&#9656;</button>
+                                <Tooltip label={tool.label} shortcut={tool.shortcut} placement="right">
+                                    <button
+                                        type="button"
+                                        className={`${styles.tool} ${slopeActive ? styles.toolActive : ""}`}
+                                        onClick={() => setBrush("auto")}
+                                        aria-pressed={slopeActive}
+                                        aria-label={`${tool.label} (${tool.shortcut})`}
+                                        title={`${tool.label} (${tool.shortcut})`}
+                                    >
+                                        <span className={styles.toolIcon}>
+                                            <ToolIcon brush={iconBrush} color={tool.color} />
+                                        </span>
+                                        <span className={styles.toolKey}>{tool.shortcut}</span>
+                                    </button>
+                                </Tooltip>
+                                <Tooltip label="Slope directions" placement="right">
+                                    <button
+                                        type="button"
+                                        className={styles.toolCaret}
+                                        onClick={() => setSlopeOpen((o) => !o)}
+                                        aria-label="Slope directions"
+                                        aria-expanded={slopeOpen}
+                                        title="Slope directions"
+                                    >&#9656;</button>
+                                </Tooltip>
                                 {slopeOpen && (
                                     <div className={styles.slopeFlyout} role="menu">
                                         {SLOPE_TOOLS.map((s) => (
-                                            <button
-                                                key={s.brush}
-                                                type="button"
-                                                className={`${styles.slopeItem} ${brush === s.brush ? styles.slopeItemActive : ""}`}
-                                                onClick={() => { setBrush(s.brush); setSlopeOpen(false) }}
-                                                aria-pressed={brush === s.brush}
-                                                aria-label={`${s.label} (${s.shortcut})`}
-                                                title={`${s.label} (${s.shortcut})`}
-                                            >
-                                                <span className={styles.toolIcon}>
-                                                    <ToolIcon brush={s.brush} color={s.color} />
-                                                </span>
-                                                <span className={styles.slopeItemLabel}>{s.label}</span>
-                                                <span className={styles.toolKey}>{s.shortcut}</span>
-                                            </button>
+                                            <Tooltip key={s.brush} label={s.label} shortcut={s.shortcut} placement="right">
+                                                <button
+                                                    type="button"
+                                                    className={`${styles.slopeItem} ${brush === s.brush ? styles.slopeItemActive : ""}`}
+                                                    onClick={() => { setBrush(s.brush); setSlopeOpen(false) }}
+                                                    aria-pressed={brush === s.brush}
+                                                    aria-label={`${s.label} (${s.shortcut})`}
+                                                    title={`${s.label} (${s.shortcut})`}
+                                                >
+                                                    <span className={styles.toolIcon}>
+                                                        <ToolIcon brush={s.brush} color={s.color} />
+                                                    </span>
+                                                    <span className={styles.slopeItemLabel}>{s.label}</span>
+                                                    <span className={styles.toolKey}>{s.shortcut}</span>
+                                                </button>
+                                            </Tooltip>
                                         ))}
                                     </div>
                                 )}
@@ -745,21 +773,21 @@ export default function MapEditor(){
                         )
                     }
                     return (
-                        <button
-                            key={tool.brush}
-                            type="button"
-                            className={`${styles.tool} ${brush === tool.brush ? styles.toolActive : ""}`}
-                            onClick={() => setBrush(tool.brush)}
-                            aria-pressed={brush === tool.brush}
-                            aria-label={`${tool.label} (${tool.shortcut})`}
-                            title={`${tool.label} (${tool.shortcut})`}
-                            data-tip={`${tool.label} (${tool.shortcut})`}
-                        >
-                            <span className={styles.toolIcon}>
-                                <ToolIcon brush={tool.brush} color={tool.color} />
-                            </span>
-                            <span className={styles.toolKey}>{tool.shortcut}</span>
-                        </button>
+                        <Tooltip key={tool.brush} label={tool.label} shortcut={tool.shortcut} placement="right">
+                            <button
+                                type="button"
+                                className={`${styles.tool} ${brush === tool.brush ? styles.toolActive : ""}`}
+                                onClick={() => setBrush(tool.brush)}
+                                aria-pressed={brush === tool.brush}
+                                aria-label={`${tool.label} (${tool.shortcut})`}
+                                title={`${tool.label} (${tool.shortcut})`}
+                            >
+                                <span className={styles.toolIcon}>
+                                    <ToolIcon brush={tool.brush} color={tool.color} />
+                                </span>
+                                <span className={styles.toolKey}>{tool.shortcut}</span>
+                            </button>
+                        </Tooltip>
                     )
                 })}
             </div>
@@ -768,37 +796,41 @@ export default function MapEditor(){
             <div className={styles.topBar}>
                 <div className={styles.brand}>Map Maker</div>
                 <div className={styles.topActions}>
-                    <button
-                        type="button"
-                        className={`${styles.iconButton} ${optionsOpen ? styles.iconButtonActive : ""}`}
-                        onClick={() => setOptionsOpen((v) => v === false)}
-                        aria-label="Map options (O)"
-                        aria-expanded={optionsOpen}
-                        title="Map options (O)"
-                        data-tip="Map options (O)"
-                    >
-                        <GearIcon />
-                    </button>
-                    <button
-                        type="button"
-                        className={styles.iconButton}
-                        onClick={onBack}
-                        aria-label="Back to home"
-                        title="Back"
-                        data-tip="Back"
-                    >
-                        <BackIcon />
-                    </button>
+                    <Tooltip label="Map options" shortcut="O" placement="bottom-left">
+                        <button
+                            type="button"
+                            className={`${styles.iconButton} ${optionsOpen ? styles.iconButtonActive : ""}`}
+                            onClick={() => setOptionsOpen((v) => v === false)}
+                            aria-label="Map options (O)"
+                            aria-expanded={optionsOpen}
+                            title="Map options (O)"
+                        >
+                            <GearIcon />
+                        </button>
+                    </Tooltip>
+                    <Tooltip label="Back" placement="bottom-left">
+                        <button
+                            type="button"
+                            className={styles.iconButton}
+                            onClick={onBack}
+                            aria-label="Back to home"
+                            title="Back"
+                        >
+                            <BackIcon />
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
 
-            {/* A compact status readout pinned to the bottom: spawn count + tip. */}
+            {/* A compact status readout pinned to the bottom: spawn count + the
+                exported size (the bounding box of everything painted, computed
+                live) + last message. */}
             <div className={styles.statusBar}>
                 <span className={spawnCount === 0 ? styles.statusWarn : styles.statusGood}>
                     {spawnCount} spawn{spawnCount === 1 ? "" : "s"}
                 </span>
                 <span className={styles.statusDim}>
-                    {mapRef.current.cols} x {mapRef.current.rows}
+                    {exportSize.cols} x {exportSize.rows}
                 </span>
                 {message.length > 0 && <span className={styles.statusMsg}>{message}</span>}
             </div>
@@ -826,31 +858,10 @@ export default function MapEditor(){
                             <GameInput value={name} onChange={onNameChange} name="map-name" placeholder="Map name" />
                         </div>
 
-                        <div className={styles.sizeRow}>
-                            <div className={styles.field}>
-                                <label className={styles.label} htmlFor="map-cols">Cols</label>
-                                <GameInput
-                                    value={colsInput}
-                                    onChange={setColsInput}
-                                    name="map-cols"
-                                    type="number"
-                                    onEnter={applySize}
-                                    onBlur={applySize}
-                                />
-                            </div>
-                            <div className={styles.field}>
-                                <label className={styles.label} htmlFor="map-rows">Rows</label>
-                                <GameInput
-                                    value={rowsInput}
-                                    onChange={setRowsInput}
-                                    name="map-rows"
-                                    type="number"
-                                    onEnter={applySize}
-                                    onBlur={applySize}
-                                />
-                            </div>
+                        <div className={styles.hint}>
+                            The canvas is unbounded. Paint anywhere; the exported size is the
+                            bounding box of everything you paint ({exportSize.cols} x {exportSize.rows}).
                         </div>
-                        <div className={styles.hint}>{MIN_GRID}-{MAX_GRID} per side</div>
 
                         <label className={styles.toggle}>
                             <input
@@ -901,16 +912,83 @@ export default function MapEditor(){
     )
 }
 
-// Restore the autosaved draft on mount, or fall back to a default-sized blank
-// map. Kept out of the component body so the initial useRef/useState reads stay
-// a single synchronous call.
+// Restore the autosaved draft on mount, or fall back to a fresh blank map. The
+// canvas is unbounded, so a fresh map starts empty (no fixed size) and the
+// author paints anywhere. Kept out of the component body so the initial
+// useRef/useState reads stay a single synchronous call.
 function restoreInitialMap(): EditorMap{
     const storage = editorStorage()
     if(storage !== null){
         const restored = loadEditorMap(storage)
         if(restored !== null) return restored
     }
-    return new EditorMap(DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_MAP_NAME)
+    return new EditorMap(DEFAULT_MAP_NAME)
+}
+
+// Where a tooltip bubble sits relative to its trigger. "right" hangs it to the
+// right of the element (rail tools); "bottom-left" drops it below and aligns its
+// right edge to the trigger's right edge (top-bar buttons near the screen edge).
+type TooltipPlacement = "right" | "bottom-left"
+
+// A UNIVERSAL tooltip. It wraps a single trigger element and renders its bubble
+// through a PORTAL to document.body, so the bubble is NEVER clipped by an
+// ancestor's overflow/scroll (the old data-tip lived inside the rail's scroll
+// container and was cut off). It shows the label plus an optional keyboard
+// shortcut, appears on hover OR keyboard focus, and degrades gracefully on
+// touch: touch devices fire no hover, so the bubble simply never shows and the
+// trigger's own title=/aria-label keep the shortcut discoverable. Positioned
+// imperatively off the trigger's measured rect each time it opens.
+function Tooltip({ label, shortcut, placement = "right", children }: {
+    label: string,
+    shortcut?: string,
+    placement?: TooltipPlacement,
+    children: ReactNode,
+}){
+    const wrapRef = useRef<HTMLSpanElement | null>(null)
+    const [open, setOpen] = useState(false)
+    const [pos, setPos] = useState<{ left: number, top: number }>({ left: 0, top: 0 })
+
+    // Measure the trigger and place the bubble next to it, in viewport (fixed)
+    // coordinates so the portal layer (fixed, inset 0) lines up exactly.
+    const show = useCallback(() => {
+        const wrap = wrapRef.current
+        if(wrap === null) return
+        const rect = wrap.getBoundingClientRect()
+        if(placement === "bottom-left"){
+            setPos({ left: rect.right, top: rect.bottom + 6 })
+        } else{
+            setPos({ left: rect.right + 8, top: rect.top + rect.height / 2 })
+        }
+        setOpen(true)
+    }, [placement])
+
+    const hide = useCallback(() => setOpen(false), [])
+
+    return (
+        <span
+            ref={wrapRef}
+            className={styles.tooltipWrap}
+            onPointerEnter={(e) => { if(e.pointerType !== "touch") show() }}
+            onPointerLeave={hide}
+            onFocus={show}
+            onBlur={hide}
+        >
+            {children}
+            {open && createPortal(
+                <div
+                    className={`${styles.tooltip} ${placement === "bottom-left" ? styles.tooltipBottomLeft : styles.tooltipRight}`}
+                    style={{ left: pos.left, top: pos.top }}
+                    role="tooltip"
+                >
+                    <span>{label}</span>
+                    {typeof shortcut === "string" && shortcut.length > 0 && (
+                        <span className={styles.tooltipKey}>{shortcut}</span>
+                    )}
+                </div>,
+                document.body,
+            )}
+        </span>
+    )
 }
 
 // Paint the Aseprite transparency checkerboard inside the grid rectangle. Two

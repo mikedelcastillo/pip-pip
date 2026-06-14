@@ -1,10 +1,11 @@
 // Pure, dependency-free model for the homepage MAP EDITOR. Everything here is
 // framework-agnostic and DOM-free so it unit-tests cleanly (see
-// tests/client/mapEditor.test.ts): the mutable grid model, painting a single
-// brush into a cell, resizing the grid, and round-tripping to/from the
-// GridMapData shape that @pip-pip/game/src/logic/grid-map.ts -> loadGridMap
-// consumes. The React view (views/MapEditor.tsx) only renders this model and
-// wires pointer events to setCell; it owns no map logic of its own.
+// tests/client/mapEditor.test.ts): the mutable SPARSE grid model, painting a
+// single brush into a cell (at ANY coordinate, including far away), and
+// round-tripping to/from the GridMapData shape that
+// @pip-pip/game/src/logic/grid-map.ts -> loadGridMap consumes. The React view
+// (views/MapEditor.tsx) only renders this model and wires pointer events to
+// setCell; it owns no map logic of its own.
 
 import {
     GridMapData,
@@ -13,11 +14,11 @@ import {
 } from "@pip-pip/game/src/logic/grid-map"
 import { TILE_SIZE } from "@pip-pip/game/src/logic/constants"
 
-// A brush is what a single click/drag paints. "empty" erases (writes 0). Every
-// other brush writes a tile of the named shape; "spawn" is special-cased: it
-// does not write into the tiles array at all but toggles a spawn marker at the
-// cell. Keeping spawn in the same brush enum lets the palette UI present one
-// uniform list of paintable things.
+// A brush is what a single click/drag paints. "empty" erases (clears a cell).
+// Every other brush writes a tile of the named shape; "spawn" is special-cased:
+// it does not write a tile but toggles a spawn marker at the cell. Keeping spawn
+// in the same brush enum lets the palette UI present one uniform list of
+// paintable things.
 export type EditorBrush = "empty" | "full" | "auto" | "diag_tl" | "diag_tr" | "diag_bl" | "diag_br" | "deco" | "spawn"
 
 // The four explicit slope directions, tucked under the Auto slope tool.
@@ -73,41 +74,58 @@ export const EDITOR_PALETTE: { brush: EditorBrush, shape: TileShape, key: string
     { brush: "deco", shape: "deco", key: "tile_hidden", label: "Deco" },
 ]
 
-// Editor-side bounds for the grid dimensions. The view clamps name/size inputs
-// to these so a player cannot author a degenerate or absurdly large grid that
-// would choke the live preview. Kept here (not in the view) so the clamp is
-// testable.
-export const MIN_GRID = 4
-export const MAX_GRID = 64
-export const DEFAULT_COLS = 24
-export const DEFAULT_ROWS = 16
+// The editor's default map name. Size is no longer fixed: the canvas is
+// UNBOUNDED and the author paints cells anywhere; the exported cols/rows are
+// computed at export time from the bounding box of everything painted.
 export const DEFAULT_MAP_NAME = "My Map"
 
-// The editor's own working state. `tiles` is the SAME flat row-major "palette
-// index + 1" encoding the on-disk GridMapData uses (0 empty, n>=1 references
-// palette[n-1]), so serialize is almost a straight copy. `spawns` is a list of
-// [col, row] cells. Held as a class so the view can mutate in place and re-read
-// without rebuilding the whole grid each paint.
+// Key a cell coordinate into the sparse tile map. Stable, order-independent, and
+// reversible via parseCellKey, so the model can store only painted cells.
+export function cellKey(col: number, row: number): string{
+    return `${col},${row}`
+}
+
+// Reverse cellKey back into [col, row]. Used by export to walk every painted
+// cell and translate it relative to the bounding box.
+export function parseCellKey(key: string): [number, number]{
+    const comma = key.indexOf(",")
+    const col = parseInt(key.slice(0, comma), 10)
+    const row = parseInt(key.slice(comma + 1), 10)
+    return [col, row]
+}
+
+// The bounding box (inclusive) of a set of cells in arbitrary coordinates, plus
+// whether it contains anything at all. Used at export to size the dense grid.
+export type EditorBounds = {
+    empty: boolean,
+    minCol: number,
+    minRow: number,
+    maxCol: number,
+    maxRow: number,
+}
+
+// The editor's own working state, SPARSE and UNBOUNDED. `tiles` is a Map keyed
+// by "col,row" whose values use the SAME "palette index + 1" encoding the
+// on-disk GridMapData uses (n >= 1 references palette[n-1]); a missing key is an
+// empty cell. `spawns` is a list of [col, row] cells. There is no fixed
+// cols/rows: cells live at any integer coordinate (including negative or far
+// away), and the exported size is derived from the bounding box. Held as a class
+// so the view can mutate in place and re-read without rebuilding the whole grid
+// each paint.
 export class EditorMap{
     name: string
     cellSize: number
-    cols: number
-    rows: number
-    tiles: number[]
+    tiles: Map<string, number>
     spawns: [number, number][]
     palette: TilePaletteEntry[]
 
     constructor(
-        cols = DEFAULT_COLS,
-        rows = DEFAULT_ROWS,
         name = DEFAULT_MAP_NAME,
         cellSize = TILE_SIZE,
     ){
-        this.cols = clampGrid(cols)
-        this.rows = clampGrid(rows)
         this.name = name
         this.cellSize = cellSize
-        this.tiles = new Array(this.cols * this.rows).fill(0)
+        this.tiles = new Map<string, number>()
         this.spawns = []
         // Build a stable palette from the fixed editor palette so every shape
         // has a known index for the "index + 1" encoding. Index i here maps to
@@ -115,21 +133,10 @@ export class EditorMap{
         this.palette = EDITOR_PALETTE.map((entry) => ({ key: entry.key, shape: entry.shape }))
     }
 
-    // Is (col, row) inside the grid? Painting/erasing out of range is a no-op.
-    inBounds(col: number, row: number): boolean{
-        return col >= 0 && col < this.cols && row >= 0 && row < this.rows
-    }
-
-    // Flat index of a cell. Caller must have checked inBounds.
-    index(col: number, row: number): number{
-        return row * this.cols + col
-    }
-
-    // The tiles value (0 = empty, n>=1 = palette[n-1]) at a cell, or 0 if out of
-    // range.
+    // The tiles value (0 = empty, n >= 1 = palette[n-1]) at a cell. Any cell not
+    // in the sparse map is empty (0).
     tileAt(col: number, row: number): number{
-        if(this.inBounds(col, row) === false) return 0
-        return this.tiles[this.index(col, row)] ?? 0
+        return this.tiles.get(cellKey(col, row)) ?? 0
     }
 
     // Is there a spawn marker on this cell?
@@ -156,101 +163,149 @@ export class EditorMap{
         )
     }
 
-    // Paint one brush into one cell. "empty" erases the tile, every shape brush
-    // writes that shape's palette value, and "spawn" toggles a spawn marker
-    // (leaving the tile untouched). Returns true when something actually
-    // changed, so the view can skip redundant redraws while dragging.
+    // Paint one brush into one cell at ANY coordinate. "empty" erases the tile,
+    // every shape brush writes that shape's palette value, and "spawn" toggles a
+    // spawn marker. A cell can NEVER hold both a tile and a spawn: painting a
+    // tile onto a cell that has a spawn removes the spawn, and toggling a spawn
+    // onto a cell that has a tile removes the tile. Returns true when something
+    // actually changed, so the view can skip redundant redraws while dragging.
     setCell(col: number, row: number, brush: EditorBrush): boolean{
-        if(this.inBounds(col, row) === false) return false
-
         if(brush === "spawn"){
             return this.toggleSpawn(col, row)
         }
 
-        const i = this.index(col, row)
-        let next: number
+        const key = cellKey(col, row)
         if(brush === "empty"){
-            next = 0
-        } else if(brush === "auto"){
+            if(this.tiles.has(key) === false) return false
+            this.tiles.delete(key)
+            return true
+        }
+
+        let next: number
+        if(brush === "auto"){
             // Auto slope resolves to a concrete shape from the cell's neighbours.
             next = paletteValueForShape(this.autoShapeAt(col, row))
         } else{
             next = paletteValueForBrush(brush)
         }
-        if(this.tiles[i] === next) return false
-        this.tiles[i] = next
+        const hadSpawn = this.removeSpawn(col, row)
+        if(this.tiles.get(key) === next && hadSpawn === false) return false
+        this.tiles.set(key, next)
         return true
     }
 
     // Add a spawn marker at a cell, or remove it if one is already there. A
-    // spawn and a tile can coexist on a cell, matching loadGridMap (it reads
-    // spawns and tiles independently).
+    // spawn and a tile are MUTUALLY EXCLUSIVE: dropping a spawn onto a cell that
+    // holds a tile erases that tile first, so a cell never carries both.
     toggleSpawn(col: number, row: number): boolean{
-        if(this.inBounds(col, row) === false) return false
         const existing = this.spawns.findIndex(([c, r]) => c === col && r === row)
         if(existing === -1){
+            this.tiles.delete(cellKey(col, row))
             this.spawns.push([col, row])
-        } else {
+        } else{
             this.spawns.splice(existing, 1)
         }
         return true
     }
 
-    // Clear every tile and spawn, keeping size/name/palette. Used by the view's
-    // "Clear" action.
+    // Remove any spawn marker on a cell, returning true if one was there. Used by
+    // tile painting to keep tiles and spawns mutually exclusive.
+    removeSpawn(col: number, row: number): boolean{
+        const existing = this.spawns.findIndex(([c, r]) => c === col && r === row)
+        if(existing === -1) return false
+        this.spawns.splice(existing, 1)
+        return true
+    }
+
+    // Clear every tile and spawn, keeping name/palette/cellSize. Used by the
+    // view's "Clear" action.
     clear(){
-        this.tiles = new Array(this.cols * this.rows).fill(0)
+        this.tiles = new Map<string, number>()
         this.spawns = []
     }
 
-    // Resize the grid, preserving any cell that still fits inside the new
-    // bounds. Spawns outside the new bounds are dropped. Both dimensions are
-    // clamped to [MIN_GRID, MAX_GRID]. Mutates in place.
-    resize(cols: number, rows: number){
-        const nextCols = clampGrid(cols)
-        const nextRows = clampGrid(rows)
-        const next = new Array(nextCols * nextRows).fill(0)
-        const copyCols = Math.min(this.cols, nextCols)
-        const copyRows = Math.min(this.rows, nextRows)
-        for(let row = 0; row < copyRows; row++){
-            for(let col = 0; col < copyCols; col++){
-                next[row * nextCols + col] = this.tiles[row * this.cols + col] ?? 0
-            }
+    // The inclusive bounding box of every painted tile + spawn, or an empty flag
+    // when nothing is painted. Used at export to size the dense grid and to
+    // translate cells so the bbox min maps to (0, 0).
+    bounds(): EditorBounds{
+        let minCol = Infinity
+        let minRow = Infinity
+        let maxCol = -Infinity
+        let maxRow = -Infinity
+
+        const include = (col: number, row: number) => {
+            if(col < minCol) minCol = col
+            if(col > maxCol) maxCol = col
+            if(row < minRow) minRow = row
+            if(row > maxRow) maxRow = row
         }
-        this.tiles = next
-        this.spawns = this.spawns.filter(([c, r]) => c < nextCols && r < nextRows)
-        this.cols = nextCols
-        this.rows = nextRows
+
+        for(const key of this.tiles.keys()){
+            const [col, row] = parseCellKey(key)
+            include(col, row)
+        }
+        for(const [col, row] of this.spawns){
+            include(col, row)
+        }
+
+        if(minCol > maxCol || minRow > maxRow){
+            return { empty: true, minCol: 0, minRow: 0, maxCol: 0, maxRow: 0 }
+        }
+        return { empty: false, minCol, minRow, maxCol, maxRow }
     }
 
-    // Serialize to the exact GridMapData shape loadGridMap consumes. The tiles
-    // array is copied so later edits don't mutate an exported object, and the
-    // map name is trimmed (falling back to a default) so the export always
-    // carries a usable name.
+    // Serialize to the exact GridMapData shape loadGridMap consumes. The canvas
+    // is unbounded, so the exported cols/rows are the extent of the BOUNDING BOX
+    // of everything painted; the dense row-major tiles array is offset so the
+    // bbox min maps to (0, 0), and spawns are translated the same way.
+    // originCol/originRow stay 0 (a fresh authored map loads at the world origin
+    // and only needs to load via loadGridMap, which the round-trip asserts). An
+    // EMPTY map exports a sane minimal 1x1 map. The map name is trimmed (falling
+    // back to a default) so the export always carries a usable name.
     toGridMapData(): GridMapData{
+        const box = this.bounds()
+        const cols = box.empty ? 1 : box.maxCol - box.minCol + 1
+        const rows = box.empty ? 1 : box.maxRow - box.minRow + 1
+
+        const tiles = new Array(cols * rows).fill(0)
+        if(box.empty === false){
+            for(const [key, value] of this.tiles){
+                const [col, row] = parseCellKey(key)
+                const c = col - box.minCol
+                const r = row - box.minRow
+                tiles[r * cols + c] = value
+            }
+        }
+
+        const spawns: [number, number][] = box.empty
+            ? []
+            : this.spawns.map(([c, r]) => [c - box.minCol, r - box.minRow] as [number, number])
+
         return {
             name: this.name.trim().length > 0 ? this.name.trim() : DEFAULT_MAP_NAME,
             cellSize: this.cellSize,
-            cols: this.cols,
-            rows: this.rows,
-            tiles: this.tiles.slice(),
-            spawns: this.spawns.map(([c, r]) => [c, r] as [number, number]),
+            cols,
+            rows,
+            tiles,
+            spawns,
             palette: this.palette.map((entry) => ({ key: entry.key, shape: entry.shape })),
+            originCol: 0,
+            originRow: 0,
         }
     }
 
-    // Rebuild an EditorMap from a GridMapData (e.g. an imported JSON). Anything
-    // missing or malformed is coerced to a sane value so a hand-edited or
-    // partial file still loads instead of throwing. The tiles array is length-
-    // normalised to cols*rows (truncated or zero-padded) so the grid is always
-    // consistent.
+    // Rebuild an EditorMap from a GridMapData (e.g. an exported/imported JSON).
+    // The dense cols*rows tiles array is unpacked into the sparse model (only
+    // non-empty cells are stored), so an exported map imports back into an
+    // equivalent sparse map. Anything missing or malformed is coerced to a sane
+    // value so a hand-edited or partial file still loads instead of throwing.
     static fromGridMapData(data: GridMapData): EditorMap{
-        const cols = clampGrid(Math.floor(data.cols))
-        const rows = clampGrid(Math.floor(data.rows))
+        const cols = Math.max(0, Math.floor(data.cols))
+        const rows = Math.max(0, Math.floor(data.rows))
         const name = typeof data.name === "string" && data.name.length > 0 ? data.name : DEFAULT_MAP_NAME
         const cellSize = typeof data.cellSize === "number" && data.cellSize > 0 ? data.cellSize : TILE_SIZE
 
-        const map = new EditorMap(cols, rows, name, cellSize)
+        const map = new EditorMap(name, cellSize)
 
         // Prefer the file's palette when present so imported values keep their
         // meaning; otherwise the constructor's editor palette is used.
@@ -258,35 +313,25 @@ export class EditorMap{
             map.palette = data.palette.map((entry) => ({ key: entry.key, shape: entry.shape }))
         }
 
-        const size = cols * rows
-        const tiles = new Array(size).fill(0)
         if(Array.isArray(data.tiles)){
-            for(let i = 0; i < size; i++){
-                const value = data.tiles[i]
-                tiles[i] = typeof value === "number" && value > 0 ? Math.floor(value) : 0
+            for(let row = 0; row < rows; row++){
+                for(let col = 0; col < cols; col++){
+                    const value = data.tiles[row * cols + col]
+                    if(typeof value === "number" && value > 0){
+                        map.tiles.set(cellKey(col, row), Math.floor(value))
+                    }
+                }
             }
         }
-        map.tiles = tiles
 
         if(Array.isArray(data.spawns)){
             map.spawns = data.spawns
                 .filter((pair) => Array.isArray(pair) && pair.length === 2)
                 .map(([c, r]) => [Math.floor(c), Math.floor(r)] as [number, number])
-                .filter(([c, r]) => c >= 0 && c < cols && r >= 0 && r < rows)
         }
 
         return map
     }
-}
-
-// Clamp a requested grid dimension into the editor's allowed range, flooring
-// fractional values. Used by the constructor, resize, and the view's inputs.
-export function clampGrid(value: number): number{
-    if(Number.isFinite(value) === false) return MIN_GRID
-    const floored = Math.floor(value)
-    if(floored < MIN_GRID) return MIN_GRID
-    if(floored > MAX_GRID) return MAX_GRID
-    return floored
 }
 
 // The "palette index + 1" tiles value for a shape brush. The editor palette is

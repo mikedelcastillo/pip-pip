@@ -332,11 +332,6 @@
     font-size: 1em
     color: $color-accent
 
-.sizeRow
-    display: grid
-    grid-template-columns: 1fr 1fr
-    gap: 0.6em
-
 .hint
     font-size: 0.9em
     opacity: 0.7
@@ -368,36 +363,45 @@
 .fileInput
     display: none
 
-// Styled tooltips for the rail tools + icon buttons. A CSS-only bubble that
-// appears on hover for pointer devices. The shortcut letter shown ON the tool
-// (.toolKey) and the aria-label/title keep shortcuts discoverable on touch,
-// where hover tooltips do not fire, so nothing is hover-only-broken.
-[data-tip]
-    @media (hover: hover)
-        &:hover::after
-            content: attr(data-tip)
-            position: absolute
-            left: calc(100% + 0.5em)
-            top: 50%
-            transform: translateY(-50%)
-            z-index: 40
-            background-color: $color-dark-3
-            color: $color-text
-            border: $border-size solid $color-border
-            border-radius: $border-radius
-            padding: 0.15em 0.5em
-            font-family: $font-family-game
-            font-size: 0.95em
-            line-height: 1.2
-            white-space: nowrap
-            pointer-events: none
+// UNIVERSAL TOOLTIP. The trigger is wrapped in this inline span (so the wrapper
+// hugs the button and measures right); the bubble itself renders through a React
+// PORTAL to document.body, so it is NEVER clipped by the tool rail's scroll /
+// overflow container (the old approach was). The shortcut letter shown ON the
+// tool (.toolKey) plus each trigger's title/aria-label keep shortcuts
+// discoverable on touch, where hover never fires, so nothing is hover-only-broken.
+.tooltipWrap
+    display: inline-flex
 
-// The top-bar icon buttons sit near the right edge, so their tooltips would
-// overflow off-screen; anchor those below the button instead of to its right.
-.topActions [data-tip]
-    @media (hover: hover)
-        &:hover::after
-            left: auto
-            right: 0
-            top: calc(100% + 0.4em)
-            transform: none
+// The portalled bubble. position:fixed and placed via inline left/top (computed
+// from the trigger's measured rect), so it floats over everything regardless of
+// any ancestor overflow. translate moves it onto the chosen anchor point.
+.tooltip
+    position: fixed
+    z-index: 1000
+    display: flex
+    align-items: center
+    gap: 0.5em
+    background-color: $color-dark-3
+    color: $color-text
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    padding: 0.2em 0.55em
+    font-family: $font-family-game
+    font-size: 0.95em
+    line-height: 1.2
+    white-space: nowrap
+    pointer-events: none
+
+// To the right of the trigger, vertically centred on it.
+.tooltipRight
+    transform: translateY(-50%)
+
+// Below the trigger, right edges aligned (top-bar buttons near the screen edge,
+// where a right-hung bubble would run off-screen).
+.tooltipBottomLeft
+    transform: translateX(-100%)
+
+// The shortcut letter inside the bubble, tinted like the on-tool key.
+.tooltipKey
+    color: $color-accent
+    opacity: 0.9
