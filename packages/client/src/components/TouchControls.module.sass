@@ -1,8 +1,14 @@
 @import "../styles/variables"
 
-// Full-screen, click-through layer. Only the sticks and buttons themselves
-// capture pointer events, so the Pixi canvas underneath still works on desktop
-// (where this layer is hidden entirely) and around the controls on mobile.
+// Radius (px) the floating-stick base ring and nub are sized against. Mirrors
+// STICK_RADIUS in game/touchstick.ts so the visual deflection matches the input
+// math 1:1 (nub travel = thumb travel up to the rim).
+$stick-radius: 56px
+
+// Full-screen layer. The two zones capture pointer events directly (the sticks
+// float at wherever the finger lands), so there are no fixed hit targets to dodge
+// - the whole left-lower / right-half areas are live. The Pixi canvas underneath
+// still works on desktop (this layer is hidden entirely there).
 .root
     position: absolute
     inset: 0
@@ -11,69 +17,80 @@
     touch-action: none
     user-select: none
 
-// Each virtual joystick: a recessed base ring pinned to a bottom corner, with a
-// draggable knob that tracks the thumb. Sized with vmin so it scales sensibly
-// across phone sizes and orientations.
-.stick
+// Touch zones. Invisible; they exist only to anchor a floating stick wherever a
+// finger lands. The move zone owns the lower-left; the aim zone owns the right
+// half. They are sized so they do not overlap (move zone is the left ~55% of the
+// lower portion; aim zone is the right ~50% full-height).
+.moveZone
     position: absolute
-    bottom: $screen-margin-static
-    width: 34vmin
-    height: 34vmin
-    max-width: 12em
-    max-height: 12em
-    border-radius: 9999px
+    left: 0
+    bottom: 0
+    width: 55%
+    height: 65%
     pointer-events: auto
     touch-action: none
-    background-color: transparentize($color-dark-2, 0.35)
-    border: $border-size solid $color-border
 
-    &.left
-        left: $screen-margin-static
-
-    &.right
-        right: $screen-margin-static
-
-    &.engaged
-        border-color: $color-main
-
-        &.right
-            border-color: $color-accent
-
-.stickLabel
+.aimZone
     position: absolute
-    top: 0.4em
-    left: 0
     right: 0
-    text-align: center
-    font-size: clamp(12px, 3.2vmin, 16px)
-    letter-spacing: 0.08em
-    text-transform: uppercase
-    color: $color-accent
-    opacity: 0.6
+    top: 0
+    width: 50%
+    height: 100%
+    pointer-events: auto
+    touch-action: none
 
-.knob
+// A floating stick: positioned at its anchor (origin) via inline left/top, then
+// translated up/left by the radius so the base ring is centred on the finger.
+// Invisible until mounted (the component only renders it while active).
+.stick
     position: absolute
-    top: 50%
-    left: 50%
-    width: 42%
-    height: 42%
-    margin-top: -21%
-    margin-left: -21%
-    border-radius: 9999px
-    background-color: $color-main
-    border: $border-size solid $color-border
-    // Driven inline via transform; keep it snappy but not laggy.
-    transition: transform 40ms linear
+    width: $stick-radius * 2
+    height: $stick-radius * 2
+    margin-left: -$stick-radius
+    margin-top: -$stick-radius
+    pointer-events: none
 
-    .right &
-        background-color: $color-accent
+    .base
+        position: absolute
+        inset: 0
+        border-radius: 9999px
+        background-color: transparentize($color-dark-2, 0.45)
+        border: $border-size solid $color-border
 
-// Action buttons stacked above the right stick so the same thumb can reach
-// them. Big, square-ish hit targets in the shared palette.
+    .nub
+        position: absolute
+        top: 50%
+        left: 50%
+        width: 44%
+        height: 44%
+        margin-top: -22%
+        margin-left: -22%
+        border-radius: 9999px
+        background-color: $color-main
+        border: $border-size solid $color-border
+        // Driven inline via transform; keep it snappy but not laggy.
+        transition: transform 40ms linear
+
+    &.move
+        .base
+            border-color: $color-main
+        .nub
+            background-color: $color-main
+
+    &.aim
+        .base
+            border-color: $color-accent
+        .nub
+            background-color: $color-accent
+
+// Action buttons cluster, bottom-right ABOVE the aim zone. Higher z-index than
+// the zones so a press hits the button (and stops propagation) instead of
+// starting the floating aim stick. Same thumb reaches them and the right stick.
 .actions
     position: absolute
     right: $screen-margin-static
-    bottom: calc(#{$screen-margin-static} + 36vmin)
+    bottom: $screen-margin-static
+    z-index: 31
     display: flex
     flex-direction: column
     gap: 0.6em

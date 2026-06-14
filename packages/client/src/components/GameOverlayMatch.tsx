@@ -2,26 +2,32 @@ import { useState } from "react"
 import { useGameStore, fraction } from "../game/store"
 import GameChat from "./GameChat"
 import GamePlayerList from "./GamePlayerList"
-import GameButton from "./GameButton"
-import AudioVolumeToggle from "./AudioVolumeToggle"
-import LeaveButton from "./LeaveButton"
-import HostControls from "./HostControls"
+import PauseMenu from "./PauseMenu"
 import KillFeed from "./KillFeed"
 import PowerupFeed from "./PowerupFeed"
 import Minimap from "./Minimap"
 import GameBuffBars from "./GameBuffBars"
 import styles from "./GameOverlayMatch.module.sass"
 
+// Chat starts collapsed on small (phone-width) screens so its resting state is
+// just the "Chat" pill and never sits over the lower-left move-stick zone.
+// Checked once at mount - orientation/size changes mid-match are rare and the
+// player can always toggle it.
+function defaultChatOpen(): boolean {
+    if (typeof window === "undefined") return true
+    if (typeof window.matchMedia !== "function") return true
+    return !window.matchMedia("(max-width: 768px)").matches
+}
+
 export default function GameOverlayMatch() {
     const showPlayerList = useGameStore((s) => s.showPlayerList)
     const stats = useGameStore((s) => s.clientPlayerStats)
     const ping = useGameStore((s) => s.ping)
-    const isHost = useGameStore((s) => s.isHost)
     const spectating = useGameStore((s) => s.clientSpectating)
     const spectateTargetName = useGameStore((s) => s.spectateTargetName)
 
-    const [hostOpen, setHostOpen] = useState(false)
-    const [chatOpen, setChatOpen] = useState(true)
+    const [menuOpen, setMenuOpen] = useState(false)
+    const [chatOpen, setChatOpen] = useState(defaultChatOpen)
 
     const healthPct = stats.healthMax > 0
         ? Math.max(0, Math.min(1, stats.health / stats.healthMax)) * 100
@@ -48,29 +54,26 @@ export default function GameOverlayMatch() {
             {/* Minimap / radar in the free top-left corner. */}
             <Minimap />
 
-            {/* Top-right control cluster: SFX, and host menu when host. */}
-            <div className={styles.controls}>
-                <AudioVolumeToggle className={styles.controlButton} />
-                {isHost && (
-                    <GameButton
-                        accent
-                        className={styles.controlButton}
-                        onClick={() => setHostOpen(true)}
-                    >
-                        Host
-                    </GameButton>
-                )}
-                <LeaveButton className={styles.controlButton} />
-            </div>
+            {/* Single pause/options button in the top-right corner. Replaces the
+                old loose SFX + Host + Leave cluster (which overlapped on mobile);
+                everything now lives inside the menu, clearing the corner. */}
+            <button
+                type="button"
+                className={styles.menuButton}
+                aria-label="Menu"
+                onClick={() => setMenuOpen(true)}
+            >
+                ☰
+            </button>
 
-            {/* Transient kill feed, top-right under the control cluster. */}
+            {/* Transient kill feed, top-right under the menu button. */}
             <KillFeed />
 
             {/* Transient powerup pickup announcement, top-center. Shared across
                 all players (local + remote), so everyone sees who grabbed what. */}
             <PowerupFeed />
 
-            {/* Tab scoreboard — overlaid, centered, unchanged behavior. */}
+            {/* Tab scoreboard - overlaid, centered, unchanged behavior. */}
             {showPlayerList && (
                 <div className={styles.scoreboard}>
                     <GamePlayerList />
@@ -83,11 +86,12 @@ export default function GameOverlayMatch() {
             {spectating ? (
                 <div className={styles.spectateBanner}>
                     <span className={styles.label}>Spectating</span>
-                    <span className={styles.target}>{spectateTargetName || "—"}</span>
+                    <span className={styles.target}>{spectateTargetName || " - "}</span>
                     <span className={styles.hint}>← / → to switch</span>
                 </div>
             ) : (
-                /* Compact combat HUD: shield, health, ammo/reload, tactical, ping. */
+                /* Compact combat HUD pinned to the TOP edge so the bottom corners
+                   stay clear for the touch sticks + action buttons. */
                 <div className={styles.hud}>
                     {/* Apex-style shield bar: a thin bar sitting just above health,
                         only present while the shield buff is up. */}
@@ -157,11 +161,14 @@ export default function GameOverlayMatch() {
                 </div>
             )}
 
-            {/* Bottom-right active-buff stack. Self-gates to nothing when no buff
-                is active; hidden entirely while spectating (no ship → no buffs). */}
+            {/* Active-buff stack. Moved to the TOP edge (just under the combat HUD)
+                so the bottom corners stay free for the sticks. Self-gates to
+                nothing when no buff is active; hidden entirely while spectating. */}
             {!spectating && <GameBuffBars />}
 
-            {/* Chat: collapsible so it stays out of the way on small screens. */}
+            {/* Chat: top-left under the minimap, collapsible. Defaults collapsed
+                on phones so its resting "Chat" pill never blocks the lower-left
+                move-stick zone. */}
             <div className={`${styles.chat} ${chatOpen ? "" : styles.collapsed}`}>
                 <div
                     className={styles.chatToggle}
@@ -176,7 +183,7 @@ export default function GameOverlayMatch() {
                 )}
             </div>
 
-            {hostOpen && <HostControls onClose={() => setHostOpen(false)} />}
+            {menuOpen && <PauseMenu onClose={() => setMenuOpen(false)} />}
         </div>
     )
 }

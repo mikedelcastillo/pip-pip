@@ -1,0 +1,21 @@
+@import "../styles/variables"
+
+// Pause / options menu body. One labelled row per option (Sound, Host, Match),
+// each pairing a short caption with its shared GameButton so the panel reads at a
+// glance and the controls keep the game's branding.
+.menu
+    display: flex
+    flex-direction: column
+    gap: 0.8em
+    min-width: min(18em, 70vw)
+
+    .row
+        display: flex
+        align-items: center
+        justify-content: space-between
+        gap: 1em
+
+    .label
+        color: $color-accent
+        text-transform: uppercase
+        letter-spacing: 0.05em

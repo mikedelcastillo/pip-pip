@@ -7,21 +7,33 @@ $color-buff-haste: #33CCFF
 $color-buff-shield: #AA66FF
 $color-buff-invis: #CCE6FF
 
-// Top-right control cluster. Stacks the SFX toggle and the host button so they
-// never overlap the scoreboard or the HUD. Buttons keep the shared GameButton
-// look but are scaled down a touch for the in-match corner.
-.controls
+// Single pause/options button in the top-right corner. Replaces the old loose
+// SFX + Host + Leave cluster, which stacked and overlapped on mobile. One small
+// square hit target; tapping it opens the PauseMenu (SFX, Leave, Host controls).
+.menuButton
     position: absolute
     top: $screen-margin-dynamic
     right: $screen-margin-dynamic
     z-index: 20
+    width: 2.2em
+    height: 2.2em
     display: flex
-    flex-direction: column
-    align-items: flex-end
-    gap: 0.5em
+    align-items: center
+    justify-content: center
+    padding: 0
+    font-family: $font-family-game
+    font-size: clamp(20px, 6vw, 28px)
+    line-height: 1
+    color: $color-dark-3
+    background-color: $color-main
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    cursor: pointer
+    -webkit-tap-highlight-color: transparent
+    touch-action: manipulation
 
-    .controlButton
-        font-size: clamp(16px, 4.5vw, $font-size-input)
+    &:active
+        background-color: $color-main-darker
 
 // Tab scoreboard, overlaid and centered over the canvas.
 .scoreboard
@@ -40,33 +52,38 @@ $color-buff-invis: #CCE6FF
         overflow: auto
         pointer-events: auto
 
-// Compact combat HUD pinned bottom-right. Reads at a glance: two labelled bars
-// (health, ammo/reload) plus ping. Sized with clamp/vw so it shrinks on phones.
+// Compact combat HUD pinned to the TOP-CENTER as a horizontal strip, so the
+// bottom corners stay clear for the floating touch sticks + action buttons.
+// Reads at a glance: shield (when up) above a row of labelled bars (health,
+// ammo/reload, tactical) plus ping. Sized with clamp/vw so it shrinks on phones.
 .hud
     position: absolute
-    right: $screen-margin-dynamic
-    bottom: $screen-margin-dynamic
+    top: $screen-margin-dynamic
+    left: 50%
+    transform: translateX(-50%)
     z-index: 10
-    width: clamp(10em, 38vw, 16em)
     display: flex
-    flex-direction: column
-    gap: 0.4em
-    padding: 0.5em 0.7em
+    flex-wrap: wrap
+    align-items: flex-end
+    justify-content: center
+    gap: 0.4em 0.7em
+    max-width: calc(100% - 6em)
+    padding: 0.4em 0.7em
     background-color: transparentize($color-dark-2, 0.2)
     border: $border-size solid $color-border
     border-radius: $border-radius
     pointer-events: none
 
-    // Apex-style shield bar: a thin slimmer bar that sits directly above the
-    // health bar. Only rendered while the shield buff is active; its fill is the
+    // Apex-style shield bar: a thin slimmer bar that spans the strip above the
+    // stat row. Only rendered while the shield buff is active; its fill is the
     // remaining buff duration in the shield hue.
     .shieldBar
+        flex: 1 1 100%
         height: 0.4em
         background-color: $color-dark-1
         border: $border-size solid $color-border
         border-radius: $border-radius
         overflow: hidden
-        margin-bottom: -0.15em
 
         .shieldBarFill
             height: 100%
@@ -77,6 +94,9 @@ $color-buff-invis: #CCE6FF
         display: flex
         flex-direction: column
         gap: 0.15em
+        // Each bar gets a comfortable readable width in the horizontal strip.
+        flex: 0 1 9em
+        min-width: 7em
 
     .statLabel
         display: flex
@@ -127,20 +147,23 @@ $color-buff-invis: #CCE6FF
         color: $color-text
         opacity: 0.7
 
-// Active-buff stack, bottom-right, sitting ABOVE the combat HUD so the two never
-// overlap (the HUD owns the very bottom; this floats clear above it). One compact
+// Active-buff stack. Moved to the TOP edge, directly under the combat HUD strip
+// and centered, so the bottom corners stay free for the sticks. One compact
 // labelled chip per active timed buff, each with a colored depleting bar. Self-
 // hides when empty (the component renders null). Compact enough for a 375px phone.
 .buffs
     position: absolute
-    right: $screen-margin-dynamic
-    bottom: calc(#{$screen-margin-dynamic} + 13em)
+    top: calc(#{$screen-margin-dynamic} + 5.5em)
+    left: 50%
+    transform: translateX(-50%)
     z-index: 11
-    width: clamp(8em, 30vw, 12em)
     display: flex
-    flex-direction: column
+    flex-direction: row
+    flex-wrap: wrap
+    justify-content: center
     align-items: stretch
     gap: 0.3em
+    max-width: calc(100% - 6em)
     pointer-events: none
 
     .buff
@@ -148,6 +171,7 @@ $color-buff-invis: #CCE6FF
         flex-direction: column
         gap: 0.1em
         padding: 0.25em 0.4em
+        min-width: 6em
         background-color: transparentize($color-dark-2, 0.2)
         border: $border-size solid $color-border
         border-radius: $border-radius
@@ -169,13 +193,13 @@ $color-buff-invis: #CCE6FF
             height: 100%
             transition: width 120ms linear
 
-// Spectator banner pinned bottom-center. Shown instead of the combat HUD while
-// the local player is spectating: names the watched player and the keys to
-// switch targets. On-brand: same panel chrome as the HUD.
+// Spectator banner pinned top-center (replaces the combat HUD strip while the
+// local player is spectating): names the watched player and the keys to switch
+// targets. On-brand: same panel chrome as the HUD.
 .spectateBanner
     position: absolute
+    top: $screen-margin-dynamic
     left: 50%
-    bottom: $screen-margin-dynamic
     transform: translateX(-50%)
     z-index: 10
     display: flex
@@ -203,12 +227,14 @@ $color-buff-invis: #CCE6FF
         color: $color-text
         opacity: 0.7
 
-// Chat pinned bottom-left, collapsible so it never blocks the action on small
-// touch screens. The toggle is a touch-friendly hit target.
+// Chat pinned TOP-LEFT under the minimap, collapsible so it never blocks the
+// lower-left move-stick zone. Defaults collapsed on phones (see
+// GameOverlayMatch.tsx) so its resting state is just the "Chat" toggle pill. The
+// toggle is a touch-friendly hit target.
 .chat
     position: absolute
     left: $screen-margin-dynamic
-    bottom: $screen-margin-dynamic
+    top: calc(#{$screen-margin-dynamic} + 9em)
     z-index: 10
     width: clamp(14em, 44vw, 28em)
     max-width: calc(100% - #{$screen-margin-dynamic} * 2)
@@ -230,45 +256,34 @@ $color-buff-invis: #CCE6FF
             background-color: $color-main-darker
 
     .chatBody
-        max-height: 40vh
+        max-height: 32vh
         overflow: hidden
 
     &.collapsed
         width: auto
 
-// Phone layout (~375px and below): the HUD spans the full width along the
-// bottom, and chat sits in the top-left under the corner controls so the two
-// never overlap or overflow.
+// Phone layout (~480px and below): keep the top HUD strip compact and the chat
+// pill tucked top-left under the (smaller) minimap so nothing reaches the
+// lower-left / right-half stick zones along the bottom and right.
 @media (max-width: 480px)
     .hud
-        width: calc(100% - #{$screen-margin-dynamic} * 2)
-        left: $screen-margin-dynamic
-        right: $screen-margin-dynamic
-        flex-direction: row
-        flex-wrap: wrap
-        align-items: flex-end
-
-        // Shield bar spans the full HUD width above the wrapped stat row.
-        .shieldBar
-            flex: 1 1 100%
-            margin-bottom: 0
+        max-width: calc(100% - 3.5em)
+        gap: 0.3em 0.5em
 
         .stat
-            flex: 1 1 8em
+            flex: 1 1 7em
+            min-width: 6em
 
         .ping
             flex: 1 1 100%
             text-align: right
 
-    // Lift the buff stack clear above the taller wrapped HUD; keep it compact and
-    // right-aligned so it never collides with the bottom-left chat or the sticks.
     .buffs
-        bottom: calc(#{$screen-margin-dynamic} + 9em)
-        width: clamp(7em, 40vw, 10em)
+        top: calc(#{$screen-margin-dynamic} + 7em)
+        max-width: calc(100% - 3.5em)
 
     .chat
         width: clamp(10em, 60vw, 18em)
-        bottom: auto
         top: calc(#{$screen-margin-dynamic} + 7em)
         left: $screen-margin-dynamic
 
