@@ -4,6 +4,15 @@ import { ConnectionJSON, ConnectionLobbyJSON, LobbyJSON, PublicLobbyJSON } from 
 import { PacketManagerSerializerMap } from "../packets/manager"
 import { Client } from "."
 
+// Whether joinLobby may REUSE the connection's current lobby instead of issuing a
+// join for `requestedId`. Only when they are the same lobby (a refresh /
+// reconnect). When they differ the join must proceed, or hosting - which creates
+// a fresh lobby and then joins it - would silently return the OLD lobby and drop
+// the host into an existing game. Pure, so it is unit-testable.
+export function shouldReuseConnectedLobby(currentLobbyId: string | undefined, requestedId: string): boolean {
+    return typeof currentLobbyId === "string" && currentLobbyId === requestedId
+}
+
 export function initializeAxios<T extends PacketManagerSerializerMap>(client: Client<T>){
     client.initializeApi = () => {
         client.api = axios.create({
@@ -84,7 +93,16 @@ export function initializeAxios<T extends PacketManagerSerializerMap>(client: Cl
     client.joinLobby = async (id: string) => {
         try{
             const connectedLobby = await client.getClientLobby()
-            return connectedLobby
+            // Only reuse the connection's CURRENT lobby when it is the SAME one
+            // being requested (a page refresh / reconnect). If the connection is
+            // already in a DIFFERENT lobby, fall through and actually join `id`:
+            // otherwise hosting (which creates a fresh lobby, then joins it) would
+            // short-circuit back to the OLD lobby and drop the host into an
+            // existing game. The server's join moves the connection between
+            // lobbies (Connection.setLobby leaves the previous one first).
+            if(shouldReuseConnectedLobby(connectedLobby.lobby.lobbyId, id)){
+                return connectedLobby
+            }
         } catch(e){
             // Probably not connected in lobby
         }
