@@ -1,0 +1,20 @@
+@import "../styles/variables"
+
+// One labelled row per option (Options / Host / Lobby), mirroring the in-match
+// PauseMenu so the two menus read the same.
+.menu
+    display: flex
+    flex-direction: column
+    gap: 0.8em
+    min-width: min(18em, 70vw)
+
+    .row
+        display: flex
+        align-items: center
+        justify-content: space-between
+        gap: 1em
+
+    .label
+        color: $color-accent
+        text-transform: uppercase
+        letter-spacing: 0.05em

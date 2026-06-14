@@ -82,13 +82,17 @@ $head-bg: transparentize($color-dark-2, 0.15)
     align-items: center
     gap: 0.5em
 
-.iconButton, .leaveButton
+// The lobby's single hamburger button (top-right). Settings / Leave / Close
+// Lobby all live inside the menu it opens.
+.iconButton
     flex: 0 0 auto
-    height: 2.4em
+    width: 2.6em
+    height: 2.6em
     display: inline-flex
     align-items: center
     justify-content: center
     font-family: $font-family-game
+    font-size: 1.5em
     line-height: 1
     color: $color-text
     background-color: $panel-bg
@@ -101,14 +105,6 @@ $head-bg: transparentize($color-dark-2, 0.15)
     &:active
         background-color: $color-accent-darker
         color: $color-dark-3
-
-.iconButton
-    width: 2.4em
-    font-size: 1.5em
-
-.leaveButton
-    padding: 0 0.9em
-    font-size: 1.3em
 
 // ---- Body: three panels (Ship / Map / Players) ----
 .body

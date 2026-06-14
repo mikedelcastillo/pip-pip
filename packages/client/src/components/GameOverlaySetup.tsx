@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react"
-import { useNavigate } from "react-router-dom"
 import { PipPipGameMode } from "@pip-pip/game/src/logic"
 import { GAME_CONTEXT } from "../game"
 import { useGameStore } from "../game/store"
@@ -8,7 +7,7 @@ import GamePlayerList from "./GamePlayerList"
 import GameChat from "./GameChat"
 import ShipSelect from "./ShipSelect"
 import MapSelect from "./MapSelect"
-import SettingsModal from "./SettingsModal"
+import LobbyMenu from "./LobbyMenu"
 import styles from "./GameOverlaySetup.module.sass"
 
 // Mode-target bounds + steps, mirrored from HostSettingsModal so the lobby and
@@ -48,13 +47,9 @@ export default function GameOverlaySetup() {
     const maxKills = useGameStore((s) => s.maxKills)
     const matchMinutes = useGameStore((s) => s.matchMinutes)
 
-    const [settingsOpen, setSettingsOpen] = useState(false)
-    // Two-step confirm for the host's "Close Lobby" action: the first click arms
-    // it (swaps the button for a Confirm / Cancel pair) so disbanding the lobby is
-    // never a single mis-tap. Server-authoritative either way - only the host's
-    // closeLobby is honoured - this is purely the UI guard.
-    const [confirmingClose, setConfirmingClose] = useState(false)
-    const navigate = useNavigate()
+    // The hamburger menu tucks Settings, Leave and (host) Close Lobby away so the
+    // header stays uncluttered; Close Lobby confirms via a modal inside it.
+    const [menuOpen, setMenuOpen] = useState(false)
 
     const badge = useMemo(() => modeBadge(mode, maxKills, matchMinutes), [mode, maxKills, matchMinutes])
     const isFrenzy = mode === PipPipGameMode.KILL_FRENZY
@@ -79,15 +74,6 @@ export default function GameOverlaySetup() {
 
     const startGame = () => GAME_CONTEXT.startGame()
     const toggleSpectate = () => GAME_CONTEXT.toggleSpectator()
-    const leave = () => navigate("/")
-
-    // Host-only: disband the lobby for everyone. The server validates the host and
-    // broadcasts lobbyClosed; each client (this one included) then navigates home
-    // and shows the notice, so we do NOT navigate here - we just send the request.
-    const closeLobby = () => {
-        setConfirmingClose(false)
-        GAME_CONTEXT.closeLobby()
-    }
 
     return (
         <div className="game-overlay">
@@ -101,55 +87,15 @@ export default function GameOverlaySetup() {
                         </div>
                     </div>
                     <div className={styles.topActions}>
+                        {/* Single hamburger: Settings, Leave and (host) Close
+                            Lobby all live inside the menu so the header is tidy. */}
                         <button
                             type="button"
                             className={styles.iconButton}
-                            aria-label="Settings"
-                            onClick={() => setSettingsOpen(true)}
+                            aria-label="Menu"
+                            onClick={() => setMenuOpen(true)}
                         >
-                            &#9881;
-                        </button>
-                        {/* Host-only: close the lobby for everyone. Two-step so a
-                            stray tap never disbands the room - the first press arms
-                            the Confirm / Cancel pair below. */}
-                        {isHost && (
-                            confirmingClose ? (
-                                <>
-                                    <button
-                                        type="button"
-                                        className={styles.leaveButton}
-                                        aria-label="Confirm close lobby"
-                                        onClick={closeLobby}
-                                    >
-                                        Confirm Close
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={styles.leaveButton}
-                                        aria-label="Cancel close lobby"
-                                        onClick={() => setConfirmingClose(false)}
-                                    >
-                                        Cancel
-                                    </button>
-                                </>
-                            ) : (
-                                <button
-                                    type="button"
-                                    className={styles.leaveButton}
-                                    aria-label="Close lobby"
-                                    onClick={() => setConfirmingClose(true)}
-                                >
-                                    Close Lobby
-                                </button>
-                            )
-                        )}
-                        <button
-                            type="button"
-                            className={styles.leaveButton}
-                            aria-label="Leave lobby"
-                            onClick={leave}
-                        >
-                            Leave
+                            &#9776;
                         </button>
                     </div>
                 </header>
@@ -255,7 +201,7 @@ export default function GameOverlaySetup() {
                 </footer>
             </div>
 
-            {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+            {menuOpen && <LobbyMenu onClose={() => setMenuOpen(false)} />}
         </div>
     )
 }
