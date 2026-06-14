@@ -99,11 +99,21 @@ export const $bool: PacketSerializer<boolean> = {
 
 export const $varstring: PacketSerializer<string> = {
     encode(value){
+        // Write the 2-byte little-endian length prefix + the UTF-8 body straight
+        // into ONE preallocated buffer. The old path allocated a Uint16Array, its
+        // byte view, an intermediate spread array literal AND the outer Uint8Array
+        // per call; this allocates only the final buffer (plus the TextEncoder
+        // result). Byte-identical: the prefix is the SAME little-endian uint16 of
+        // encoded.length the old `new Uint16Array([len]).buffer` view produced
+        // (low byte first), and the body bytes are copied verbatim - exactly what
+        // the spread emitted. decode still reads `arr[0] | (arr[1] << 8)`.
         const encoded = internalTextEncoder.encode(value)
-        return new Uint8Array([
-            ...new Uint8Array(new Uint16Array([encoded.length]).buffer),
-            ...encoded,
-        ])
+        const len = encoded.length
+        const out = new Uint8Array(2 + len)
+        out[0] = len & 0xFF
+        out[1] = (len >> 8) & 0xFF
+        out.set(encoded, 2)
+        return out
     },
     decode(value){
         const arr = Array.from(value)

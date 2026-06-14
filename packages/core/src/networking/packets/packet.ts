@@ -63,7 +63,7 @@ export class Packet<T extends PacketSerializerMap>{
     }
 
     encode<I extends GetPacketInput<T>>(inputs: I | I[]){
-        const output = []
+        const output: number[] = []
 
         if(!Array.isArray(inputs)) inputs = [inputs]
 
@@ -72,7 +72,17 @@ export class Packet<T extends PacketSerializerMap>{
             for(const key of this.keyOrder){
                 const value = inp[key]
                 const arr = this.serializers[key].encode(value)
-                output.push(...arr)
+                // Append the field's bytes with an indexed loop instead of
+                // `output.push(...arr)`. The spread passes EVERY byte as a separate
+                // function argument (materializing an arguments list as wide as the
+                // field, and V8 deopts/limits very wide spreads) - a real cost on
+                // large fields like $largejson's map blob, every tick. This appends
+                // the SAME bytes in the SAME order into the SAME number[] the
+                // decoders/manager already consume, so the output is byte-identical
+                // and the return type is unchanged.
+                for(let i = 0; i < arr.length; i++){
+                    output.push(arr[i])
+                }
             }
         }
 
