@@ -271,6 +271,18 @@ export class PipShip{
         this.timings.invisibility = 0
         this.timings.ricochet = 0
         this.timings.rapidfire = 0
+
+        // Zero the weapon + tactical reload/rate timers so a respawned ship is
+        // immediately fire-ready, matching its refilled ammo. update() ticks these
+        // down every tick even while despawned, and the tactical reload (100 ticks)
+        // outlasts the 60-tick respawn window, so without this a fresh ship shows
+        // full tactical ammo yet canUseTactical reports it still reloading (no fire)
+        // for up to ~2s. (invincibility / health-regen timers are left alone:
+        // invincibility is intentional spawn protection.)
+        this.timings.weaponReload = 0
+        this.timings.weaponRate = 0
+        this.timings.tacticalReload = 0
+        this.timings.tacticalRate = 0
     }
 
     setPlayer(player: PipPlayer){
