@@ -385,4 +385,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 93 | `84e3a36`   | Host "Close Lobby" (disband + send everyone home with a notice) | `git revert 84e3a36`|
 | 94 | `04b117d`   | Ricochet powerup: timed buff, bullets bounce off walls (max 3 bounces) | `git revert 04b117d`|
 | 95 | `454fbf2`   | FIX loadout ship pick not reaching server in-match (playerSetShip was SETUP-gated) | `git revert 454fbf2`|
-| 96 | (latest)    | Powerup overhaul: longer durations + Minecraft-style buff HUD + tactical countdown feed + networked ricochet timer | `git revert <sha>` |
+| 96 | `7f807f3`   | Powerup overhaul: longer durations + Minecraft-style buff HUD + tactical countdown feed + networked ricochet timer | `git revert 7f807f3`|
+| 97 | (latest)    | Loadout buttons: Spectate small on the left, Deploy prominent on the right | `git revert <sha>` |

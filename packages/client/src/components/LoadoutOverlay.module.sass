@@ -89,9 +89,13 @@ $head-bg: transparentize($color-dark-2, 0.1)
     border-top: $border-size solid $color-border
     background-color: $head-bg
 
-// Big, full-width touch targets. GameButton already enforces a 44px min height;
-// stretching both to equal width gives a comfortable tap area on a phone.
-.deployBtn, .spectateBtn
-    flex: 1 1 0
-    width: 100%
+// Deploy is the primary action: it takes the remaining width on the RIGHT and
+// stays a big tap target. Spectate is the small secondary on the LEFT, sized to
+// its label (GameButton already enforces a 44px min height, so it stays tappable
+// on a phone without dominating the bar).
+.deployBtn
+    flex: 1 1 auto
     text-align: center
+
+.spectateBtn
+    flex: 0 0 auto

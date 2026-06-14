@@ -44,11 +44,13 @@ export default function LoadoutOverlay() {
                 </div>
 
                 <footer className={styles.actions}>
-                    <GameButton onClick={deploy} className={styles.deployBtn}>
-                        Deploy
-                    </GameButton>
+                    {/* Spectate is the small secondary on the LEFT; Deploy is the
+                        prominent primary on the RIGHT. */}
                     <GameButton accent onClick={spectate} className={styles.spectateBtn}>
                         Spectate
+                    </GameButton>
+                    <GameButton onClick={deploy} className={styles.deployBtn}>
+                        Deploy
                     </GameButton>
                 </footer>
             </div>
