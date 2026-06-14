@@ -30,6 +30,13 @@ export interface UiStoreState {
     setCrtEnabled: (b: boolean) => void
     toggleCrtEnabled: () => void
 
+    // Pure client UI flag: while true the mid-game loadout overlay is shown
+    // (ship picker + Deploy / Spectate). Set when a player joins a live match
+    // (GameView mount) or taps "Change Loadout" on the respawn screen; cleared
+    // when they Deploy, Spectate, or leave MATCH. Never networked.
+    showLoadout: boolean
+    setShowLoadout: (b: boolean) => void
+
     // Custom control bindings (keyboard + gamepad), seeded from localStorage.
     // processInputs reads these every tick via useUiStore.getState(); the
     // KeyBindingsModal mutates them through the setters below, each of which
@@ -77,6 +84,9 @@ export const useUiStore = create<UiStoreState>((set, get) => ({
         writeGraphicsSettings({ crt: b })
     },
     toggleCrtEnabled: () => get().setCrtEnabled(!get().crtEnabled),
+
+    showLoadout: false,
+    setShowLoadout: (b) => set({ showLoadout: b }),
 
     keyBindings: initialBindings.keys,
     gamepadBindings: initialBindings.gamepad,

@@ -1,0 +1,97 @@
+@import "../styles/variables"
+
+// Dark translucent panel fill, matching the lobby (GameOverlaySetup) so the
+// live match renders faintly behind the loadout screen.
+$panel-bg: transparentize($color-dark-1, 0.12)
+$head-bg: transparentize($color-dark-2, 0.1)
+
+@keyframes loadoutIn
+    from
+        opacity: 0
+        transform: translateY(12px)
+    to
+        opacity: 1
+        transform: translateY(0)
+
+.loadout
+    // The base .game-overlay is pointer-events-agnostic; this overlay IS
+    // interactive (it dims the match and captures taps), so a backdrop sits over
+    // the whole screen. The touch sticks / minimap / menu live beneath it and
+    // are intentionally covered while the loadout screen is up.
+    display: flex
+    align-items: center
+    justify-content: center
+    // Darken the match behind so the panel reads clearly.
+    background-color: transparentize($color-dark-1, 0.45)
+    font-family: $font-family-game
+    color: $color-text
+    // Respect notch / home-indicator insets so the panel never sits under them.
+    padding-top: max(#{$screen-margin-dynamic}, env(safe-area-inset-top))
+    padding-right: max(#{$screen-margin-dynamic}, env(safe-area-inset-right))
+    padding-bottom: max(#{$screen-margin-dynamic}, env(safe-area-inset-bottom))
+    padding-left: max(#{$screen-margin-dynamic}, env(safe-area-inset-left))
+
+.panel
+    display: flex
+    flex-direction: column
+    // Cap the panel so it never spans an ultrawide desktop, but let it fill a
+    // phone. max-height keeps the whole panel on-screen; its body scrolls.
+    width: 100%
+    max-width: 44em
+    max-height: 100%
+    background-color: $panel-bg
+    border: $border-size solid $color-main
+    border-radius: $border-radius
+    overflow: hidden
+    animation: loadoutIn 220ms ease-out both
+
+.head
+    flex: 0 0 auto
+    display: flex
+    flex-direction: column
+    gap: 0.2em
+    padding: 0.6em 0.8em
+    background-color: $head-bg
+    border-bottom: $border-size solid $color-border
+    // Amber accent stripe, same Apex-HUD cue as the lobby panel headers.
+    border-left: 5px solid $color-main
+
+.kicker
+    font-size: 1em
+    line-height: 1
+    letter-spacing: 0.3em
+    text-transform: uppercase
+    color: transparentize($color-text, 0.45)
+
+.title
+    margin: 0
+    font-size: 1.8em
+    font-weight: normal
+    line-height: 1.1
+    color: $color-main
+
+.body
+    // CRITICAL: the body owns the scroll so the ship cards are always reachable
+    // on a small screen (the lobby once shipped with un-scrollable panels - do
+    // not repeat that). flex:1 + min-height:0 lets it shrink and scroll inside
+    // the capped panel instead of pushing the actions off-screen.
+    flex: 1 1 auto
+    min-height: 0
+    overflow-y: auto
+    overflow-x: hidden
+    padding: 0.8em
+
+.actions
+    flex: 0 0 auto
+    display: flex
+    gap: 0.8em
+    padding: 0.8em
+    border-top: $border-size solid $color-border
+    background-color: $head-bg
+
+// Big, full-width touch targets. GameButton already enforces a 44px min height;
+// stretching both to equal width gives a comfortable tap area on a phone.
+.deployBtn, .spectateBtn
+    flex: 1 1 0
+    width: 100%
+    text-align: center

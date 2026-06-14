@@ -3,10 +3,12 @@ import { useNavigate, useParams } from "react-router-dom"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { GAME_CONTEXT } from "../game"
 import { useGameStore } from "../game/store"
+import { useUiStore } from "../store/ui"
 import GameOverlaySetup from "./GameOverlaySetup"
 import GameOverlayCountdown from "./GameOverlayCountdown"
 import GameOverlayMatch from "./GameOverlayMatch"
 import GameOverlayResults from "./GameOverlayResults"
+import LoadoutOverlay from "./LoadoutOverlay"
 import TouchControls from "./TouchControls"
 import DebugOverlay from "./DebugOverlay"
 import DisconnectModal from "./DisconnectModal"
@@ -14,20 +16,48 @@ import DisconnectModal from "./DisconnectModal"
 export default function GameView() {
     const containerRef = useRef<HTMLDivElement>(null)
     const phase = useGameStore((s) => s.phase)
+    const showLoadout = useUiStore((s) => s.showLoadout)
+    const setShowLoadout = useUiStore((s) => s.setShowLoadout)
     const navigate = useNavigate()
     const { id } = useParams<{ id: string }>()
 
     const [disconnected, setDisconnected] = useState(false)
     const [reconnecting, setReconnecting] = useState(false)
 
+    // Track the previous phase across renders so we can tell a true mid-game
+    // joiner apart from a lobby player. The client always starts in SETUP; a
+    // normal lobby start goes SETUP -> COUNTDOWN -> MATCH, but a player who joins
+    // a running match receives the server's MATCH phase directly (SETUP -> MATCH,
+    // no COUNTDOWN). That direct jump is what flags them onto the loadout screen.
+    const prevPhaseRef = useRef(phase)
+
     useEffect(() => {
         if (!containerRef.current) return
+        // Fresh mount: clear any stale loadout flag so it never lingers from a
+        // previous game into this one.
+        setShowLoadout(false)
+        prevPhaseRef.current = PipPipGamePhase.SETUP
         GAME_CONTEXT.mountGameView(containerRef.current)
         return () => {
+            setShowLoadout(false)
             GAME_CONTEXT.unmountGameView()
             GAME_CONTEXT.client.disconnect()
         }
-    }, [])
+    }, [setShowLoadout])
+
+    // Show the loadout screen for a real mid-game joiner: the client's phase
+    // jumped straight from SETUP to MATCH (a lobby start always passes through
+    // COUNTDOWN first, so it never triggers this). Also make sure the flag never
+    // lingers once the player is no longer in MATCH (back to the lobby / results).
+    useEffect(() => {
+        const prev = prevPhaseRef.current
+        if (phase === PipPipGamePhase.MATCH && prev === PipPipGamePhase.SETUP) {
+            setShowLoadout(true)
+        } else if (phase !== PipPipGamePhase.MATCH) {
+            setShowLoadout(false)
+        }
+        prevPhaseRef.current = phase
+    }, [phase, setShowLoadout])
 
     // Surface an UNEXPECTED websocket drop. The core Client emits `socketClose`
     // only after a verified connection closes. This effect is declared AFTER the
@@ -58,6 +88,10 @@ export default function GameView() {
         {phase === PipPipGamePhase.COUNTDOWN && <GameOverlayCountdown />}
         {phase === PipPipGamePhase.MATCH && <GameOverlayMatch />}
         {phase === PipPipGamePhase.RESULTS && <GameOverlayResults />}
+        {/* Mid-game loadout screen: a ship picker + Deploy / Spectate, shown over
+            the live match for a fresh joiner or after "Change Loadout" on the
+            respawn screen. Interactive, so it sits above the touch controls. */}
+        {phase === PipPipGamePhase.MATCH && showLoadout && <LoadoutOverlay />}
         {/* Twin-stick touch overlay during live play. Self-hides on desktop
             (mouse/keyboard) so it never covers mouse-aim. */}
         {phase === PipPipGamePhase.MATCH && <TouchControls />}

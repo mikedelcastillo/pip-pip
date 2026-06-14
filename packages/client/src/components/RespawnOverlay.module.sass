@@ -31,3 +31,26 @@
         .waiting
             font-size: 3em
             color: $color-main
+
+        // "Change Loadout": cancels the respawn and opens the loadout screen.
+        // The overlay root is pointer-events:none (so the touch sticks stay
+        // usable); re-enable pointer events on JUST this button so the tap lands.
+        // Sized as a comfortable phone touch target, sitting beneath the count.
+        .loadoutButton
+            pointer-events: auto
+            margin-top: 1em
+            min-height: 44px
+            padding: 0.3em 1em
+            font-family: $font-family-game
+            font-size: 1.4em
+            line-height: 1
+            color: $color-dark-3
+            background-color: $color-main
+            border: $border-size solid $color-border
+            border-radius: $border-radius
+            cursor: pointer
+            -webkit-tap-highlight-color: transparent
+            touch-action: manipulation
+
+            &:active
+                background-color: $color-main-darker

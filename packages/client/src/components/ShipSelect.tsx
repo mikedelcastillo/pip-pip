@@ -29,21 +29,25 @@ function getShipStatLines(): ShipStatLine[][] {
     })
 }
 
-export default function ShipSelect() {
+// `allowInMatch` lets a host context (the mid-game loadout overlay) enable ship
+// selection even during a live MATCH. The default keeps the lobby's behaviour:
+// ships are only changeable in SETUP. The server already accepts playerSetShip
+// in any phase, so this purely relaxes the CLIENT-side gate where it is safe.
+export default function ShipSelect({ allowInMatch = false }: { allowInMatch?: boolean }) {
     const phase = useGameStore((s) => s.phase)
     const activeIndex = useGameStore((s) => s.clientPlayerShipIndex)
 
     const statLines = useMemo(() => getShipStatLines(), [])
 
-    const isSetup = phase === PipPipGamePhase.SETUP
+    const enabled = phase === PipPipGamePhase.SETUP || allowInMatch
 
     const select = (index: number) => {
-        if (!isSetup) return
+        if (!enabled) return
         GAME_CONTEXT.setShip(index)
     }
 
     const containerClasses = [styles.shipSelect]
-    if (!isSetup) containerClasses.push(styles.disabled)
+    if (!enabled) containerClasses.push(styles.disabled)
 
     return (
         <div className={containerClasses.join(" ")}>
@@ -75,7 +79,7 @@ export default function ShipSelect() {
                     )
                 })}
             </div>
-            {!isSetup && (
+            {!enabled && (
                 <div className={styles.hint}>Ships can only be changed in the lobby.</div>
             )}
         </div>

@@ -523,7 +523,20 @@ export class PipPipGame{
 
     addPlayerMidGame(player: PipPlayer){
         if(this.phase === PipPipGamePhase.SETUP) return
-        this.spawnPlayer(player)
+        // Bots are training targets: they must join the fight immediately, so
+        // spawn them at once exactly as before.
+        if(player.isBot === true){
+            this.spawnPlayer(player)
+            return
+        }
+        // A REAL player joining a live match does NOT get dropped straight into
+        // combat. Park them as a spectator so the per-tick respawn loop leaves
+        // them alone (it skips spectators), while the client shows them the
+        // loadout screen to pick a ship and choose Deploy or Spectate. Deploying
+        // is the un-spectate path: the client sends playerSpectate(false), the
+        // server clears the spectator flag, and the respawn loop then spawns them
+        // (spawnTimeout is 0 for a fresh join, so canSpawn is true).
+        player.setSpectator(true)
     }
 
     updateSystems(){
