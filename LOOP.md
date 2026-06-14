@@ -405,4 +405,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 113| `837f633`   | Host bot config (add/remove/fill, all modes) + per-bot difficulty (Easy/Med/Hard/Mixed) with ~20% per-bot skill variance; respects the 8-bot cap | `git revert 837f633`|
 | 114| `123bbb0`   | Chat-command registry: config (/mode /kills /minutes /teams /friendlyfire /map /settotalteams), team (/jointeam /leaveteam /join @player), moderation (/kick /kill @player), @mentions, auto /help, N-team (2-6) support | `git revert 123bbb0`|
 | 115| `da82dfc`   | Bots target the NEAREST enemy with no bot-vs-human priority (was preferring real players) | `git revert da82dfc`|
-| 116| (latest)    | Player names rendered above the health bar (upright, fades with cloak) | `git revert <sha>` |
+| 116| `83c24cb`   | Player names rendered above the health bar (upright, fades with cloak) | `git revert 83c24cb`|
+| 117| (latest)    | Bot A* pathfinding around walls (nav-grid cached per map, path throttled, AI runs on a 3-tick cadence) - net CPU REDUCTION | `git revert <sha>` |

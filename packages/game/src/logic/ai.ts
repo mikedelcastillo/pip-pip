@@ -1,5 +1,7 @@
 import { radianDifference } from "@pip-pip/core/src/math"
+import { PointPhysicsRectWall, PointPhysicsSegmentWall } from "@pip-pip/core/src/physics"
 import { PipPlayer, PlayerInputs } from "./player"
+import { NavGrid, NavPoint, findPath, hasLineOfSight, worldToCell } from "./pathfinding"
 
 // "Training-grounds" enemy bots. A bot is a server-simulated PipPlayer with no
 // connection. Each tick the brain reads the world and writes the bot's
@@ -16,6 +18,33 @@ export const BOT_RANGE_BAND = 120
 export const BOT_FIRE_RANGE = 600
 // ...and its aim is within this many radians of the target.
 export const BOT_FIRE_AIM_TOLERANCE = 0.25
+
+// How often (in ticks) the AI re-targets + re-paths. The brain holds its
+// movement intent between decisions and only refreshes aim every tick, so this
+// cadence is imperceptible at 20Hz (3 ticks = 150ms) yet cuts the per-tick AI
+// cost by ~3x. Small + load-bearing for the "lower CPU" requirement.
+export const AI_DECISION_TICKS = 3
+
+// How often (in ticks) a bot is allowed to recompute its A* path AROUND walls.
+// ~10 ticks = 0.5s at 20Hz. A path is also rebuilt early if the target crosses
+// into a different grid cell; otherwise the cached path is reused, so A* runs at
+// most ~twice a second per bot instead of every tick.
+export const PATH_RECOMPUTE_TICKS = 10
+
+// A bot is considered to have "reached" a waypoint when it gets this close (in
+// world units), at which point the path advances to the next waypoint.
+export const PATH_WAYPOINT_REACHED = 60
+
+// Pathfinding dependencies handed to the bot brain so it stays unit-testable:
+// the cached nav grid, the map walls (for line-of-sight + smoothing) and the
+// current tick (the clock that drives the recompute cooldown). All are injected
+// by updateBotInputs from the running game; tests can construct them directly.
+export type BotNavContext = {
+    grid: NavGrid,
+    rectWalls: PointPhysicsRectWall[],
+    segWalls: PointPhysicsSegmentWall[],
+    tick: number,
+}
 
 // Per-bot difficulty. Stored on a bot (PipPlayer.difficulty) when it is created
 // and used to derive its skill profile via makeBotSkill. "Mixed" is NOT a value
@@ -145,7 +174,15 @@ export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[]): BotTarge
 // tests), so legacy call sites keep their original behaviour. aimNoise (default
 // 0) is added to the aim this tick: updateBotInputs feeds in a per-tick error
 // from the bot's aimJitter, while tests that omit it see an exact aim.
-export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, aimNoise = 0): PlayerInputs{
+//
+// nav (optional) carries the pathfinding context. When it is OMITTED (every
+// existing pure test, which runs in a wall-free arena) the bot behaves exactly
+// as before: it always steers straight at the target. When nav IS supplied the
+// bot first checks line of sight to the target - with a clear lane it STILL
+// steers straight at the target (same movementAngle as before), and only when
+// the lane is BLOCKED does it follow its cached A* path, steering toward the
+// next waypoint. AIM always points at the real target either way.
+export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, aimNoise = 0, nav?: BotNavContext): PlayerInputs{
     const inputs: PlayerInputs = {
         movementAngle: bot.inputs.movementAngle,
         movementAmount: 0,
@@ -169,21 +206,51 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
     const fireRange = skill?.fireRange ?? BOT_FIRE_RANGE
     const fireAimTolerance = skill?.fireAimTolerance ?? BOT_FIRE_AIM_TOLERANCE
 
-    // Aim at the target, plus this tick's random error (0 by default).
+    // Aim at the target, plus this tick's random error (0 by default). Aim ALWAYS
+    // tracks the real target, even while routing around a wall.
     inputs.aimRotation = angle + aimNoise
 
+    // Decide whether the lane to the target is clear. With no nav context (the
+    // wall-free pure tests) the lane is treated as clear, so behaviour is
+    // unchanged. When a path waypoint is being followed, `approachAngle` points
+    // at the waypoint instead of straight at the target; the close/strafe logic
+    // still keys off the true target geometry so range-keeping is unchanged.
+    const botX = bot.ship.physics.position.x
+    const botY = bot.ship.physics.position.y
+    const targetX = found.target.ship.physics.position.x
+    const targetY = found.target.ship.physics.position.y
+
+    let lineOfSight = true
+    if(typeof nav !== "undefined"){
+        lineOfSight = hasLineOfSight(botX, botY, targetX, targetY, nav.rectWalls, nav.segWalls)
+    }
+
+    // The angle the bot moves ALONG when closing the gap: straight at the target
+    // when the lane is clear (or no nav), or toward the next path waypoint when
+    // the lane is blocked. waypointAngle returns the target angle when there is no
+    // usable path so the bot still nudges toward the target instead of freezing.
+    const approachAngle = lineOfSight === true
+        ? angle
+        : nextWaypointAngle(bot, botX, botY, angle)
+
     if(distance > desiredRange + rangeBand){
-        // Too far: close the gap.
-        inputs.movementAngle = angle
+        // Too far: close the gap (along the path when routing).
+        inputs.movementAngle = approachAngle
         inputs.movementAmount = 1
     } else if(distance < desiredRange - rangeBand){
-        // Too close: retreat directly away.
+        // Too close: retreat directly away from the target.
         inputs.movementAngle = angle + Math.PI
         inputs.movementAmount = 1
-    } else{
-        // In the sweet spot: orbit/strafe perpendicular to the target line.
+    } else if(lineOfSight === true){
+        // In the sweet spot WITH a clear lane: orbit/strafe perpendicular to the
+        // target line (the original, unchanged behaviour).
         inputs.movementAngle = angle + Math.PI / 2
         inputs.movementAmount = 0.6
+    } else{
+        // In range but the wall is between us: keep closing along the path toward
+        // a clear shot rather than strafing into the wall.
+        inputs.movementAngle = approachAngle
+        inputs.movementAmount = 1
     }
 
     // Reload while we have no shot lined up so we are not caught empty.
@@ -205,18 +272,134 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
     return inputs
 }
 
+// The heading from the bot toward the FIRST still-relevant waypoint on its
+// cached path, dropping any waypoints it has already reached. Falls back to
+// `fallbackAngle` (the direct angle to the target) when the bot has no usable
+// path, so a routing bot that has run out of waypoints (or never got one) still
+// nudges toward the target rather than freezing. Mutates bot.path only by
+// shifting off reached waypoints - cheap, no allocation.
+function nextWaypointAngle(bot: PipPlayer, botX: number, botY: number, fallbackAngle: number){
+    const path = bot.path
+    if(typeof path === "undefined" || path.length === 0) return fallbackAngle
+
+    // Drop every leading waypoint the bot has already arrived at, so it always
+    // aims at the next corner ahead of it.
+    while(path.length > 0){
+        const wp = path[0]
+        const dx = wp.x - botX
+        const dy = wp.y - botY
+        if(dx * dx + dy * dy <= PATH_WAYPOINT_REACHED * PATH_WAYPOINT_REACHED){
+            path.shift()
+            continue
+        }
+        return Math.atan2(dy, dx)
+    }
+    return fallbackAngle
+}
+
+// Recompute (and cache on the bot) the A* route around walls toward its target,
+// but only when allowed: the per-bot cooldown has elapsed OR the target has
+// moved to a different grid cell since the last route. This is the ONLY place
+// A* runs, and it is gated so it fires at most ~twice a second per bot, never
+// per tick. Does nothing when the lane is already clear - a bot with line of
+// sight does not need (and should not pay for) a path. Pure aside from updating
+// the bot's cached path fields.
+function maybeRecomputePath(bot: PipPlayer, found: BotTarget, nav: BotNavContext){
+    const botX = bot.ship.physics.position.x
+    const botY = bot.ship.physics.position.y
+    const targetX = found.target.ship.physics.position.x
+    const targetY = found.target.ship.physics.position.y
+
+    // Clear lane -> no path needed; drop any stale route so the bot steers
+    // straight (and the next blocked moment recomputes fresh).
+    if(hasLineOfSight(botX, botY, targetX, targetY, nav.rectWalls, nav.segWalls)){
+        bot.path = undefined
+        bot.pathCooldown = 0
+        bot.pathTargetCol = -1
+        bot.pathTargetRow = -1
+        return
+    }
+
+    const goalCell = worldToCell(nav.grid, targetX, targetY)
+    const targetMovedCell = goalCell.col !== bot.pathTargetCol || goalCell.row !== bot.pathTargetRow
+    const cooldownReady = bot.pathCooldown <= 0
+    const noPath = typeof bot.path === "undefined" || bot.path.length === 0
+
+    if(cooldownReady === false && targetMovedCell === false && noPath === false) return
+
+    const path: NavPoint[] = findPath(
+        nav.grid,
+        botX, botY,
+        targetX, targetY,
+        nav.rectWalls, nav.segWalls,
+    )
+    // findPath drops the start cell-centre implicitly via smoothing, but the
+    // first waypoint can still sit on top of the bot; nextWaypointAngle skips any
+    // already-reached waypoint, so an empty result just falls back to a direct
+    // nudge. Store whatever we got (possibly empty -> graceful fallback).
+    bot.path = path.length > 0 ? path : undefined
+    bot.pathCooldown = PATH_RECOMPUTE_TICKS
+    bot.pathTargetCol = goalCell.col
+    bot.pathTargetRow = goalCell.row
+}
+
 // Drive one bot for this tick: pick a target, compute inputs, write them onto
 // the bot. Called by the game loop for every isBot player when calculateAi is
 // on. Copies field-by-field (not a reference swap) so the bot keeps its single
 // inputs object, matching how consumeQueuedInput mutates a real player's.
-export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () => number = Math.random){
+//
+// nav (optional) is the pathfinding context built once per tick by the caller
+// (the cached nav grid + map walls + current tick). When omitted - e.g. the
+// existing pure ai tests - the bot behaves exactly as before (always steers
+// straight at its target).
+//
+// PERFORMANCE: the heavy decision (re-target + re-path) runs on a CADENCE
+// (AI_DECISION_TICKS), holding the movement intent between decisions; AIM is
+// refreshed EVERY tick so the bot stays responsive. The path itself recomputes
+// at most every PATH_RECOMPUTE_TICKS inside maybeRecomputePath. Together these
+// keep the bot loop from doing real work on most ticks.
+export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () => number = Math.random, nav?: BotNavContext){
+    const jitter = bot.skill?.aimJitter ?? 0
+    const aimNoise = jitter === 0 ? 0 : (rng() * 2 - 1) * jitter
+
+    // The path-recompute cooldown ticks down once per call so its 0.5s cadence is
+    // measured in real ticks regardless of the decision cadence.
+    if(bot.pathCooldown > 0) bot.pathCooldown--
+
+    // CADENCE: only re-run the full decision (target + path + movement intent)
+    // every AI_DECISION_TICKS. On the in-between ticks we keep the held movement
+    // intent and just refresh aim toward the last-known target heading. With no
+    // nav context (pure tests) we always run the full decision so behaviour is
+    // identical to before.
+    const fullDecision = typeof nav === "undefined" || bot.aiDecisionCooldown <= 0
+
+    if(fullDecision === false){
+        // Between decisions: keep movement intent, only re-aim at the current
+        // nearest enemy so the bot tracks a moving target smoothly.
+        bot.aiDecisionCooldown--
+        const quick = findNearestEnemy(bot, players)
+        if(typeof quick !== "undefined"){
+            bot.inputs.aimRotation = quick.angle + aimNoise
+        }
+        return
+    }
+
+    bot.aiDecisionCooldown = AI_DECISION_TICKS
+
     const found = findNearestEnemy(bot, players)
+
+    // Refresh the A* route (gated internally) before computing movement, so the
+    // brain steers along an up-to-date path when the lane is blocked.
+    if(typeof nav !== "undefined" && typeof found !== "undefined"){
+        maybeRecomputePath(bot, found, nav)
+    } else if(typeof found === "undefined"){
+        bot.path = undefined
+    }
+
     // A fresh per-tick aim error sampled from the bot's skill (no profile -> no
     // jitter), passed as aimNoise so an EASY bot's shots wander and a HARD bot's
     // stay tight. rng is injected (default Math.random) so this stays testable.
-    const jitter = bot.skill?.aimJitter ?? 0
-    const aimNoise = jitter === 0 ? 0 : (rng() * 2 - 1) * jitter
-    const next = computeBotInputs(bot, found, aimNoise)
+    const next = computeBotInputs(bot, found, aimNoise, nav)
     bot.inputs.movementAngle = next.movementAngle
     bot.inputs.movementAmount = next.movementAmount
     bot.inputs.aimRotation = next.aimRotation

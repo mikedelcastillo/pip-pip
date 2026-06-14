@@ -5,7 +5,8 @@ import { distanceBetweenSegments, nearestPointFromSegment, radianDifference } fr
 import { Bullet, BulletPool, BulletType, MAX_BULLET_BOUNCES } from "./bullet"
 import { Powerup, PowerupPool, PowerupType, applyPowerupEffect, HASTE_MULTIPLIER } from "./powerup"
 import { PipPlayer, PlayerInputs } from "./player"
-import { updateBotInputs, BotDifficulty, makeBotSkill } from "./ai"
+import { updateBotInputs, BotDifficulty, makeBotSkill, BotNavContext } from "./ai"
+import { getNavGrid } from "./pathfinding"
 import { generateId } from "@pip-pip/core/src/lib/utils"
 import { PipShip } from "./ship"
 import { PipGameMap } from "./map"
@@ -809,9 +810,25 @@ export class PipPipGame{
             // instance never re-derives bot behaviour locally.
             if(this.options.calculateAi === true){
                 const allPlayers = Object.values(this.players)
+                // Build the pathfinding context ONCE per tick and share it across
+                // every bot: the nav grid is cached per map (getNavGrid builds it
+                // only on a map change), and the wall arrays + tick are read off
+                // the live map. Bots route AROUND walls via this; with a clear
+                // lane they ignore it and steer straight (see computeBotInputs).
+                // Built only when there is at least one spawned bot, so a
+                // bot-free match pays nothing.
+                let nav: BotNavContext | undefined
                 for(const player of allPlayers){
                     if(player.isBot === true && player.spawned === true){
-                        updateBotInputs(player, allPlayers)
+                        if(typeof nav === "undefined"){
+                            nav = {
+                                grid: getNavGrid(this.map),
+                                rectWalls: this.map.rectWalls,
+                                segWalls: this.map.segWalls,
+                                tick: this.tickNumber,
+                            }
+                        }
+                        updateBotInputs(player, allPlayers, Math.random, nav)
                     }
                 }
             }

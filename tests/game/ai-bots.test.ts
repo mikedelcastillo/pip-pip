@@ -3,9 +3,13 @@ import { MAX_BOTS, PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import {
     BOT_FIRE_RANGE,
+    BotNavContext,
     computeBotInputs,
     findNearestEnemy,
+    updateBotInputs,
 } from "@pip-pip/game/src/logic/ai"
+import { buildNavGrid } from "@pip-pip/game/src/logic/pathfinding"
+import { PointPhysicsSegmentWall } from "@pip-pip/core/src/physics"
 import { radianDifference } from "@pip-pip/core/src/math"
 
 const BLU = 3
@@ -269,5 +273,104 @@ describe("AI brain integration (brain -> inputs -> fire -> collision)", () => {
         for(let i = 0; i < 12; i++) game.update()
 
         expect(bot.ship.capacities.health).toBeLessThan(startHealth)
+    })
+})
+
+describe("AI pathfinding around walls", () => {
+    // A nav context over a 4000-wide arena with a single vertical wall down the
+    // middle that leaves a gap at the top, so the only route from the left side
+    // to a target on the right side goes up and over.
+    function blockingWallNav(): { nav: BotNavContext, wall: PointPhysicsSegmentWall }{
+        const bounds = { min: { x: -2000, y: -2000 }, max: { x: 2000, y: 2000 } }
+        const wall = new PointPhysicsSegmentWall(undefined, 0, -2000, 0, 600)
+        wall.radius = 25
+        const grid = buildNavGrid(bounds, [], [wall])
+        return {
+            nav: { grid, rectWalls: [], segWalls: [wall], tick: 0 },
+            wall,
+        }
+    }
+
+    it("with a CLEAR line of sight still drives STRAIGHT at the target (nav passed)", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        // Enemy far along +x, beyond the range band so the bot is in pure
+        // approach. NO walls in this nav context, so line of sight is clear.
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(enemy, BOT_FIRE_RANGE + 800, 0)
+        bot.ship.rotation = 0
+
+        const bounds = { min: { x: -5000, y: -5000 }, max: { x: 5000, y: 5000 } }
+        const nav: BotNavContext = {
+            grid: buildNavGrid(bounds, [], []),
+            rectWalls: [],
+            segWalls: [],
+            tick: 0,
+        }
+
+        const found = findNearestEnemy(bot, Object.values(game.players))
+        // Passing the nav context must NOT change the clear-lane behaviour: the
+        // movement angle still points straight at the target (+x === 0).
+        const inputs = computeBotInputs(bot, found, 0, nav)
+        expect(Math.abs(radianDifference(inputs.movementAngle, 0))).toBeLessThan(0.01)
+        expect(inputs.movementAmount).toBeGreaterThan(0)
+    })
+
+    it("with the lane BLOCKED steers off the direct line to route around the wall", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        const { nav } = blockingWallNav()
+
+        // Bot on the left, enemy straight across on the right: the direct angle is
+        // ~0 (+x), but the wall blocks that lane, so the bot must steer toward the
+        // gap (upward, a clearly non-zero movement angle).
+        game.spawnPlayer(bot, -800, 0)
+        game.spawnPlayer(enemy, 800, 0)
+        bot.ship.rotation = 0
+
+        // Run the full brain so it recomputes a path and follows it.
+        updateBotInputs(bot, Object.values(game.players), Math.random, nav)
+
+        // Aim still tracks the real target straight across (+x === 0)...
+        expect(Math.abs(radianDifference(bot.inputs.aimRotation, 0))).toBeLessThan(0.2)
+        // ...but movement is NOT straight at the target: it has been deflected to
+        // route around the wall (a meaningful angular offset from the direct line).
+        expect(Math.abs(radianDifference(bot.inputs.movementAngle, 0))).toBeGreaterThan(0.2)
+        // A path was cached for the bot.
+        expect(Array.isArray(bot.path)).toBe(true)
+    })
+
+    it("falls back gracefully (no crash, stays put-ish) when the target is unreachable", () => {
+        const game = makeArena()
+        const bot = game.addBot()
+        const enemy = game.createPlayer("AA")
+        enemy.setShip(BLU)
+
+        // Seal the bot inside a fully closed box of segment walls; the enemy sits
+        // far outside it, so no route exists.
+        const bounds = { min: { x: -2000, y: -2000 }, max: { x: 2000, y: 2000 } }
+        const r = 25
+        const walls = [
+            new PointPhysicsSegmentWall(undefined, -200, -200, 200, -200),
+            new PointPhysicsSegmentWall(undefined, 200, -200, 200, 200),
+            new PointPhysicsSegmentWall(undefined, 200, 200, -200, 200),
+            new PointPhysicsSegmentWall(undefined, -200, 200, -200, -200),
+        ]
+        for(const w of walls) w.radius = r
+        const grid = buildNavGrid(bounds, [], walls)
+        const nav: BotNavContext = { grid, rectWalls: [], segWalls: walls, tick: 0 }
+
+        game.spawnPlayer(bot, 0, 0)
+        game.spawnPlayer(enemy, 1500, 0)
+
+        // Must not throw, and must produce a valid finite movement angle.
+        expect(() => updateBotInputs(bot, Object.values(game.players), Math.random, nav)).not.toThrow()
+        expect(Number.isFinite(bot.inputs.movementAngle)).toBe(true)
     })
 })

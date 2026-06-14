@@ -7,6 +7,7 @@ import { PipShip } from "./ship"
 import { tickDown } from "./utils"
 import { SERVER_INPUT_QUEUE_MAX } from "./constants"
 import { BotDifficulty, BotSkill } from "./ai"
+import { NavPoint } from "./pathfinding"
 
 export type PlayerInputs = {
     movementAngle: number,
@@ -117,6 +118,26 @@ export class PipPlayer{
     // undefined profile leaves the legacy behaviour untouched.
     difficulty?: BotDifficulty
     skill?: BotSkill
+
+    // Bot-only A* pathfinding state (see ai.ts / pathfinding.ts). `path` is the
+    // last routed list of world-space waypoints AROUND walls toward the target;
+    // it is only followed when the bot has NO line of sight to its target (with
+    // clear sight the bot steers straight, exactly as before). `pathCooldown`
+    // counts ticks down to the next allowed recompute, and `pathTargetCol/Row`
+    // remember which grid cell the target was in when the path was computed, so
+    // the route is rebuilt early if the target crosses into a different cell.
+    // Recompute happens at most every PATH_RECOMPUTE_TICKS, NEVER per tick, which
+    // is what keeps this cheap on the server. All undefined for a real player.
+    path?: NavPoint[]
+    pathCooldown = 0
+    pathTargetCol = -1
+    pathTargetRow = -1
+
+    // Bot-only AI decision cadence: the brain re-targets + re-paths only when
+    // this hits 0 (every AI_DECISION_TICKS), holding the movement intent between
+    // decisions. Aim still updates every tick for responsiveness. Counts down in
+    // updateBotInputs.
+    aiDecisionCooldown = 0
 
     // TEAM_DEATHMATCH team (0 or 1). -1 marks an unassigned player: the default
     // for every player outside a live TDM match (free-for-all modes never read
