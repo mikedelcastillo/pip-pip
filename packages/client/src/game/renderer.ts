@@ -501,6 +501,19 @@ export class PlayerGraphic {
         this.container.addChild(this.nameText)
     }
 
+    // Free this player's per-instance GPU-backed objects when it leaves. Without
+    // this, every player/bot removal leaked its name Text texture + the two
+    // Graphics' geometry (removeChild only detaches). The ship sprite's texture is
+    // SHARED via the asset cache, so container.destroy's default texture:false
+    // keeps it; but nameText owns a generated canvas-backed texture, so it is
+    // detached and destroyed WITH its texture first (one options object on the
+    // container cannot both keep the shared texture and free the name texture).
+    destroy(){
+        this.container.removeChild(this.nameText)
+        this.nameText.destroy({ texture: true, baseTexture: true })
+        this.container.destroy({ children: true })
+    }
+
     updateShipSprite(){
         if(typeof this.shipSprite !== "undefined"){
             this.shipContainer.removeChild(this.shipSprite)
@@ -689,6 +702,7 @@ export class PipPipRenderer{
                 const graphic = this.players[player.id]
                 delete this.players[player.id]
                 this.playersContainer.removeChild(graphic.container)
+                graphic.destroy()
             }
         })
 
@@ -1301,6 +1315,13 @@ export class PipPipRenderer{
         this.powerups.destroy()
         this.damages.destroy()
         this.particles.destroy()
+
+        // Destroy any players still present: app.destroy below passes texture:false
+        // so it would NOT free their name Text textures, so free them explicitly.
+        for(const id of Object.keys(this.players)){
+            this.players[id].destroy()
+            delete this.players[id]
+        }
 
         // Turning off the map layer cache here releases its cache RenderTexture
         // before app.destroy frees the rest of the tree.
