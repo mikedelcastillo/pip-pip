@@ -11,6 +11,7 @@ import AlphaNoticeModal from "../components/AlphaNoticeModal"
 import AlphaBanner from "../components/AlphaBanner"
 import HomeBackground from "../components/HomeBackground"
 import { readAlphaSeen, writeAlphaSeen } from "../store/alphaNotice"
+import { trackEvent, trackPageView } from "../analytics"
 import logoUrl from "../assets/logo.png"
 import styles from "./Index.module.sass"
 
@@ -30,11 +31,19 @@ export default function Index() {
         setPanel("alpha")
     }, [])
 
+    // Record a homepage view once on mount. No-op when analytics is disabled.
+    useEffect(() => {
+        trackPageView("/")
+    }, [])
+
     // Join a lobby directly by its code/id — same route the public-match
     // browser uses to join (the /:id view handles connect + join).
     const joinByCode = () => {
         const code = joinValue.trim()
-        if (code.length !== 0) navigate(`/${code}`)
+        if (code.length !== 0) {
+            trackEvent("join_game")
+            navigate(`/${code}`)
+        }
     }
 
     const closePanel = () => setPanel(null)
@@ -49,8 +58,8 @@ export default function Index() {
                 </div>
 
                 <div className={styles.buttons}>
-                    <GameButton onClick={() => setPanel("host")}>Host Game</GameButton>
-                    <GameButton onClick={() => setPanel("browse")}>Join Public Match</GameButton>
+                    <GameButton onClick={() => { trackEvent("host_game"); setPanel("host") }}>Host Game</GameButton>
+                    <GameButton onClick={() => { trackEvent("join_public_match"); setPanel("browse") }}>Join Public Match</GameButton>
                     <GameInput value={joinValue} onChange={setJoinValue} name="lobby-code" placeholder="Lobby code" onEnter={joinByCode} />
                     <GameButton onClick={joinByCode}>Join Game</GameButton>
                     <GameButton accent onClick={() => setPanel("settings")}>Settings</GameButton>

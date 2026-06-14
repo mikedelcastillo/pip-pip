@@ -363,4 +363,5 @@ listener cleanup, touch-vs-desktop all confirmed). Findings:
 | 71 | `aca4c39`   | Apex-style HUD redesign + "Respawning in N" overlay   | `git revert aca4c39` |
 | 72 | `2fac305`   | Optional Telegram analytics/control bot (+ deploy commit broadcast) | `git revert 2fac305` |
 | 73 | `273f2b9`   | Bindings: mouse buttons + wheel + multiple bindings per action | `git revert 273f2b9` |
-| 74 | (latest)    | FIX infinite respawn at match start (stranded-despawn + leftover timer) | `git revert <sha>` |
+| 74 | `b0497bb`   | FIX infinite respawn at match start (stranded-despawn + leftover timer) | `git revert b0497bb` |
+| 75 | (latest)    | Optional Google Analytics (GA4, gated by VITE_GA_MEASUREMENT_ID) | `git revert <sha>` |

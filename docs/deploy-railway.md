@@ -35,6 +35,7 @@ which serves the prebuilt client from `packages/client/dist`.
 | `DEBUG_HRZN_EVENTS` | No | Dev-only: verbose event logging. | Keep **unset** in production. |
 | `TELEGRAM_TOKEN` | Optional | Bot token for the optional Telegram analytics/control bot. | Unset/empty = feature fully off (no polling, no broadcasts). Get a token from @BotFather. |
 | `TELEGRAM_USER_IDS` | Optional | Comma-separated numeric Telegram user ids that are admins. | Admins get broadcasts and may run privileged commands. Message the bot `/userinfo` to learn your id. Spaces/trailing commas tolerated. |
+| `VITE_GA_MEASUREMENT_ID` | Optional | GA4 measurement id (`G-XXXXXXXXXX`) for client-side Google Analytics. | Client **build-time** var; must be set before `yarn build`. Unset = analytics fully off (no script, no network). |
 
 ## Telegram bot (optional)
 
