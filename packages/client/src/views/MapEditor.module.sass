@@ -41,30 +41,15 @@
     backdrop-filter: blur(6px)
     -webkit-backdrop-filter: blur(6px)
 
-// TOOL RAIL: compact vertical toolbar docked to the left, Aseprite-style. Each
-// tool is an icon button >= 44px so touch users clear the platform minimum. The
-// rail scrolls internally if it ever outgrows a short landscape phone.
-.toolRail
-    +panel
-    position: absolute
-    top: 50%
-    left: calc(0.6em + var(--inset-left))
-    transform: translateY(-50%)
-    z-index: 20
-    display: flex
-    flex-direction: column
-    gap: 0.3em
-    padding: 0.4em
-    max-height: calc(100% - 2em)
-    overflow-y: auto
-
-// MODE STRIP: the HOW-to-paint controls (freehand / rect / line / fill), docked
-// to the left just below the top bar, above and visually separate from the brush
-// TOOL RAIL (the WHAT-to-paint controls). A compact vertical strip of the same
-// 46px tap targets so touch users clear the platform minimum; it scrolls
-// internally on a short phone if it ever needs to. Kept a distinct panel from the
-// tool rail so the two axes (mode vs brush) read as separate choices.
-.modeRail
+// LEFT RAIL: a SINGLE docked column holding the draw-MODE controls (how to
+// paint: freehand / rect / line / fill / pick) on top, a divider, then the brush
+// TOOL controls (what to paint) below, Aseprite-style. Merged into one
+// positioned, scrollable panel so the two groups can NEVER overlap each other on
+// a short phone (they used to be two separately-anchored panels - one top, one
+// centred - that collided once the mode group grew). Anchored just below the top
+// bar and capped to the viewport so it scrolls internally instead of running off
+// a short screen. Each button is a >= 44px tap target for touch.
+.leftRail
     +panel
     position: absolute
     top: calc(4em + var(--inset-top))
@@ -74,8 +59,22 @@
     flex-direction: column
     gap: 0.3em
     padding: 0.4em
-    max-height: calc(100% - 8em)
+    max-height: calc(100% - 5em - var(--inset-top) - var(--inset-bottom))
     overflow-y: auto
+
+// A group of buttons within the left rail (modes, or brushes). Transparent: the
+// surrounding .leftRail panel provides the frosted background and border.
+.railSection
+    display: flex
+    flex-direction: column
+    gap: 0.3em
+
+// Thin separator between the mode group and the brush group inside the left rail.
+.railDivider
+    height: 1px
+    margin: 0.15em 0.2em
+    background: $color-border
+    flex: none
 
 // MATERIAL (colour) PICKER: a vertical strip of block-colour swatches docked to
 // the RIGHT edge, mirroring the tool rail on the left so it never overlaps the

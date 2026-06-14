@@ -1105,104 +1105,108 @@ export default function MapEditor(){
                 a clear active state. Pick is the MOBILE-first eyedropper (no Alt key
                 on a phone): a single tap reads the cell's brush, then auto-returns
                 to freehand so the author paints with the picked brush right away. */}
-            <div className={styles.modeRail} role="toolbar" aria-label="Draw modes">
-                {MODE_DEFS.map((m) => (
-                    <Tooltip key={m.mode} label={m.label} placement="right">
-                        <button
-                            type="button"
-                            className={`${styles.tool} ${mode === m.mode ? styles.toolActive : ""}`}
-                            onClick={() => setMode(m.mode)}
-                            aria-pressed={mode === m.mode}
-                            aria-label={m.label}
-                            title={m.label}
-                        >
-                            <span className={styles.toolIcon}>
-                                <ModeIcon mode={m.mode} />
-                            </span>
-                        </button>
-                    </Tooltip>
-                ))}
-            </div>
+            <div className={styles.leftRail}>
+                <div className={styles.railSection} role="toolbar" aria-label="Draw modes">
+                    {MODE_DEFS.map((m) => (
+                        <Tooltip key={m.mode} label={m.label} placement="right">
+                            <button
+                                type="button"
+                                className={`${styles.tool} ${mode === m.mode ? styles.toolActive : ""}`}
+                                onClick={() => setMode(m.mode)}
+                                aria-pressed={mode === m.mode}
+                                aria-label={m.label}
+                                title={m.label}
+                            >
+                                <span className={styles.toolIcon}>
+                                    <ModeIcon mode={m.mode} />
+                                </span>
+                            </button>
+                        </Tooltip>
+                    ))}
+                </div>
 
-            {/* Tool rail: compact vertical toolbar of brush tools, Aseprite-style. */}
-            <div className={styles.toolRail} role="toolbar" aria-label="Brush tools">
-                {TOOLS.map((tool) => {
-                    if(tool.brush === "auto"){
+                <div className={styles.railDivider} />
+
+                {/* Tool rail: compact vertical toolbar of brush tools, Aseprite-style. */}
+                <div className={styles.railSection} role="toolbar" aria-label="Brush tools">
+                    {TOOLS.map((tool) => {
+                        if(tool.brush === "auto"){
                         // Auto slope: the active state covers the auto brush AND any
                         // explicit direction (they live in its dropdown). The rail
                         // icon mirrors whichever is selected.
-                        const slopeActive = brush === "auto" || SLOPE_BRUSHES.indexOf(brush) !== -1
-                        const iconBrush: EditorBrush = SLOPE_BRUSHES.indexOf(brush) !== -1 ? brush : "auto"
+                            const slopeActive = brush === "auto" || SLOPE_BRUSHES.indexOf(brush) !== -1
+                            const iconBrush: EditorBrush = SLOPE_BRUSHES.indexOf(brush) !== -1 ? brush : "auto"
+                            return (
+                                <div key="auto" className={styles.toolGroup}>
+                                    <Tooltip label={tool.label} shortcut={tool.shortcut} placement="right">
+                                        <button
+                                            type="button"
+                                            className={`${styles.tool} ${slopeActive ? styles.toolActive : ""}`}
+                                            onClick={() => setBrush("auto")}
+                                            aria-pressed={slopeActive}
+                                            aria-label={`${tool.label} (${tool.shortcut})`}
+                                            title={`${tool.label} (${tool.shortcut})`}
+                                        >
+                                            <span className={styles.toolIcon}>
+                                                <ToolIcon brush={iconBrush} color={toolIconColor(iconBrush, tool.color)} />
+                                            </span>
+                                            <span className={styles.toolKey}>{tool.shortcut}</span>
+                                        </button>
+                                    </Tooltip>
+                                    <Tooltip label="Slope directions" placement="right">
+                                        <button
+                                            type="button"
+                                            className={styles.toolCaret}
+                                            onClick={() => setSlopeOpen((o) => !o)}
+                                            aria-label="Slope directions"
+                                            aria-expanded={slopeOpen}
+                                            title="Slope directions"
+                                        >&#9656;</button>
+                                    </Tooltip>
+                                    {slopeOpen && (
+                                        <div className={styles.slopeFlyout} role="menu">
+                                            {SLOPE_TOOLS.map((s) => (
+                                                <Tooltip key={s.brush} label={s.label} shortcut={s.shortcut} placement="right">
+                                                    <button
+                                                        type="button"
+                                                        className={`${styles.slopeItem} ${brush === s.brush ? styles.slopeItemActive : ""}`}
+                                                        onClick={() => { setBrush(s.brush); setSlopeOpen(false) }}
+                                                        aria-pressed={brush === s.brush}
+                                                        aria-label={`${s.label} (${s.shortcut})`}
+                                                        title={`${s.label} (${s.shortcut})`}
+                                                    >
+                                                        <span className={styles.toolIcon}>
+                                                            <ToolIcon brush={s.brush} color={toolIconColor(s.brush, s.color)} />
+                                                        </span>
+                                                        <span className={styles.slopeItemLabel}>{s.label}</span>
+                                                        <span className={styles.toolKey}>{s.shortcut}</span>
+                                                    </button>
+                                                </Tooltip>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        }
                         return (
-                            <div key="auto" className={styles.toolGroup}>
-                                <Tooltip label={tool.label} shortcut={tool.shortcut} placement="right">
-                                    <button
-                                        type="button"
-                                        className={`${styles.tool} ${slopeActive ? styles.toolActive : ""}`}
-                                        onClick={() => setBrush("auto")}
-                                        aria-pressed={slopeActive}
-                                        aria-label={`${tool.label} (${tool.shortcut})`}
-                                        title={`${tool.label} (${tool.shortcut})`}
-                                    >
-                                        <span className={styles.toolIcon}>
-                                            <ToolIcon brush={iconBrush} color={toolIconColor(iconBrush, tool.color)} />
-                                        </span>
-                                        <span className={styles.toolKey}>{tool.shortcut}</span>
-                                    </button>
-                                </Tooltip>
-                                <Tooltip label="Slope directions" placement="right">
-                                    <button
-                                        type="button"
-                                        className={styles.toolCaret}
-                                        onClick={() => setSlopeOpen((o) => !o)}
-                                        aria-label="Slope directions"
-                                        aria-expanded={slopeOpen}
-                                        title="Slope directions"
-                                    >&#9656;</button>
-                                </Tooltip>
-                                {slopeOpen && (
-                                    <div className={styles.slopeFlyout} role="menu">
-                                        {SLOPE_TOOLS.map((s) => (
-                                            <Tooltip key={s.brush} label={s.label} shortcut={s.shortcut} placement="right">
-                                                <button
-                                                    type="button"
-                                                    className={`${styles.slopeItem} ${brush === s.brush ? styles.slopeItemActive : ""}`}
-                                                    onClick={() => { setBrush(s.brush); setSlopeOpen(false) }}
-                                                    aria-pressed={brush === s.brush}
-                                                    aria-label={`${s.label} (${s.shortcut})`}
-                                                    title={`${s.label} (${s.shortcut})`}
-                                                >
-                                                    <span className={styles.toolIcon}>
-                                                        <ToolIcon brush={s.brush} color={toolIconColor(s.brush, s.color)} />
-                                                    </span>
-                                                    <span className={styles.slopeItemLabel}>{s.label}</span>
-                                                    <span className={styles.toolKey}>{s.shortcut}</span>
-                                                </button>
-                                            </Tooltip>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+                            <Tooltip key={tool.brush} label={tool.label} shortcut={tool.shortcut} placement="right">
+                                <button
+                                    type="button"
+                                    className={`${styles.tool} ${brush === tool.brush ? styles.toolActive : ""}`}
+                                    onClick={() => setBrush(tool.brush)}
+                                    aria-pressed={brush === tool.brush}
+                                    aria-label={`${tool.label} (${tool.shortcut})`}
+                                    title={`${tool.label} (${tool.shortcut})`}
+                                >
+                                    <span className={styles.toolIcon}>
+                                        <ToolIcon brush={tool.brush} color={toolIconColor(tool.brush, tool.color)} />
+                                    </span>
+                                    <span className={styles.toolKey}>{tool.shortcut}</span>
+                                </button>
+                            </Tooltip>
                         )
-                    }
-                    return (
-                        <Tooltip key={tool.brush} label={tool.label} shortcut={tool.shortcut} placement="right">
-                            <button
-                                type="button"
-                                className={`${styles.tool} ${brush === tool.brush ? styles.toolActive : ""}`}
-                                onClick={() => setBrush(tool.brush)}
-                                aria-pressed={brush === tool.brush}
-                                aria-label={`${tool.label} (${tool.shortcut})`}
-                                title={`${tool.label} (${tool.shortcut})`}
-                            >
-                                <span className={styles.toolIcon}>
-                                    <ToolIcon brush={tool.brush} color={toolIconColor(tool.brush, tool.color)} />
-                                </span>
-                                <span className={styles.toolKey}>{tool.shortcut}</span>
-                            </button>
-                        </Tooltip>
-                    )
-                })}
+                    })}
+                </div>
             </div>
 
             {/* Material (colour) picker: a strip of >= 44px swatches showing each
