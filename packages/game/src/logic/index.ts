@@ -818,6 +818,11 @@ export class PipPipGame{
                 // Built only when there is at least one spawned bot, so a
                 // bot-free match pays nothing.
                 let nav: BotNavContext | undefined
+                // Active map pickups the bots may detour for, snapshotted once and
+                // shared across every bot this tick (chooseBotGoal only reads them).
+                // Built only when there is at least one spawned bot, so a bot-free
+                // match pays nothing.
+                let activePowerups: Powerup[] | undefined
                 for(const player of allPlayers){
                     if(player.isBot === true && player.spawned === true){
                         if(typeof nav === "undefined"){
@@ -828,7 +833,10 @@ export class PipPipGame{
                                 tick: this.tickNumber,
                             }
                         }
-                        updateBotInputs(player, allPlayers, Math.random, nav)
+                        if(typeof activePowerups === "undefined"){
+                            activePowerups = this.powerups.getActive()
+                        }
+                        updateBotInputs(player, allPlayers, Math.random, nav, activePowerups)
                     }
                 }
             }

@@ -2,6 +2,7 @@ import { radianDifference } from "@pip-pip/core/src/math"
 import { PointPhysicsRectWall, PointPhysicsSegmentWall } from "@pip-pip/core/src/physics"
 import { PipPlayer, PlayerInputs } from "./player"
 import { NavGrid, NavPoint, findPath, hasLineOfSight, worldToCell } from "./pathfinding"
+import { Powerup, PowerupType } from "./powerup"
 
 // "Training-grounds" enemy bots. A bot is a server-simulated PipPlayer with no
 // connection. Each tick the brain reads the world and writes the bot's
@@ -40,6 +41,21 @@ export const PATH_WAYPOINT_REACHED = 60
 // by reaction time so EASY (slow) fires ~1.5/s and HARD (fast) ~3/s. No extra
 // skill field or rng draw, so it does not perturb makeBotSkill's draw sequence.
 export const FIRE_INTERVAL_PER_REACTION = 6
+
+// How close (world units) a powerup must be for a bot to consider a detour for
+// it. A health pickup is worth a longer walk when the bot is hurt, so the seek
+// range is generous; a buff/ammo pickup is only grabbed when it is nearly on the
+// way (BOT_POWERUP_GRAB_RANGE), so the bot never abandons a fight to wander off
+// after a far buff.
+export const BOT_POWERUP_SEEK_RANGE = 800
+// A non-health powerup (ammo / buff) is only worth a detour when it is this close
+// - "basically on the way" - so the bot opportunistically scoops it instead of
+// trekking across the map for it.
+export const BOT_POWERUP_GRAB_RANGE = 450
+// A bot only wants a HEALTH pickup when its ship health has dropped to at most
+// this fraction of its max. Above this it is healthy enough that chasing the
+// enemy is the better use of the tick.
+export const BOT_POWERUP_HEALTH_FRACTION = 0.6
 
 // Pathfinding dependencies handed to the bot brain so it stays unit-testable:
 // the cached nav grid, the map walls (for line-of-sight + smoothing) and the
@@ -178,6 +194,67 @@ export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[]): BotTarge
     return best
 }
 
+// What a bot has decided to chase this tick. "enemy" is the default: behave
+// exactly as today (approach + orbit + shoot the nearest enemy). "powerup" means
+// the bot has found a nearby pickup worth a detour: it MOVES toward the powerup
+// (routing around walls just like toward an enemy) while still aiming + firing at
+// the nearest enemy if one is in range.
+export type BotGoal =
+    | { kind: "enemy" }
+    | { kind: "powerup", powerup: Powerup, distance: number, angle: number }
+
+// Is a given powerup type worth grabbing for this bot right now? A "health"
+// pickup is only wanted when the bot's ship is hurt (at/below
+// BOT_POWERUP_HEALTH_FRACTION of max), and only within BOT_POWERUP_SEEK_RANGE.
+// Everything else (ammo + timed buffs) is grabbed opportunistically, but only
+// when it is nearly on the way (within BOT_POWERUP_GRAB_RANGE) so the bot never
+// treks across the map for it. Pure: reads ship health + the distance only.
+function powerupWorth(bot: PipPlayer, type: PowerupType, distance: number): boolean{
+    if(type === "health"){
+        if(distance > BOT_POWERUP_SEEK_RANGE) return false
+        const ship = bot.ship
+        const maxHealth = ship.maxHealth
+        if(maxHealth <= 0) return false
+        return ship.capacities.health <= maxHealth * BOT_POWERUP_HEALTH_FRACTION
+    }
+    // Ammo + timed buffs: only worth a SHORT detour.
+    return distance <= BOT_POWERUP_GRAB_RANGE
+}
+
+// Decide whether the bot should chase its current enemy or detour to a nearby
+// powerup. Pure + deterministic: given the same bot position, enemy and powerup
+// list it always returns the same goal, so it is unit-testable with no rng and
+// no running game. Picks the NEAREST worthwhile powerup (see powerupWorth); if
+// none is worthwhile it falls back to the enemy, so with no powerups (or only
+// far/worthless ones) the bot behaves exactly as before. `enemy` may be
+// undefined (no enemy in the room) - the bot can still go for a powerup.
+export function chooseBotGoal(bot: PipPlayer, enemy: BotTarget | undefined, powerups: Powerup[]): BotGoal{
+    const botX = bot.ship.physics.position.x
+    const botY = bot.ship.physics.position.y
+
+    let best: { powerup: Powerup, distance: number, angle: number } | undefined
+
+    for(const powerup of powerups){
+        if(powerup.dead === true) continue
+
+        const dx = powerup.position.x - botX
+        const dy = powerup.position.y - botY
+        const distance = Math.sqrt(dx * dx + dy * dy)
+
+        if(powerupWorth(bot, powerup.type, distance) === false) continue
+
+        if(typeof best === "undefined" || distance < best.distance){
+            best = { powerup, distance, angle: Math.atan2(dy, dx) }
+        }
+    }
+
+    if(typeof best !== "undefined"){
+        return { kind: "powerup", powerup: best.powerup, distance: best.distance, angle: best.angle }
+    }
+
+    return { kind: "enemy" }
+}
+
 // Compute the inputs a bot should hold this tick, given its current target (or
 // undefined if it has none). Pure: depends only on the bot's ship position and
 // the target geometry, so it is unit-testable without a running game.
@@ -204,7 +281,14 @@ export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[]): BotTarge
 // steers straight at the target (same movementAngle as before), and only when
 // the lane is BLOCKED does it follow its cached A* path, steering toward the
 // next waypoint. AIM always points at the real target either way.
-export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, aimNoise = 0, nav?: BotNavContext, aimBase?: number): PlayerInputs{
+//
+// goal (optional, default "enemy") lets the brain send the bot to a nearby
+// powerup instead of orbiting the enemy. When goal.kind === "powerup" the bot
+// MOVES toward the powerup (routing around walls via the same nav/path logic,
+// keyed to the powerup instead of the enemy) while it STILL aims + fires at the
+// nearest enemy if one is in range. With no goal (or kind "enemy") the bot
+// behaves exactly as before, so every existing call site is unaffected.
+export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, aimNoise = 0, nav?: BotNavContext, aimBase?: number, goal: BotGoal = { kind: "enemy" }): PlayerInputs{
     const inputs: PlayerInputs = {
         movementAngle: bot.inputs.movementAngle,
         movementAmount: 0,
@@ -215,9 +299,12 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
         spawn: false,
     }
 
-    if(typeof found === "undefined") return inputs
+    // With no enemy AND no powerup to seek there is nothing to do: hold still and
+    // hold fire, exactly as before. A powerup goal still drives movement below
+    // even when there is no enemy (the bot can grab a pickup in an empty room).
+    if(typeof found === "undefined" && goal.kind !== "powerup") return inputs
 
-    const { distance, angle } = found
+    const { distance, angle } = found ?? { distance: Infinity, angle: 0 }
 
     // Per-bot skill thresholds, falling back to the shared BOT_* constants when a
     // bot has no profile (so the existing pure tests, which pass plain bots, are
@@ -228,38 +315,54 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
     const fireRange = skill?.fireRange ?? BOT_FIRE_RANGE
     const fireAimTolerance = skill?.fireAimTolerance ?? BOT_FIRE_AIM_TOLERANCE
 
-    // The angle the bot AIMS at. Defaults to the true target angle (so the pure
+    // The angle the bot AIMS at. Defaults to the true enemy angle (so the pure
     // tests aim exactly), but updateBotInputs passes a PERCEIVED angle that lags
-    // the target by the bot's reaction time, so a bot cannot perfectly track a
+    // the enemy by the bot's reaction time, so a bot cannot perfectly track a
     // moving target. The per-tick wandering aim error (aimNoise, 0 by default) is
-    // added on top so the shot also spreads. MOVEMENT still uses the true angle.
-    const aim = typeof aimBase === "number" ? aimBase : angle
-    inputs.aimRotation = aim + aimNoise
-
-    // Decide whether the lane to the target is clear. With no nav context (the
-    // wall-free pure tests) the lane is treated as clear, so behaviour is
-    // unchanged. When a path waypoint is being followed, `approachAngle` points
-    // at the waypoint instead of straight at the target; the close/strafe logic
-    // still keys off the true target geometry so range-keeping is unchanged.
-    const botX = bot.ship.physics.position.x
-    const botY = bot.ship.physics.position.y
-    const targetX = found.target.ship.physics.position.x
-    const targetY = found.target.ship.physics.position.y
-
-    let lineOfSight = true
-    if(typeof nav !== "undefined"){
-        lineOfSight = hasLineOfSight(botX, botY, targetX, targetY, nav.rectWalls, nav.segWalls)
+    // added on top so the shot also spreads. With NO enemy (powerup-only goal in
+    // an empty room) the held aim is kept untouched. AIM always tracks the enemy,
+    // never the powerup the bot is walking toward.
+    if(typeof found !== "undefined"){
+        const aim = typeof aimBase === "number" ? aimBase : angle
+        inputs.aimRotation = aim + aimNoise
     }
 
-    // The angle the bot moves ALONG when closing the gap: straight at the target
-    // when the lane is clear (or no nav), or toward the next path waypoint when
-    // the lane is blocked. waypointAngle returns the target angle when there is no
-    // usable path so the bot still nudges toward the target instead of freezing.
-    const approachAngle = lineOfSight === true
-        ? angle
-        : nextWaypointAngle(bot, botX, botY, angle)
+    const botX = bot.ship.physics.position.x
+    const botY = bot.ship.physics.position.y
 
-    if(distance > desiredRange + rangeBand){
+    // The point the bot MOVES toward: the powerup when seeking one, otherwise the
+    // enemy. The same nav/path routing is reused either way, so a bot routes
+    // around walls toward a powerup exactly as it does toward an enemy.
+    const seekingPowerup = goal.kind === "powerup"
+    const moveTargetX = seekingPowerup === true ? goal.powerup.position.x : found?.target.ship.physics.position.x ?? botX
+    const moveTargetY = seekingPowerup === true ? goal.powerup.position.y : found?.target.ship.physics.position.y ?? botY
+    const moveAngle = seekingPowerup === true ? goal.angle : angle
+
+    // Decide whether the lane to the MOVE target is clear. With no nav context
+    // (the wall-free pure tests) the lane is treated as clear, so behaviour is
+    // unchanged. When a path waypoint is being followed, `approachAngle` points
+    // at the waypoint instead of straight at the move target.
+    let lineOfSight = true
+    if(typeof nav !== "undefined"){
+        lineOfSight = hasLineOfSight(botX, botY, moveTargetX, moveTargetY, nav.rectWalls, nav.segWalls)
+    }
+
+    // The angle the bot moves ALONG when closing the gap: straight at the move
+    // target when the lane is clear (or no nav), or toward the next path waypoint
+    // when the lane is blocked. nextWaypointAngle returns the move angle when there
+    // is no usable path so the bot still nudges toward the move target instead of
+    // freezing.
+    const approachAngle = lineOfSight === true
+        ? moveAngle
+        : nextWaypointAngle(bot, botX, botY, moveAngle)
+
+    if(seekingPowerup === true){
+        // Going for a powerup: drive straight at it (along the path when routing).
+        // No orbit/retreat here - the bot WANTS to touch the pickup, so it closes
+        // all the way in while it keeps shooting the enemy below.
+        inputs.movementAngle = approachAngle
+        inputs.movementAmount = 1
+    } else if(distance > desiredRange + rangeBand){
         // Too far: close the gap (along the path when routing).
         inputs.movementAngle = approachAngle
         inputs.movementAmount = 1
@@ -289,13 +392,15 @@ export function computeBotInputs(bot: PipPlayer, found: BotTarget | undefined, a
     // that off-centre aim and genuinely misses, instead of the old behaviour where
     // the bot waited to align on the true target and always hit. A wider tolerance
     // (EASY) lets it fire while less settled; a tight one (HARD) waits for a clean
-    // shot. Trigger RATE is limited separately in updateBotInputs.
+    // shot. Trigger RATE is limited separately in updateBotInputs. Firing is keyed
+    // to the ENEMY's distance, so a bot detouring for a powerup still shoots an
+    // enemy that comes into range.
     const aimedWithinTolerance = Math.abs(radianDifference(inputs.aimRotation, bot.ship.rotation)) <= fireAimTolerance
-    if(distance <= fireRange && aimedWithinTolerance === true){
+    if(typeof found !== "undefined" && distance <= fireRange && aimedWithinTolerance === true){
         inputs.useWeapon = true
         // Also lob the tactical/grenade when one is ready. The tactical's own
         // ammo + cooldown (shootTactical) rate-limits it, so gating on
-        // canUseTactical is enough — no separate brain timer needed.
+        // canUseTactical is enough - no separate brain timer needed.
         if(bot.ship.canUseTactical === true){
             inputs.useTactical = true
         }
@@ -329,18 +434,18 @@ function nextWaypointAngle(bot: PipPlayer, botX: number, botY: number, fallbackA
     return fallbackAngle
 }
 
-// Recompute (and cache on the bot) the A* route around walls toward its target,
-// but only when allowed: the per-bot cooldown has elapsed OR the target has
-// moved to a different grid cell since the last route. This is the ONLY place
-// A* runs, and it is gated so it fires at most ~twice a second per bot, never
-// per tick. Does nothing when the lane is already clear - a bot with line of
-// sight does not need (and should not pay for) a path. Pure aside from updating
-// the bot's cached path fields.
-function maybeRecomputePath(bot: PipPlayer, found: BotTarget, nav: BotNavContext){
+// Recompute (and cache on the bot) the A* route around walls toward a target
+// WORLD POINT, but only when allowed: the per-bot cooldown has elapsed OR the
+// target has moved to a different grid cell since the last route. This is the
+// ONLY place A* runs, and it is gated so it fires at most ~twice a second per
+// bot, never per tick. Does nothing when the lane is already clear - a bot with
+// line of sight does not need (and should not pay for) a path. The target point
+// is the ENEMY when chasing and the POWERUP when seeking one, so the same
+// routing serves both goals. Pure aside from updating the bot's cached path
+// fields.
+function maybeRecomputePath(bot: PipPlayer, targetX: number, targetY: number, nav: BotNavContext){
     const botX = bot.ship.physics.position.x
     const botY = bot.ship.physics.position.y
-    const targetX = found.target.ship.physics.position.x
-    const targetY = found.target.ship.physics.position.y
 
     // Clear lane -> no path needed; drop any stale route so the bot steers
     // straight (and the next blocked moment recomputes fresh).
@@ -447,12 +552,18 @@ function fireIntervalTicks(bot: PipPlayer): number {
 // existing pure ai tests - the bot behaves exactly as before (always steers
 // straight at its target).
 //
+// powerups (optional, default empty) are the active map pickups the bot may
+// detour for. The caller passes game.powerups.getActive(); chooseBotGoal then
+// decides per decision tick whether a nearby pickup is worth more than chasing
+// the enemy. Defaulted to [] so every existing call site / test is unaffected
+// and behaves exactly as before (no powerups -> always the enemy goal).
+//
 // PERFORMANCE: the heavy decision (re-target + re-path) runs on a CADENCE
 // (AI_DECISION_TICKS), holding the movement intent between decisions; AIM is
 // refreshed EVERY tick so the bot stays responsive. The path itself recomputes
 // at most every PATH_RECOMPUTE_TICKS inside maybeRecomputePath. Together these
 // keep the bot loop from doing real work on most ticks.
-export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () => number = Math.random, nav?: BotNavContext){
+export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () => number = Math.random, nav?: BotNavContext, powerups: Powerup[] = []){
     const jitter = bot.skill?.aimJitter ?? 0
     const aimNoise = nextAimBias(bot, jitter, rng)
 
@@ -488,19 +599,38 @@ export function updateBotInputs(bot: PipPlayer, players: PipPlayer[], rng: () =>
 
     const found = findNearestEnemy(bot, players)
 
+    // Decide the goal this tick: stick with the enemy, or detour to a nearby
+    // worthwhile powerup. Pure + deterministic; with no powerups it always returns
+    // the enemy goal so behaviour is unchanged.
+    const goal = chooseBotGoal(bot, found, powerups)
+
+    // The world point the bot ROUTES toward: the powerup when seeking one, else
+    // the enemy. The same A* routing serves both goals. With neither a target nor
+    // a route there is nothing to path to, so drop any stale path.
+    let routeX: number | undefined
+    let routeY: number | undefined
+    if(goal.kind === "powerup"){
+        routeX = goal.powerup.position.x
+        routeY = goal.powerup.position.y
+    } else if(typeof found !== "undefined"){
+        routeX = found.target.ship.physics.position.x
+        routeY = found.target.ship.physics.position.y
+    }
+
     // Refresh the A* route (gated internally) before computing movement, so the
-    // brain steers along an up-to-date path when the lane is blocked.
-    if(typeof nav !== "undefined" && typeof found !== "undefined"){
-        maybeRecomputePath(bot, found, nav)
-    } else if(typeof found === "undefined"){
+    // brain steers along an up-to-date path toward its goal when the lane is
+    // blocked.
+    if(typeof nav !== "undefined" && typeof routeX === "number" && typeof routeY === "number"){
+        maybeRecomputePath(bot, routeX, routeY, nav)
+    } else if(typeof routeX === "undefined"){
         bot.path = undefined
     }
 
-    // The reaction-lagged aim base (where the bot THINKS the target is) plus the
+    // The reaction-lagged aim base (where the bot THINKS the enemy is) plus the
     // wandering error so an EASY bot's shots lag + spread and a HARD bot's stay
-    // tight and current. With no target, computeBotInputs ignores aimBase.
+    // tight and current. With no enemy, computeBotInputs ignores aimBase.
     const aimBase = typeof found !== "undefined" ? perceivedAimAngle(bot, found) : undefined
-    const next = computeBotInputs(bot, found, aimNoise, nav, aimBase)
+    const next = computeBotInputs(bot, found, aimNoise, nav, aimBase, goal)
 
     // Trigger discipline: when the brain wants to fire, only actually pull the
     // trigger if the per-bot fire cooldown has elapsed, then start a fresh one. So
