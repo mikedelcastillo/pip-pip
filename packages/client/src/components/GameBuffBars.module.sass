@@ -1,0 +1,81 @@
+@import "../styles/variables"
+
+// Local player's active-buff HUD, redesigned to read like Minecraft status
+// effects: a vertical LIST of rows down the left edge, each a colored swatch +
+// the buff NAME + a remaining-time countdown, with a thin depleting bar beneath.
+// Sits bottom-left just above the health stack (same anchor the old buff chips
+// used) so the two never overlap. Display-only: the whole stack is click-through
+// so it never eats a touch meant for the movement sticks underneath.
+.buffs
+    position: absolute
+    left: $screen-margin-dynamic
+    bottom: calc(#{$screen-margin-dynamic} + 3.4em)
+    z-index: 11
+    display: flex
+    flex-direction: column
+    // Newest/strongest on top (the list is already strongest-first), stacking
+    // downward like Minecraft's effect column.
+    gap: 0.3em
+    // Cap the width so a long label + countdown never runs off a 393px phone.
+    width: clamp(8.5em, 42vw, 12em)
+    font-family: $font-family-game
+    pointer-events: none
+
+    // One status row: swatch, name, countdown on a line; the depleting bar spans
+    // the full row beneath via flex-wrap so it reads as a single status block.
+    .buff
+        position: relative
+        display: flex
+        align-items: center
+        flex-wrap: wrap
+        gap: 0.25em 0.4em
+        padding: 0.25em 0.45em
+        background-color: transparentize($color-dark-1, 0.2)
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+
+    // Small colored icon/swatch standing in for Minecraft's effect icon; its
+    // color (set inline per buff) carries the per-type identity, with a soft glow.
+    .swatch
+        flex: none
+        width: 0.9em
+        height: 0.9em
+        border-radius: 3px
+        box-shadow: 0 0 0.4em currentColor
+
+    // Buff NAME. Amber on-brand, slight letter-spacing + a faint upward skew for
+    // the Apex lean; clamped so it never overflows the capped row width.
+    .label
+        flex: 1 1 auto
+        min-width: 0
+        font-size: clamp(13px, 3.6vw, 17px)
+        line-height: 1
+        text-transform: uppercase
+        letter-spacing: 0.04em
+        color: $color-main
+        white-space: nowrap
+        overflow: hidden
+        text-overflow: ellipsis
+
+    // Remaining-time countdown (Ns or M:SS). Quieter than the name so the eye
+    // reads the buff first, the timer second.
+    .time
+        flex: none
+        font-size: clamp(12px, 3.2vw, 15px)
+        line-height: 1
+        color: $color-text
+        opacity: 0.85
+        font-variant-numeric: tabular-nums
+
+    // Thin remaining-time bar spanning the full row (its own line via flex-wrap).
+    // Width is driven inline by the remaining fraction; it fades as it depletes.
+    .bar
+        flex: 1 0 100%
+        height: 0.25em
+        background-color: transparentize($color-dark-3, 0.4)
+        border-radius: 9999px
+        overflow: hidden
+
+        .barFill
+            height: 100%
+            transition: width 120ms linear

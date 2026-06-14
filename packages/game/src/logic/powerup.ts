@@ -46,17 +46,17 @@ export const POWERUP_RADIUS = 24
 // How much health a "health" pickup restores (capped at the ship's max).
 export const POWERUP_HEALTH_AMOUNT = 50
 
-// Timed-buff durations, in ticks (game runs at 20 tps). HASTE/SHIELD/INVIS are
-// networked as $uint8 in playerShipTimings, so they MUST stay <= 255. HASTE ~6s,
-// SHIELD ~5s, INVIS ~6s (a little rarer to find - see the spawn pool weighting in
-// index.ts). RICOCHET ~8s of bouncing bullets; it is NOT carried by
-// playerShipTimings (the bounce itself is resolved server-side on the bullets,
-// which are networked), but keep it <= 255 anyway so it stays uint8-safe if it is
-// ever added to the wire.
-export const HASTE_TICKS = 20 * 6 // 120 ticks (~6s)
-export const SHIELD_TICKS = 20 * 5 // 100 ticks (~5s)
-export const INVIS_TICKS = 20 * 6 // 120 ticks (~6s)
-export const RICOCHET_TICKS = 20 * 8 // 160 ticks (~8s)
+// Timed-buff durations, in ticks (game runs at 20 tps). HASTE/SHIELD/INVIS/
+// RICOCHET are all networked as $uint8 in playerShipTimings, so EVERY value here
+// MUST stay <= 255 (the hard uint8 cap) or it wraps on the wire. Tuned long
+// enough to feel like a real power window: HASTE ~10s, SHIELD ~8.5s, INVIS ~9s,
+// RICOCHET ~10s of bouncing bullets. The bounce itself is still resolved
+// server-side on the (networked) bullets; the timer rides the wire so the
+// tactical feed + remote ships know how long it has left.
+export const HASTE_TICKS = 20 * 10 // 200 ticks (~10s, <= 255)
+export const SHIELD_TICKS = 170 // ~8.5s, <= 255
+export const INVIS_TICKS = 180 // ~9s, <= 255
+export const RICOCHET_TICKS = 20 * 10 // 200 ticks (~10s, <= 255)
 
 // While hasted, movement acceleration (and the speed cap that derives from it)
 // is multiplied by this factor. Applied in computeMovementAcceleration so the

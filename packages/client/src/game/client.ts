@@ -111,7 +111,7 @@ export const processPackets = (gameContext: GameContext) => {
             const powerup = game.powerups.powerups[id]
             const player = game.players[playerId]
             if (typeof powerup !== "undefined" && typeof player !== "undefined") {
-                addPowerupPickup(player.name, powerup.type)
+                addPowerupPickup(player.id, player.name, powerup.type)
             }
             game.powerups.unsetById(id)
         }
@@ -213,6 +213,7 @@ export const processPackets = (gameContext: GameContext) => {
                 player.ship.timings.haste = values.haste
                 player.ship.timings.shield = values.shield
                 player.ship.timings.invisibility = values.invisibility
+                player.ship.timings.ricochet = values.ricochet
             }
         }
 

@@ -96,7 +96,7 @@ describe("game packetManager wire format", () => {
         expect(decoded.powerupPickup?.[0]).toEqual({ id: "wxyz", playerId: "ab" })
     })
 
-    it("round-trips playerShipTimings including haste/shield/invisibility (uint8)", () => {
+    it("round-trips playerShipTimings including haste/shield/invisibility/ricochet (uint8)", () => {
         const timings = {
             playerId: "ab",
             weaponReload: 12,
@@ -106,18 +106,22 @@ describe("game packetManager wire format", () => {
             healthRegenerationRest: 99,
             healthRegenerationHeal: 5,
             invincibility: 60,
-            haste: 120,
-            shield: 100,
-            invisibility: 120,
+            haste: 200,
+            shield: 170,
+            invisibility: 180,
+            ricochet: 200,
         }
         const out = packetManager.decode(packetManager.encode("playerShipTimings", timings)).playerShipTimings?.[0]
         expect(out).toEqual(timings)
         // Durations must fit uint8 (<= 255) so they survive the wire untouched.
-        expect(out?.haste).toBe(120)
-        expect(out?.shield).toBe(100)
+        expect(out?.haste).toBe(200)
+        expect(out?.shield).toBe(170)
         // invisibility is a distinct timer from invincibility - both round-trip.
-        expect(out?.invisibility).toBe(120)
+        expect(out?.invisibility).toBe(180)
         expect(out?.invincibility).toBe(60)
+        // ricochet now rides the wire too (part 3b) so the tactical feed + remote
+        // ships know its remaining window.
+        expect(out?.ricochet).toBe(200)
     })
 
     it("round-trips the invis powerup wire code through powerupSpawn", () => {

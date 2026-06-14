@@ -108,9 +108,9 @@ export interface ClientPlayerStats {
     hasteMaxTicks: number
     invisTicks: number
     invisMaxTicks: number
-    // ricochet is NOT carried by playerShipTimings (see ship.ts), so for a remote
-    // view this stays 0; the local player's bar lights up only while its own
-    // ship.timings.ricochet is set. Wired here so the buff reads like the rest.
+    // ricochet rides playerShipTimings like haste/shield/invis (networked), so
+    // it lights up the buff bar and the tactical feed for the local AND remote
+    // players. Read from ship.timings.ricochet, same as the others.
     ricochetTicks: number
     ricochetMaxTicks: number
 
@@ -150,12 +150,39 @@ export function visibleKills(feed: KillEntry[], now: number, durationMs = KILL_F
 
 // One transient line in the in-match POWERUP feed. Mirrors KillEntry: `time` is
 // the Date.now() the pickup was recorded at, used to fade and expire the entry
-// (see visiblePowerups). `playerName` is the picker; `type` drives the label.
+// (see visiblePowerups). `playerId` is the picker (used to read that ship's live
+// remaining buff time off the networked timings for the tactical countdown);
+// `playerName` is shown; `type` drives the label.
 export interface PowerupEntry {
     id: number
+    playerId: string
     playerName: string
     type: PowerupType
     time: number
+}
+
+// The timed (buff) powerup types: these set a ship timing that ticks down, so
+// the buff HUD and the tactical feed can show a live countdown. "health"/"ammo"
+// are instant (no timer) and are deliberately absent. Kept as a const set + a
+// pure predicate so callers (and tests) share one source of truth.
+const TIMED_BUFF_TYPES: ReadonlySet<PowerupType> = new Set<PowerupType>([
+    "haste", "shield", "invis", "ricochet",
+])
+
+export function isTimedBuff(type: PowerupType): boolean {
+    return TIMED_BUFF_TYPES.has(type)
+}
+
+// Pure tick-to-label formatter for buff countdowns. Rounds UP to whole seconds
+// (so a buff never reads "0s" while time is left), then renders a clean "Ns"
+// under a minute and "M:SS" at a minute or more. Clamped at 0 so a spent timer
+// reads "0s", never negative. Kept pure (no store/DOM) so it is unit-testable.
+export function formatBuffTime(ticks: number, tps: number): string {
+    const seconds = ticksToSeconds(ticks, tps)
+    if (seconds < 60) return `${seconds}s`
+    const minutes = Math.floor(seconds / 60)
+    const rest = seconds % 60
+    return `${minutes}:${rest.toString().padStart(2, "0")}`
 }
 
 // Friendly, shout-y label for each powerup type. "Cloak" reads better than
@@ -203,6 +230,79 @@ export function visiblePowerups(feed: PowerupEntry[], now: number, durationMs = 
         .sort((a, b) => b.time - a.time)
 }
 
+// Live remaining buff ticks for EVERY player, keyed "<playerId>:<type>", mirrored
+// each sync from that player's networked ship.timings. The tactical powerup feed
+// reads it so a buff line counts down (and persists) for as long as the picker
+// still actually holds the buff, instead of fading on a blind 5s timer.
+export type BuffRemaining = Record<string, number>
+
+export function buffRemainingKey(playerId: string, type: PowerupType): string {
+    return `${playerId}:${type}`
+}
+
+// Pure selector backing the TACTICAL powerup feed. An entry stays visible while:
+//   - it is a timed buff (haste/shield/invis/ricochet) AND the picker still holds
+//     that buff (its live remaining ticks are > 0), OR
+//   - it is an instant pickup (health/ammo) still inside the brief fixed window.
+// Each surviving timed entry is annotated with its live remainingTicks so the
+// feed can render a countdown; instant entries carry remainingTicks 0. Returned
+// NEWEST FIRST. Kept pure (no store/Date access) so it is trivially testable.
+export interface TacticalPowerupEntry extends PowerupEntry {
+    remainingTicks: number
+}
+
+export function visibleTacticalPowerups(
+    feed: PowerupEntry[],
+    remaining: BuffRemaining,
+    now: number,
+    durationMs = POWERUP_FEED_DURATION_MS,
+): TacticalPowerupEntry[] {
+    return feed
+        .map((entry) => {
+            if (isTimedBuff(entry.type)) {
+                const remainingTicks = remaining[buffRemainingKey(entry.playerId, entry.type)] ?? 0
+                return { ...entry, remainingTicks }
+            }
+            return { ...entry, remainingTicks: 0 }
+        })
+        .filter((entry) => {
+            // Timed buffs live as long as the picker still holds the buff; instant
+            // pickups fall back to the short fixed transient window.
+            if (isTimedBuff(entry.type)) return entry.remainingTicks > 0
+            return now - entry.time < durationMs
+        })
+        .sort((a, b) => b.time - a.time)
+}
+
+// One active buff on the LOCAL player, for the Minecraft-style status HUD.
+// `ticks`/`maxTicks` drive the depleting bar; `label`/`color` come from the
+// shared powerup helpers so the HUD reads the same as the feed + world pickup.
+export interface ActiveBuff {
+    type: PowerupType
+    label: string
+    color: string
+    ticks: number
+    maxTicks: number
+}
+
+// Pure selector: the LOCAL player's active timed buffs, strongest/longest window
+// first then by remaining time, so the most significant buff sits on top of the
+// stack. Only buffs with ticks > 0 are returned. Reads from clientPlayerStats so
+// it stays pure (no store/DOM) and is trivially unit-testable.
+export function activeBuffs(stats: ClientPlayerStats): ActiveBuff[] {
+    const all: ActiveBuff[] = [
+        { type: "haste", label: powerupLabel("haste"), color: powerupColor("haste"), ticks: stats.hasteTicks, maxTicks: stats.hasteMaxTicks },
+        { type: "shield", label: powerupLabel("shield"), color: powerupColor("shield"), ticks: stats.shieldTicks, maxTicks: stats.shieldMaxTicks },
+        { type: "invis", label: powerupLabel("invis"), color: powerupColor("invis"), ticks: stats.invisTicks, maxTicks: stats.invisMaxTicks },
+        { type: "ricochet", label: powerupLabel("ricochet"), color: powerupColor("ricochet"), ticks: stats.ricochetTicks, maxTicks: stats.ricochetMaxTicks },
+    ]
+    return all
+        .filter((buff) => buff.ticks > 0)
+        // Longer total window first; ties (and equal windows) broken by who has
+        // more time left, so the freshest strong buff sits at the top.
+        .sort((a, b) => (b.maxTicks - a.maxTicks) || (b.ticks - a.ticks))
+}
+
 export interface GameStoreState {
     loading: boolean
 
@@ -248,10 +348,16 @@ export interface GameStoreState {
     killFeed: KillEntry[]
     powerupFeed: PowerupEntry[]
 
+    // Live remaining buff ticks for every player (see BuffRemaining), refreshed
+    // each sync so the tactical feed can count down a picker's buff window. tps is
+    // mirrored alongside so countdown labels can convert ticks to seconds.
+    buffRemaining: BuffRemaining
+    tps: number
+
     addChatMessage: (msg: ChatMessage) => void
     clearChatMessages: () => void
     addKill: (killerName: string, killedName: string) => void
-    addPowerupPickup: (playerName: string, type: PowerupType) => void
+    addPowerupPickup: (playerId: string, playerName: string, type: PowerupType) => void
     addOutgoingMessage: (text: string) => void
     consumeOutgoingMessages: () => string[]
     sync: () => void
@@ -304,6 +410,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     killFeed: [],
     powerupFeed: [],
 
+    buffRemaining: {},
+    tps: 20,
+
     addChatMessage: (msg) => set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
     // Clearing chat also clears the kill + powerup feeds: they share the same
     // lifecycle (e.g. the local player (re)joining) and the /clear command.
@@ -319,11 +428,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         }
         return { killFeed: [...s.killFeed, entry].slice(-KILL_FEED_MAX) }
     }),
-    addPowerupPickup: (playerName, type) => set((s) => {
+    addPowerupPickup: (playerId, playerName, type) => set((s) => {
         const entry: PowerupEntry = {
             // Same Date.now()-collision guard as addKill: disambiguate the React
             // key with the current feed length.
             id: Date.now() + s.powerupFeed.length,
+            playerId,
             playerName,
             type,
             time: Date.now(),
@@ -350,6 +460,18 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             ? (game.players[game.winnerIds[0]]?.name ?? "")
             : ""
 
+        // Mirror every player's live timed-buff remaining ticks (off the networked
+        // ship.timings) so the tactical feed can count down a picker's window.
+        // Only buffs with time left are written, keeping the map small.
+        const buffRemaining: BuffRemaining = {}
+        for (const player of Object.values(game.players)) {
+            const t = player.ship.timings
+            if (t.haste > 0) buffRemaining[buffRemainingKey(player.id, "haste")] = t.haste
+            if (t.shield > 0) buffRemaining[buffRemainingKey(player.id, "shield")] = t.shield
+            if (t.invisibility > 0) buffRemaining[buffRemainingKey(player.id, "invis")] = t.invisibility
+            if (t.ricochet > 0) buffRemaining[buffRemainingKey(player.id, "ricochet")] = t.ricochet
+        }
+
         const next: Partial<GameStoreState> = {
             phase: game.phase,
             countdownMs: game.countdown / game.tps * 1000,
@@ -362,6 +484,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             mapIndex: game.mapIndex,
             showPlayerList: GAME_CONTEXT.keyboard.state.Tab === true,
             players: Object.values(game.players).map(playerToGameStore),
+            buffRemaining,
+            tps: game.tps,
         }
 
         if (typeof gameClientPlayer !== "undefined") {

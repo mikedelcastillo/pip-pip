@@ -57,6 +57,14 @@
             letter-spacing: 0.04em
             text-shadow: 0 0 0.5em currentColor
 
+        // Live remaining-time countdown for a timed buff (e.g. "9s" / "1:05").
+        // Quieter than the powerup word so the type reads first, the window
+        // second; tabular figures keep it from jittering as it counts down.
+        .timer
+            color: $color-text
+            opacity: 0.85
+            font-variant-numeric: tabular-nums
+
 // Phone layout: tuck under the corner controls without overflowing the width.
 @media (max-width: 480px)
     .powerupFeed

@@ -1,85 +1,45 @@
-import { useGameStore, fraction } from "../game/store"
-import styles from "./GameOverlayMatch.module.sass"
+import { useGameStore, activeBuffs, formatBuffTime, fraction } from "../game/store"
+import styles from "./GameBuffBars.module.sass"
 
-// Powerup buff colors, mirrored from PowerupGraphic.COLORS in renderer.ts so the
-// HUD chips read the same hue as the pickup that granted them:
-//   haste  0x33CCFF, shield 0xAA66FF, invis 0xCCE6FF, ricochet 0xFF66AA
-const BUFF_COLORS = {
-    haste: "#33CCFF",
-    shield: "#AA66FF",
-    invis: "#CCE6FF",
-    ricochet: "#FF66AA",
-}
-
-// Describes one active-buff row. `ticks`/`maxTicks` drive the depleting bar
-// (remaining fraction = ticks / maxTicks); a row is only rendered while ticks > 0.
-interface Buff {
-    key: string
-    label: string
-    color: string
-    ticks: number
-    maxTicks: number
-}
-
-// Bottom-right active-buff stack. Renders one compact labelled chip per active
-// timed buff the local player has (haste / shield / invis / ricochet), each with
-// a colored bar that depletes as the buff runs out. Pinned above the combat HUD
-// so the two never overlap; renders nothing when no buff is active (and never
-// while spectating - the parent gates that branch).
+// Local player's active-buff HUD, styled like Minecraft status effects: a
+// vertical LIST of rows, each a colored swatch + the buff NAME + a remaining-time
+// countdown, with a thin depleting bar that fades as the buff runs out. Strongest
+// (longest window) buff sits on top - see activeBuffs. Only buffs with time left
+// are shown; renders nothing when none are active. Display-only over the combat
+// HUD, so the whole stack is pointer-events:none (set in the stylesheet). The
+// parent gates this so it never renders while spectating.
 export default function GameBuffBars() {
     const stats = useGameStore((s) => s.clientPlayerStats)
+    const tps = useGameStore((s) => s.tps)
 
-    const buffs: Buff[] = [
-        {
-            key: "haste",
-            label: "Haste",
-            color: BUFF_COLORS.haste,
-            ticks: stats.hasteTicks,
-            maxTicks: stats.hasteMaxTicks,
-        },
-        {
-            key: "shield",
-            label: "Shield",
-            color: BUFF_COLORS.shield,
-            ticks: stats.shieldTicks,
-            maxTicks: stats.shieldMaxTicks,
-        },
-        {
-            key: "invis",
-            label: "Cloak",
-            color: BUFF_COLORS.invis,
-            ticks: stats.invisTicks,
-            maxTicks: stats.invisMaxTicks,
-        },
-        {
-            key: "ricochet",
-            label: "Ricochet",
-            color: BUFF_COLORS.ricochet,
-            ticks: stats.ricochetTicks,
-            maxTicks: stats.ricochetMaxTicks,
-        },
-    ].filter((buff) => buff.ticks > 0)
+    const buffs = activeBuffs(stats)
 
     if (buffs.length === 0) return null
 
     return (
         <div className={styles.buffs}>
-            {buffs.map((buff) => (
-                <div key={buff.key} className={styles.buff}>
-                    <span className={styles.buffLabel} style={{ color: buff.color }}>
-                        {buff.label}
-                    </span>
-                    <div className={styles.buffBar}>
-                        <div
-                            className={styles.buffBarFill}
-                            style={{
-                                width: `${fraction(buff.ticks, buff.maxTicks) * 100}%`,
-                                backgroundColor: buff.color,
-                            }}
+            {buffs.map((buff) => {
+                const remaining = fraction(buff.ticks, buff.maxTicks)
+                return (
+                    <div key={buff.type} className={styles.buff}>
+                        <span
+                            className={styles.swatch}
+                            style={{ backgroundColor: buff.color }}
                         />
+                        <span className={styles.label}>{buff.label}</span>
+                        <span className={styles.time}>{formatBuffTime(buff.ticks, tps)}</span>
+                        <div className={styles.bar}>
+                            <div
+                                className={styles.barFill}
+                                style={{
+                                    width: `${remaining * 100}%`,
+                                    backgroundColor: buff.color,
+                                }}
+                            />
+                        </div>
                     </div>
-                </div>
-            ))}
+                )
+            })}
         </div>
     )
 }

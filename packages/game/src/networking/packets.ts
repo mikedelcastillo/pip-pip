@@ -126,14 +126,18 @@ export const packetManager = new PacketManager({
         healthRegenerationRest: $uint8,
         healthRegenerationHeal: $uint8,
         invincibility: $uint8,
-        // Timed-buff timers (HASTE_TICKS / SHIELD_TICKS / INVIS_TICKS). uint8, so
-        // durations must stay <= 255 ticks. Networked so remote ships' buffs are
-        // known (for the visual) and the local player's prediction uses the same
-        // haste. `invisibility` drives the cloak fade and is DISTINCT from the
-        // `invincibility` no-damage timer above.
+        // Timed-buff timers (HASTE_TICKS / SHIELD_TICKS / INVIS_TICKS /
+        // RICOCHET_TICKS). uint8, so durations must stay <= 255 ticks. Networked
+        // so remote ships' buffs are known (for the visual + the tactical powerup
+        // feed countdown) and the local player's prediction uses the same haste.
+        // `invisibility` drives the cloak fade and is DISTINCT from the
+        // `invincibility` no-damage timer above. `ricochet` is the bouncing-bullet
+        // window; the bounce is still resolved server-side on the bullets, but the
+        // timer rides the wire so the feed can show its remaining time on enemies.
         haste: $uint8,
         shield: $uint8,
         invisibility: $uint8,
+        ricochet: $uint8,
     }),
 
     playerShipCapacities: new Packet({
@@ -368,6 +372,7 @@ export const encode = {
         haste: player.ship.timings.haste,
         shield: player.ship.timings.shield,
         invisibility: player.ship.timings.invisibility,
+        ricochet: player.ship.timings.ricochet,
     }),
     playerShipCapacities: (player: PipPlayer) => packetManager.serializers.playerShipCapacities.encode({
         playerId: player.id,
