@@ -1,0 +1,66 @@
+@import "../styles/variables"
+
+// Transient, fun powerup announcement pinned TOP-CENTER, clear of the minimap
+// (top-left) and the kill feed (top-right). Newest pickup on top. Click-through.
+// Styled a touch louder than the kill feed — it's a celebratory shout, not a
+// log line: bigger, centered, with a soft pop-in.
+.powerupFeed
+    position: absolute
+    top: $screen-margin-dynamic
+    left: 50%
+    transform: translateX(-50%)
+    z-index: 10
+    display: flex
+    flex-direction: column
+    align-items: center
+    gap: 0.25em
+    pointer-events: none
+    text-align: center
+
+    .entry
+        display: flex
+        align-items: baseline
+        gap: 0.35em
+        padding: 0.25em 0.7em
+        font-size: clamp(15px, 4.2vw, 22px)
+        line-height: 1
+        white-space: nowrap
+        background-color: transparentize($color-dark-2, 0.15)
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        // Opacity is driven inline by entry age; this only smooths it.
+        transition: opacity 200ms linear
+        animation: powerupPop 220ms ease-out
+
+        // Mirrors GameChatMessage's player-name styling.
+        .player
+            color: $color-main
+
+        .verb
+            color: $color-text
+            opacity: 0.75
+
+        // The powerup word is the star: bold + per-type color (set inline) +
+        // a soft glow in its own color via text-shadow on currentColor.
+        .powerup
+            font-weight: bold
+            text-transform: uppercase
+            letter-spacing: 0.04em
+            text-shadow: 0 0 0.5em currentColor
+
+@keyframes powerupPop
+    0%
+        transform: scale(0.85)
+    60%
+        transform: scale(1.06)
+    100%
+        transform: scale(1)
+
+// Phone layout: keep it from overflowing the viewport width.
+@media (max-width: 480px)
+    .powerupFeed
+        max-width: calc(100% - #{$screen-margin-dynamic} * 2)
+
+        .entry
+            overflow: hidden
+            text-overflow: ellipsis

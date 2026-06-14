@@ -7,6 +7,7 @@ import AudioVolumeToggle from "./AudioVolumeToggle"
 import LeaveButton from "./LeaveButton"
 import HostControls from "./HostControls"
 import KillFeed from "./KillFeed"
+import PowerupFeed from "./PowerupFeed"
 import Minimap from "./Minimap"
 import GameBuffBars from "./GameBuffBars"
 import styles from "./GameOverlayMatch.module.sass"
@@ -64,6 +65,10 @@ export default function GameOverlayMatch() {
 
             {/* Transient kill feed, top-right under the control cluster. */}
             <KillFeed />
+
+            {/* Transient powerup pickup announcement, top-center. Shared across
+                all players (local + remote), so everyone sees who grabbed what. */}
+            <PowerupFeed />
 
             {/* Tab scoreboard — overlaid, centered, unchanged behavior. */}
             {showPlayerList && (

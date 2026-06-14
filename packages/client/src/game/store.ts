@@ -1,7 +1,7 @@
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer, PlayerScores } from "@pip-pip/game/src/logic/player"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, PowerupType } from "@pip-pip/game/src/logic/powerup"
 import { PIP_SHIPS, ShipType } from "@pip-pip/game/src/ships"
 import { create } from "zustand"
 import { GAME_CONTEXT, getClientPlayer } from "."
@@ -96,6 +96,59 @@ export function visibleKills(feed: KillEntry[], now: number, durationMs = KILL_F
         .sort((a, b) => b.time - a.time)
 }
 
+// One transient line in the in-match POWERUP feed. Mirrors KillEntry: `time` is
+// the Date.now() the pickup was recorded at, used to fade and expire the entry
+// (see visiblePowerups). `playerName` is the picker; `type` drives the label.
+export interface PowerupEntry {
+    id: number
+    playerName: string
+    type: PowerupType
+    time: number
+}
+
+// Friendly, shout-y label for each powerup type. "Cloak" reads better than
+// "Invis" on screen, and "ammo" gets a punchier name to match the kill feed's
+// energy. Kept pure (no store/DOM) so it is trivially unit-testable.
+const POWERUP_LABELS: Record<PowerupType, string> = {
+    health: "HEALTH",
+    ammo: "AMMO",
+    haste: "HASTE",
+    shield: "SHIELD",
+    invis: "CLOAK",
+}
+
+export function powerupLabel(type: PowerupType): string {
+    return POWERUP_LABELS[type]
+}
+
+// Per-type colors, matching the HUD/pickup palette so a buff reads the same
+// color in the feed as it does on the buff bars and the world pickup.
+const POWERUP_COLORS: Record<PowerupType, string> = {
+    health: "#33DD55",
+    ammo: "#FFAA33",
+    haste: "#33CCFF",
+    shield: "#AA66FF",
+    invis: "#CCE6FF",
+}
+
+export function powerupColor(type: PowerupType): string {
+    return POWERUP_COLORS[type]
+}
+
+// How many entries the powerup feed retains and how long (ms) each one lives.
+// Mirrors the kill feed's cap + duration so the two feeds feel identical.
+export const POWERUP_FEED_MAX = 6
+export const POWERUP_FEED_DURATION_MS = 5000
+
+// Pure selector: powerup pickups still young enough to show, NEWEST FIRST.
+// Mirrors visibleKills exactly. Kept pure (no store/Date access) so it is
+// trivially unit-testable.
+export function visiblePowerups(feed: PowerupEntry[], now: number, durationMs = POWERUP_FEED_DURATION_MS): PowerupEntry[] {
+    return feed
+        .filter((entry) => now - entry.time < durationMs)
+        .sort((a, b) => b.time - a.time)
+}
+
 export interface GameStoreState {
     loading: boolean
 
@@ -123,10 +176,12 @@ export interface GameStoreState {
     outgoingMessages: string[]
 
     killFeed: KillEntry[]
+    powerupFeed: PowerupEntry[]
 
     addChatMessage: (msg: ChatMessage) => void
     clearChatMessages: () => void
     addKill: (killerName: string, killedName: string) => void
+    addPowerupPickup: (playerName: string, type: PowerupType) => void
     addOutgoingMessage: (text: string) => void
     consumeOutgoingMessages: () => string[]
     sync: () => void
@@ -167,11 +222,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     outgoingMessages: [],
 
     killFeed: [],
+    powerupFeed: [],
 
     addChatMessage: (msg) => set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
-    // Clearing chat also clears the kill feed: they share the same lifecycle
-    // (e.g. the local player (re)joining) and the /clear command.
-    clearChatMessages: () => set({ chatMessages: [], killFeed: [] }),
+    // Clearing chat also clears the kill + powerup feeds: they share the same
+    // lifecycle (e.g. the local player (re)joining) and the /clear command.
+    clearChatMessages: () => set({ chatMessages: [], killFeed: [], powerupFeed: [] }),
     addKill: (killerName, killedName) => set((s) => {
         const entry: KillEntry = {
             // Date.now() can collide within a tick, so disambiguate the React
@@ -182,6 +238,17 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             time: Date.now(),
         }
         return { killFeed: [...s.killFeed, entry].slice(-KILL_FEED_MAX) }
+    }),
+    addPowerupPickup: (playerName, type) => set((s) => {
+        const entry: PowerupEntry = {
+            // Same Date.now()-collision guard as addKill: disambiguate the React
+            // key with the current feed length.
+            id: Date.now() + s.powerupFeed.length,
+            playerName,
+            type,
+            time: Date.now(),
+        }
+        return { powerupFeed: [...s.powerupFeed, entry].slice(-POWERUP_FEED_MAX) }
     }),
     addOutgoingMessage: (text) => set((s) => ({
         outgoingMessages: [...s.outgoingMessages, text.trim().substring(0, CHAT_MAX_MESSAGE_LENGTH)],

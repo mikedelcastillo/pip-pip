@@ -8,7 +8,7 @@ import { useGameStore } from "./store"
 
 export const processPackets = (gameContext: GameContext) => {
     const { game } = gameContext
-    const { addChatMessage } = useGameStore.getState()
+    const { addChatMessage, addPowerupPickup } = useGameStore.getState()
 
     for (const events of gameContext.clientEvents.filter("packetMessage")) {
         const { packets } = events.packetMessage
@@ -92,8 +92,17 @@ export const processPackets = (gameContext: GameContext) => {
             game.powerups.new({ id, type: powerupType, position: new Vector2(x, y) })
         }
 
-        // Powerup picked up: remove it locally by id.
-        for (const { id } of packets.powerupPickup || []) {
+        // Powerup picked up: announce it in the shared powerup feed (local AND
+        // remote pickups), then remove it locally by id. The powerup's `type`
+        // and the picker's name MUST be read BEFORE unsetById, which clears the
+        // powerup. Both lookups are best-effort: a missing powerup/player just
+        // skips the announcement (still removing the powerup).
+        for (const { id, playerId } of packets.powerupPickup || []) {
+            const powerup = game.powerups.powerups[id]
+            const player = game.players[playerId]
+            if (typeof powerup !== "undefined" && typeof player !== "undefined") {
+                addPowerupPickup(player.name, powerup.type)
+            }
             game.powerups.unsetById(id)
         }
 
