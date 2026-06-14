@@ -154,3 +154,78 @@
         font-size: 1.2em
         color: $color-bad
         text-align: center
+
+    // The host's SAVED maps library: a collapsible section that sits with the
+    // custom-map controls. Hidden entirely when empty (rendered conditionally), so
+    // there is no empty box.
+    .library
+        display: flex
+        flex-direction: column
+        gap: 0.6em
+
+    // A full-width toggle header. A real button so it is keyboard/controller
+    // reachable; >=44px tall so it is an easy tap target on a 393px screen.
+    .libraryHeader
+        display: flex
+        align-items: center
+        justify-content: space-between
+        gap: 0.6em
+        min-height: 44px
+        padding: 0 1em
+        font-size: 1.3em
+        cursor: pointer
+        color: $color-text
+        background-color: $color-dark-2
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        transition: all 0.1s
+
+        &:hover
+            border-color: $color-accent
+
+        .libraryTitle
+            color: $color-main
+        .libraryCount
+            font-size: 0.9em
+            padding: 0.1em 0.4em
+            color: $color-dark-3
+            background-color: $color-accent
+            border-radius: $border-radius
+
+    // The scrollable list of saved-map rows. Capped height with vertical scroll so
+    // a large library never overflows the lobby or overlaps the built-in grid on a
+    // narrow screen; the rows stack one per line.
+    .libraryList
+        display: flex
+        flex-direction: column
+        gap: 0.4em
+        max-height: 16em
+        overflow-y: auto
+
+    // One saved-map row: name plus a tiny dimensions/spawns summary. A real button,
+    // >=44px tall, so it is an easy and accessible tap target on mobile.
+    .libraryRow
+        display: flex
+        flex-direction: column
+        align-items: flex-start
+        gap: 0.2em
+        min-height: 44px
+        padding: 0.5em 1em
+        text-align: left
+        cursor: pointer
+        color: $color-text
+        background-color: $color-dark-2
+        border: $border-size solid $color-border
+        border-radius: $border-radius
+        transition: all 0.1s
+
+        &:hover
+            border-color: $color-accent
+
+        .libraryRowName
+            font-size: 1.4em
+            line-height: 1
+            color: $color-main
+        .libraryRowMeta
+            font-size: 1.1em
+            opacity: 0.7

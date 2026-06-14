@@ -4,6 +4,7 @@ import { GridMapData, validateGridMapData } from "@pip-pip/game/src/logic/grid-m
 import { GAME_CONTEXT } from "../game"
 import { useGameStore } from "../game/store"
 import { loadPlayMap, clearPlayMap } from "../game/mapEditor"
+import { listLibraryMaps, loadMapFromLibrary, LibrarySummary } from "../game/mapLibrary"
 import MapPreview from "./MapPreview"
 import styles from "./MapSelect.module.sass"
 
@@ -51,6 +52,38 @@ export default function MapSelect() {
         if (storage === null) return null
         return loadPlayMap(storage)
     }, [isHost, stashVersion])
+
+    // The host's SAVED maps library, read once per render-driven refresh. Only
+    // meaningful for a host (non-hosts cannot change the map). It is recomputed via
+    // the version bump below, which we fire on mount and whenever the section is
+    // re-opened, so the list reflects what the editor has saved without any
+    // cross-tab plumbing. Same no-window/try-catch guard as the stash read.
+    const [libraryVersion, setLibraryVersion] = useState(0)
+    const libraryMaps = useMemo<LibrarySummary[]>(() => {
+        // libraryVersion is referenced so the memo recomputes on a bump; the actual
+        // list is read fresh from storage each time.
+        void libraryVersion
+        if (!isHost) return []
+        const storage = browserStorage()
+        if (storage === null) return []
+        try {
+            return listLibraryMaps(storage)
+        } catch (e) {
+            return []
+        }
+    }, [isHost, libraryVersion])
+
+    // Re-read the library when the saved-maps section is toggled open, so a map
+    // saved in the editor (another view) shows up without a reload. Starts open so
+    // the host sees their collection immediately on mount.
+    const [libraryOpen, setLibraryOpen] = useState(true)
+    const toggleLibrary = useCallback(() => {
+        setLibraryOpen((open) => {
+            const next = !open
+            if (next) setLibraryVersion((v) => v + 1)
+            return next
+        })
+    }, [])
 
     const select = (index: number) => {
         if (!isHost) return
@@ -107,6 +140,22 @@ export default function MapSelect() {
         applyCustom(valid)
         clearPlayMap(storage)
         setStashVersion((v) => v + 1)
+    }, [applyCustom])
+
+    // Load one of the host's SAVED library maps into the live match. The library
+    // helper parses + validates (the SAME gate the upload / editor-map paths pass
+    // through), so a corrupt/invalid entry returns null: we show a brief inline
+    // error and do NOT send. On success we apply it exactly like every other
+    // custom-map source. The library is read-only here (no save/delete in lobby).
+    const onUseLibraryMap = useCallback((name: string) => {
+        const storage = browserStorage()
+        if (storage === null) return
+        const data = loadMapFromLibrary(storage, name)
+        if (data === null) {
+            setError(`"${name}" could not be loaded (it may be corrupt).`)
+            return
+        }
+        applyCustom(data)
     }, [applyCustom])
 
     const containerClasses = [styles.mapSelect]
@@ -198,6 +247,42 @@ export default function MapSelect() {
                         >
                             Use editor map ({stashed.name})
                         </button>
+                    )}
+                </div>
+            )}
+
+            {/* Saved maps: the host's personal library, loaded read-only into the
+                match. Renders nothing when the library is empty (no empty box). The
+                list scrolls within a capped height so a large collection never
+                pushes the lobby controls off a 393px screen or overlaps the grid. */}
+            {isHost && libraryMaps.length > 0 && (
+                <div className={styles.library}>
+                    <button
+                        type="button"
+                        className={styles.libraryHeader}
+                        onClick={toggleLibrary}
+                        aria-expanded={libraryOpen}
+                    >
+                        <span className={styles.libraryTitle}>Saved maps</span>
+                        <span className={styles.libraryCount}>{libraryMaps.length}</span>
+                    </button>
+                    {libraryOpen && (
+                        <div className={styles.libraryList}>
+                            {libraryMaps.map((summary) => (
+                                <button
+                                    key={summary.name}
+                                    type="button"
+                                    className={styles.libraryRow}
+                                    onClick={() => onUseLibraryMap(summary.name)}
+                                    aria-label={`Load saved map ${summary.name}`}
+                                >
+                                    <span className={styles.libraryRowName}>{summary.name}</span>
+                                    <span className={styles.libraryRowMeta}>
+                                        {summary.cols}x{summary.rows}, {summary.spawns} spawns
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
                     )}
                 </div>
             )}
