@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { useGameStore, fraction } from "../game/store"
+import { useGameStore, fraction, activeBuffs, formatBuffTime, ClientPlayerStats } from "../game/store"
 import { useUiStore } from "../store/ui"
 import { Binding, keyMatchesBindings } from "../store/keybindings"
 import GameButton from "./GameButton"
@@ -50,6 +50,58 @@ export function shouldOpenChatOnKey(
     return keyMatchesBindings(code, bindings)
 }
 
+// Read-only mini-HUD for the player currently being spectated. Mirrors the
+// self-HUD's three pieces - a current/max health bar, primary + tactical ammo,
+// and the active-buff chips with countdowns - but reads them from the spectate
+// target's stats (selected by id in the store's sync) instead of the local
+// player's. Reuses the exact same store helpers (activeBuffs/fraction/
+// formatBuffTime) and a compact set of styles so it reads consistently with the
+// player's own HUD. Renders nothing when there is no target (free-roam / nobody
+// to watch / target despawned), so the spectate panel falls back to just its
+// name + controls with no stale data or crash.
+function SpectateTargetHud({ stats }: { stats: ClientPlayerStats }) {
+    const tps = useGameStore((s) => s.tps)
+
+    const healthPct = fraction(stats.health, stats.healthMax) * 100
+    const lowHealth = healthPct <= 30
+    const buffs = activeBuffs(stats)
+
+    return (
+        <div className={styles.spectateHud}>
+            <div className={styles.specHealthRow}>
+                <div className={`${styles.specHealthBar} ${lowHealth ? styles.low : ""}`}>
+                    <div className={styles.specHealthFill} style={{ width: `${healthPct}%` }} />
+                </div>
+                <div className={styles.specHealthNum}>
+                    {Math.ceil(stats.health)}<span>/{Math.ceil(stats.healthMax)}</span>
+                </div>
+            </div>
+            <div className={styles.specAmmo}>
+                <span className={styles.specAmmoMain}>
+                    {stats.reloading ? "--" : stats.ammo}<span>/{stats.ammoMax}</span>
+                </span>
+                <span className={styles.specAmmoTac}>
+                    TAC {stats.tacticalReloadTicks > 0 ? "--" : stats.tacticalAmmo}/{stats.tacticalAmmoMax}
+                </span>
+            </div>
+            {buffs.length > 0 && (
+                <div className={styles.specBuffs}>
+                    {buffs.map((buff) => (
+                        <span
+                            key={buff.type}
+                            className={styles.specBuff}
+                            style={{ borderColor: buff.color, color: buff.color }}
+                        >
+                            <span className={styles.specBuffSwatch} style={{ backgroundColor: buff.color }} />
+                            {buff.label} {formatBuffTime(buff.ticks, tps)}
+                        </span>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
 // Apex-Legends-style in-match HUD. Layout, by corner:
 //   top-left ...... minimap, then the collapsible chat under it
 //   top-center .... objective meter (DEATHMATCH king + progress, or frenzy clock)
@@ -65,6 +117,7 @@ export default function GameOverlayMatch() {
     const ping = useGameStore((s) => s.ping)
     const spectating = useGameStore((s) => s.clientSpectating)
     const spectateTargetName = useGameStore((s) => s.spectateTargetName)
+    const spectateTargetStats = useGameStore((s) => s.spectateTargetStats)
 
     const [menuOpen, setMenuOpen] = useState(false)
 
@@ -193,6 +246,14 @@ export default function GameOverlayMatch() {
                         <span className={styles.label}>Spectating</span>
                         <span className={styles.target}>{spectateTargetName || " - "}</span>
                     </div>
+                    {/* Live mini-HUD for the watched player: their health, ammo and
+                        active buffs, read from the same store stats the self-HUD uses
+                        (selected by the spectate target id in sync). Hidden when there
+                        is no target so free-roam / nobody-to-watch shows just the name
+                        and controls. */}
+                    {spectateTargetStats !== null && (
+                        <SpectateTargetHud stats={spectateTargetStats} />
+                    )}
                     <div className={styles.spectateHints}>
                         <span className={styles.hint}>Space / &larr; / &rarr; switch player</span>
                         <span className={styles.hint}>WASD free camera</span>

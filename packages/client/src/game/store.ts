@@ -76,6 +76,41 @@ export function matchLeader(players: GameStorePlayer[]): MatchLeader | null {
     return { name: best.name, kills: best.score.kills }
 }
 
+// Map a networked player's live ship to the flat ClientPlayerStats shape the HUD
+// reads (health/ammo/buff timers/tactical). One source of truth for BOTH the
+// local self-HUD and the spectated-target mini-HUD, so the spectate panel shows
+// the exact same numbers the player sees for themselves - just selected by a
+// different player id. Reads only fields already present on the client each sync
+// (the server networks ship.timings/capacities), so no packet or sim change is
+// needed. Kept as a small mapper rather than a deep selector so it mirrors the
+// previous inline self-HUD block exactly.
+export function playerStats(player: PipPlayer): ClientPlayerStats {
+    const ship = player.ship
+    return {
+        reloading: ship.isReloading,
+        ammo: ship.capacities.weapon,
+        ammoMax: ship.stats.weapon.capacity,
+        health: ship.capacities.health,
+        healthMax: ship.maxHealth,
+        spawned: player.spawned,
+        spawnTimeout: player.timings.spawnTimeout,
+        shieldTicks: ship.timings.shield,
+        shieldMaxTicks: SHIELD_TICKS,
+        hasteTicks: ship.timings.haste,
+        hasteMaxTicks: HASTE_TICKS,
+        invisTicks: ship.timings.invisibility,
+        invisMaxTicks: INVIS_TICKS,
+        ricochetTicks: ship.timings.ricochet,
+        ricochetMaxTicks: RICOCHET_TICKS,
+        rapidfireTicks: ship.timings.rapidfire,
+        rapidfireMaxTicks: RAPIDFIRE_TICKS,
+        tacticalReloadTicks: ship.timings.tacticalReload,
+        tacticalReloadMaxTicks: ship.stats.tactical.reload.ticks,
+        tacticalAmmo: ship.capacities.tactical,
+        tacticalAmmoMax: ship.stats.tactical.capacity,
+    }
+}
+
 export function playerToGameStore(player: PipPlayer): GameStorePlayer {
     return {
         id: player.id,
@@ -367,6 +402,11 @@ export interface GameStoreState {
     // Spectator UI state for the local player.
     clientSpectating: boolean
     spectateTargetName: string
+    // Live stats of the player currently being spectated, in the SAME shape the
+    // self-HUD uses, so the spectate panel's mini-HUD reuses the same health/ammo/
+    // buff presentation. null when not spectating, when free-roaming, or when there
+    // is no valid target (so the mini-HUD hides instead of showing stale data).
+    spectateTargetStats: ClientPlayerStats | null
 
     players: GameStorePlayer[]
 
@@ -441,6 +481,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
     clientSpectating: false,
     spectateTargetName: "",
+    spectateTargetStats: null,
 
     players: [],
 
@@ -548,34 +589,21 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             next.ping = gameClientPlayer.ping
             next.clientPlayerShipIndex = gameClientPlayer.shipIndex
             next.clientPlayerShipType = PIP_SHIPS[gameClientPlayer.shipIndex]
-            const ship = gameClientPlayer.ship
-            next.clientPlayerStats = {
-                reloading: ship.isReloading,
-                ammo: ship.capacities.weapon,
-                ammoMax: ship.stats.weapon.capacity,
-                health: ship.capacities.health,
-                healthMax: ship.maxHealth,
-                spawned: gameClientPlayer.spawned,
-                spawnTimeout: gameClientPlayer.timings.spawnTimeout,
-                shieldTicks: ship.timings.shield,
-                shieldMaxTicks: SHIELD_TICKS,
-                hasteTicks: ship.timings.haste,
-                hasteMaxTicks: HASTE_TICKS,
-                invisTicks: ship.timings.invisibility,
-                invisMaxTicks: INVIS_TICKS,
-                ricochetTicks: ship.timings.ricochet,
-                ricochetMaxTicks: RICOCHET_TICKS,
-                rapidfireTicks: ship.timings.rapidfire,
-                rapidfireMaxTicks: RAPIDFIRE_TICKS,
-                tacticalReloadTicks: ship.timings.tacticalReload,
-                tacticalReloadMaxTicks: ship.stats.tactical.reload.ticks,
-                tacticalAmmo: ship.capacities.tactical,
-                tacticalAmmoMax: ship.stats.tactical.capacity,
-            }
+            next.clientPlayerStats = playerStats(gameClientPlayer)
             next.clientSpectating = gameClientPlayer.spectator
-            next.spectateTargetName = gameClientPlayer.spectator
-                ? (GAME_CONTEXT.getSpectateTarget()?.name ?? "")
-                : ""
+
+            // While spectating, resolve who the camera is watching and mirror that
+            // target's live stats with the SAME mapper the self-HUD uses, so the
+            // spectate panel's mini-HUD shows their health/ammo/buffs. Free-roam
+            // and a missing target both yield no target, so we clear the stats and
+            // the mini-HUD hides (no stale data, no crash). getSpectateTarget reads
+            // the live game.players, so a despawn/leave falls back or returns
+            // undefined automatically; the stats update every sync as it changes.
+            const target = gameClientPlayer.spectator && GAME_CONTEXT.spectateFreeRoam === false
+                ? GAME_CONTEXT.getSpectateTarget()
+                : undefined
+            next.spectateTargetName = typeof target !== "undefined" ? target.name : ""
+            next.spectateTargetStats = typeof target !== "undefined" ? playerStats(target) : null
         }
 
         set(next)
