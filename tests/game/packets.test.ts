@@ -45,6 +45,24 @@ describe("game packetManager wire format", () => {
         expect(kf.gameMode?.[0]).toEqual({ mode: 1, maxKills: 25, matchMinutes: 7 })
     })
 
+    it("round-trips closeLobby (payloadless host close request)", () => {
+        // The host sends this to disband the lobby; it carries no fields, so a
+        // round-trip yields a single empty object. The presence of the packet is
+        // the whole signal (the server gates it on the host identity).
+        const decoded = packetManager.decode(packetManager.encode("closeLobby", {}))
+        expect(decoded.closeLobby).toHaveLength(1)
+        expect(decoded.closeLobby?.[0]).toEqual({})
+    })
+
+    it("round-trips lobbyClosed (payloadless server notice)", () => {
+        // Broadcast to every client when the host closes the lobby. Like
+        // closeLobby it is payloadless - the client reacts to its arrival alone
+        // (showing a fixed message and navigating home).
+        const decoded = packetManager.decode(packetManager.encode("lobbyClosed", {}))
+        expect(decoded.lobbyClosed).toHaveLength(1)
+        expect(decoded.lobbyClosed?.[0]).toEqual({})
+    })
+
     it("round-trips playerScores with values above 255 (no uint8 wrap)", () => {
         // Long matches push kills/assists/deaths past 255. These fields are
         // uint16, so a 300-kill score must survive the wire untouched (uint8
@@ -97,7 +115,7 @@ describe("game packetManager wire format", () => {
         // Durations must fit uint8 (<= 255) so they survive the wire untouched.
         expect(out?.haste).toBe(120)
         expect(out?.shield).toBe(100)
-        // invisibility is a distinct timer from invincibility — both round-trip.
+        // invisibility is a distinct timer from invincibility - both round-trip.
         expect(out?.invisibility).toBe(120)
         expect(out?.invincibility).toBe(60)
     })

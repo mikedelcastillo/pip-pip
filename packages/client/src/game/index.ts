@@ -45,9 +45,16 @@ export class GameContext {
     // would otherwise leak a click+keydown listener per navigation).
     private audioResumeHandler?: () => void
 
+    // React handler for "the host closed this lobby". Set by GameView via
+    // onLobbyClosed and fired by notifyLobbyClosed (called from client.ts when the
+    // lobbyClosed packet arrives). Mirrors onDisconnect: the deep client loop only
+    // flips a flag in React, which then navigates home - it never hard-redirects
+    // from inside the update tick, so the normal GameView teardown still runs.
+    private lobbyClosedHandler?: () => void
+
     initialized = false
 
-    // The store hook itself — call .getState() / .setState() from non-React contexts.
+    // The store hook itself - call .getState() / .setState() from non-React contexts.
     store = useGameStore
 
     initialize() {
@@ -100,7 +107,7 @@ export class GameContext {
         this.audio.init()
 
         // Browsers require a user gesture before an AudioContext can produce
-        // sound — resume it on the first click or keypress. Registered here (and
+        // sound - resume it on the first click or keypress. Registered here (and
         // removed in unmountGameView) so the listener pair is symmetric across
         // mount/unmount cycles instead of accumulating one per navigation.
         if (typeof this.audioResumeHandler === "undefined") {
@@ -213,7 +220,7 @@ export class GameContext {
         this.renderer?.destroy()
 
         // Detach the document-bound input listeners (their bound handlers are
-        // now removed correctly — see core keyboard/mouse).
+        // now removed correctly - see core keyboard/mouse).
         this.keyboard?.destroy()
         this.mouse?.destroy()
 
@@ -249,6 +256,24 @@ export class GameContext {
     onDisconnect(handler: () => void): () => void {
         this.client.events.on("socketClose", handler)
         return () => this.client.events.off("socketClose", handler)
+    }
+
+    // Register React's reaction to the host closing this lobby. Returns an
+    // unsubscribe so the GameView effect cleans up on unmount. Stored as a single
+    // slot (only GameView listens); notifyLobbyClosed below fires it.
+    onLobbyClosed(handler: () => void): () => void {
+        this.lobbyClosedHandler = handler
+        return () => {
+            if (this.lobbyClosedHandler === handler) this.lobbyClosedHandler = undefined
+        }
+    }
+
+    // Called from the client packet loop (client.ts) when a lobbyClosed packet
+    // arrives. Surfaces the close to React so it can navigate home and raise the
+    // notice; like onDisconnect, we do NOT tear anything down here - GameView's
+    // own unmount handles the connection/renderer teardown when it leaves.
+    notifyLobbyClosed() {
+        this.lobbyClosedHandler?.()
     }
 
     // Re-establish the connection and rejoin the given lobby after a drop.
@@ -287,6 +312,16 @@ export class GameContext {
         this.sendCode(code)
     }
 
+    // Host-only: ask the server to disband the lobby and send everyone home. The
+    // server validates the host and ignores this from anyone else; it then
+    // broadcasts lobbyClosed to every client (which navigates home + shows the
+    // notice) and removes the lobby. Centralised here so the lobby UI just calls
+    // this without knowing the wire format.
+    closeLobby() {
+        const code = encode.closeLobby()
+        this.sendCode(code)
+    }
+
     // Host-only: change the match mode + its target from inside the lobby (so
     // players never have to leave and re-host just to switch modes). The server
     // validates the host and ignores this outside SETUP; the new settings come
@@ -299,7 +334,7 @@ export class GameContext {
 
     // Apply a ship selection for the local player. Mirrors the `/ship` chat
     // command: setShip emits `playerSetShip`, which sendPackets picks up during
-    // SETUP and broadcasts to the other players — so the choice is networked
+    // SETUP and broadcasts to the other players - so the choice is networked
     // automatically. Centralised here so the UI and chat share one path.
     setShip(index: number) {
         this.getClientPlayer()?.setShip(index)
@@ -307,7 +342,7 @@ export class GameContext {
 
     // Toggle the local player's spectator state and tell the server. The local
     // setSpectator gives instant feedback (camera/HUD react at once); the
-    // server is authoritative — it sets the flag, despawns the player if needed,
+    // server is authoritative - it sets the flag, despawns the player if needed,
     // and re-broadcasts playerSpectate to everyone. Centralised so the UI toggle
     // and the /spectate chat command share one path.
     setSpectator(spectator: boolean) {

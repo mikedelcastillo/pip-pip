@@ -5,6 +5,7 @@ import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { encode } from "@pip-pip/game/src/networking/packets"
 import { GameContext, getClientPlayer } from "."
 import { useGameStore } from "./store"
+import { showAlert } from "../store/alert"
 
 export const processPackets = (gameContext: GameContext) => {
     const { game } = gameContext
@@ -12,6 +13,15 @@ export const processPackets = (gameContext: GameContext) => {
 
     for (const events of gameContext.clientEvents.filter("packetMessage")) {
         const { packets } = events.packetMessage
+
+        // The host closed the lobby. The packet is payloadless - its arrival is
+        // the whole signal. Raise the on-brand notice and ask React to navigate
+        // home (notifyLobbyClosed flips a flag GameView reads); we do NOT tear
+        // anything down here, so GameView's own unmount handles the teardown.
+        if ((packets.lobbyClosed || []).length > 0) {
+            showAlert("The host closed the lobby.")
+            gameContext.notifyLobbyClosed()
+        }
 
         // Add player
         for (const { playerId } of packets.addPlayer || []) {
@@ -156,7 +166,7 @@ export const processPackets = (gameContext: GameContext) => {
             }
         }
 
-        //  Set player positions — REMOTE players only. The local player's
+        //  Set player positions - REMOTE players only. The local player's
         //  authoritative state arrives via ownPlayerState (below) and is
         //  reconciled against client prediction; applying the quantized
         //  broadcast here would fight that prediction and snap the local ship.
@@ -174,7 +184,7 @@ export const processPackets = (gameContext: GameContext) => {
         // Owner-only authoritative state for client-prediction reconciliation.
         // The server reports our position/velocity AFTER consuming our input up
         // to lastInputSeq; reconcileTo shifts the predicted ship to match. This
-        // is what keeps the local player in the same place everyone else sees —
+        // is what keeps the local player in the same place everyone else sees -
         // without it the local ship free-runs its prediction and appears far
         // offset on other screens (worst right after a mid-match join or spawn).
         for (const state of packets.ownPlayerState || []) {
@@ -304,7 +314,7 @@ export const processPackets = (gameContext: GameContext) => {
             "playerSpectate",
             "powerupSpawn", "powerupPickup",
             "ping", "playerPing"]
-        // Per-tick packet trace — dev only. In production this logged every
+        // Per-tick packet trace - dev only. In production this logged every
         // non-ignored packet (timings/capacities/scores/damage/kills...) at the
         // tick rate, spamming the console.
         if (import.meta.env.DEV) {
@@ -334,7 +344,7 @@ export const sendPackets = (gameContext: GameContext) => {
     }
 
     // send inputs (server-authoritative: it simulates from these, NOT from any
-    // client-reported position — so we no longer send playerPosition at all).
+    // client-reported position - so we no longer send playerPosition at all).
     // Record the predicted post-sim position for THIS tick's inputSeq first, so
     // ownPlayerState can later reconcile against it.
     if (game.phase === PipPipGamePhase.MATCH) {

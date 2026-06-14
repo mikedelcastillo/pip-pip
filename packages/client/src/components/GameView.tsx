@@ -62,12 +62,21 @@ export default function GameView() {
     // Surface an UNEXPECTED websocket drop. The core Client emits `socketClose`
     // only after a verified connection closes. This effect is declared AFTER the
     // mount effect, so on an intentional leave React runs this cleanup (the
-    // unsubscribe) BEFORE the mount cleanup's client.disconnect() — the
+    // unsubscribe) BEFORE the mount cleanup's client.disconnect() - the
     // deliberate close therefore never flips `disconnected`.
     useEffect(() => {
         const unsubscribe = GAME_CONTEXT.onDisconnect(() => setDisconnected(true))
         return unsubscribe
     }, [])
+
+    // The host closed the lobby: client.ts already raised the on-brand notice
+    // (showAlert) when the lobbyClosed packet arrived; here we just navigate home.
+    // Leaving via the router unmounts GameView, whose cleanup disconnects the
+    // client and tears the renderer down - the same path as a normal Leave.
+    useEffect(() => {
+        const unsubscribe = GAME_CONTEXT.onLobbyClosed(() => navigate("/"))
+        return unsubscribe
+    }, [navigate])
 
     const goHome = useCallback(() => navigate("/"), [navigate])
 
@@ -95,7 +104,7 @@ export default function GameView() {
         {/* Twin-stick touch overlay during live play. Self-hides on desktop
             (mouse/keyboard) so it never covers mouse-aim. */}
         {phase === PipPipGamePhase.MATCH && <TouchControls />}
-        {/* Netcode/entity debug panel — hidden by default, toggled with the
+        {/* Netcode/entity debug panel - hidden by default, toggled with the
             backquote (`) key. Always mounted so it is reachable in any phase. */}
         <DebugOverlay />
         <div id="game-container" ref={containerRef}></div>

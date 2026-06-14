@@ -215,6 +215,15 @@ export const packetManager = new PacketManager({
         matchMinutes: $uint8,
     }),
 
+    // Host-only request to disband the lobby from inside SETUP. Carries no
+    // payload: the host identity is decided server-side (the server only honours
+    // it when game.host matches the sender), so there is nothing to put on the wire.
+    closeLobby: new Packet({}),
+    // Server -> everyone in the lobby: the host closed it. No payload either - the
+    // client shows a fixed on-brand message and navigates home; the lobby itself
+    // is torn down server-side right after this goes out.
+    lobbyClosed: new Packet({}),
+
     // A powerup that became active (full state on join + on spawn). type is the
     // PowerupType wire code (see POWERUP_TYPE_TO_CODE); the id is a fixed-length
     // string so the matching powerupPickup can remove it by id.
@@ -279,6 +288,11 @@ export const encode = {
         maxKills,
         matchMinutes,
     }),
+
+    // Both close-lobby packets are payloadless (see their Packet definitions),
+    // so the encode helpers just emit the bare id byte.
+    closeLobby: () => packetManager.serializers.closeLobby.encode({}),
+    lobbyClosed: () => packetManager.serializers.lobbyClosed.encode({}),
 
     addPlayer: (player: PipPlayer) => packetManager.serializers.addPlayer.encode({
         playerId: player.id,

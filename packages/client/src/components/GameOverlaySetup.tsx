@@ -49,6 +49,11 @@ export default function GameOverlaySetup() {
     const matchMinutes = useGameStore((s) => s.matchMinutes)
 
     const [settingsOpen, setSettingsOpen] = useState(false)
+    // Two-step confirm for the host's "Close Lobby" action: the first click arms
+    // it (swaps the button for a Confirm / Cancel pair) so disbanding the lobby is
+    // never a single mis-tap. Server-authoritative either way - only the host's
+    // closeLobby is honoured - this is purely the UI guard.
+    const [confirmingClose, setConfirmingClose] = useState(false)
     const navigate = useNavigate()
 
     const badge = useMemo(() => modeBadge(mode, maxKills, matchMinutes), [mode, maxKills, matchMinutes])
@@ -76,6 +81,14 @@ export default function GameOverlaySetup() {
     const toggleSpectate = () => GAME_CONTEXT.toggleSpectator()
     const leave = () => navigate("/")
 
+    // Host-only: disband the lobby for everyone. The server validates the host and
+    // broadcasts lobbyClosed; each client (this one included) then navigates home
+    // and shows the notice, so we do NOT navigate here - we just send the request.
+    const closeLobby = () => {
+        setConfirmingClose(false)
+        GAME_CONTEXT.closeLobby()
+    }
+
     return (
         <div className="game-overlay">
             <div className={styles.lobby}>
@@ -96,6 +109,40 @@ export default function GameOverlaySetup() {
                         >
                             &#9881;
                         </button>
+                        {/* Host-only: close the lobby for everyone. Two-step so a
+                            stray tap never disbands the room - the first press arms
+                            the Confirm / Cancel pair below. */}
+                        {isHost && (
+                            confirmingClose ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        className={styles.leaveButton}
+                                        aria-label="Confirm close lobby"
+                                        onClick={closeLobby}
+                                    >
+                                        Confirm Close
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={styles.leaveButton}
+                                        aria-label="Cancel close lobby"
+                                        onClick={() => setConfirmingClose(false)}
+                                    >
+                                        Cancel
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className={styles.leaveButton}
+                                    aria-label="Close lobby"
+                                    onClick={() => setConfirmingClose(true)}
+                                >
+                                    Close Lobby
+                                </button>
+                            )
+                        )}
                         <button
                             type="button"
                             className={styles.leaveButton}

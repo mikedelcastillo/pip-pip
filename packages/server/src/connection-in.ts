@@ -1,6 +1,7 @@
 import { PipPipGame, PipPipGamePhase, PipPipGameMode } from "@pip-pip/game/src/logic"
 import { sanitize } from "@pip-pip/game/src/logic/utils"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
+import { encode } from "@pip-pip/game/src/networking/packets"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
 import type { GameTickContext } from "."
 import { sanitizePlayerInputs } from "./input-sanitize"
@@ -38,7 +39,7 @@ const chatRateStates = new Map<string, ChatRateState>()
 // Per-tick set of approved (validated, rate-limited, non-command) chat messages
 // keyed by sender connection id. Rebuilt every tick by processChatMessages
 // (runs once, in connection-in) and consumed by the per-recipient broadcast in
-// connection-out — so the rate limit counts each message ONCE, not once per
+// connection-out - so the rate limit counts each message ONCE, not once per
 // recipient. Drained/replaced wholesale each tick; never grows unbounded.
 const approvedChat = new Map<string, string[]>()
 
@@ -185,6 +186,30 @@ export function processChatMessages(context: GameTickContext){
     pruneChatState(game)
 }
 
+// Host-only: disband the whole lobby and send everyone home. Tell every
+// connection still in the lobby that it closed (so each client navigates home
+// and shows the on-brand notice), THEN remove the lobby via the core API. The
+// lobbyClosed packet must go out BEFORE removeLobby, because removeLobby ->
+// lobby.destroy() drops every connection and tears the game down, after which
+// there is nobody left to notify. Returns true once a close ran (a missing
+// lobby - e.g. a unit-test context with no lobby - makes this a no-op).
+function closeLobbyForHost(context: GameTickContext){
+    const { lobby } = context
+    if(typeof lobby === "undefined") return false
+
+    const closed = encode.lobbyClosed()
+    for(const connection of Object.values(lobby.connections)){
+        // Best-effort: a connection whose socket is already gone just no-ops on
+        // send; we still tear the lobby down for the rest below.
+        connection.send(new Uint8Array(closed).buffer)
+    }
+
+    // Full teardown via the core API: destroy() removes every connection from the
+    // lobby and the server entry's "destroy" handler stops the ticks + game.
+    lobby.server.removeLobby(lobby)
+    return true
+}
+
 export function processLobbyPackets(context: GameTickContext){
     const { game, lobbyEvents } = context
     // Add players
@@ -235,6 +260,16 @@ export function processLobbyPackets(context: GameTickContext){
                     })
                 }
             }
+        }
+
+        // Host-only: close the lobby. Server-authoritative - ONLY the host may
+        // disband it, so a non-host's closeLobby is ignored. The handler notifies
+        // every connection then removes the lobby; because that teardown drops all
+        // connections and stops the game, we return immediately rather than touch
+        // the now-dead lobby/game for the rest of this tick.
+        if((packets.closeLobby || []).length > 0 && game.host?.id === connection.id){
+            closeLobbyForHost(context)
+            return
         }
 
         // set player ship
