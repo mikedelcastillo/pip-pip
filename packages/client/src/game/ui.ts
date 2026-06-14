@@ -1,17 +1,31 @@
 import { GameContext, getClientPlayer } from "."
 import { touchState } from "./touch"
+import {
+    gamepadState,
+    pollGamepad,
+    readFirstGamepad,
+} from "./gamepad"
+import { useUiStore } from "../store/ui"
 
 export function processInputs(context: GameContext){
     const { mouse, keyboard, game } = context
     const clientPlayer = getClientPlayer(game)
     if(typeof clientPlayer === "undefined") return
 
+    // Custom bindings live in the UI store (seeded from localStorage). Read them
+    // each tick via getState() so this hot path stays outside React and always
+    // reflects the latest remap without a re-render. `keyDown` resolves an action
+    // to whether its bound key code is currently held in the keyboard listener.
+    const { keyBindings, gamepadBindings } = useUiStore.getState()
+    const keyDown = (action: keyof typeof keyBindings) =>
+        keyboard.state[keyBindings[action]] === true
+
     let xInput = 0, yInput = 0
 
-    if(keyboard.state.KeyW) yInput -= 1
-    if(keyboard.state.KeyS) yInput += 1
-    if(keyboard.state.KeyA) xInput -= 1
-    if(keyboard.state.KeyD) xInput += 1
+    if(keyDown("moveUp")) yInput -= 1
+    if(keyDown("moveDown")) yInput += 1
+    if(keyDown("moveLeft")) xInput -= 1
+    if(keyDown("moveRight")) xInput += 1
 
     const hasKeyboardInput = xInput !== 0 || yInput !== 0
 
@@ -32,11 +46,11 @@ export function processInputs(context: GameContext){
 
     clientPlayer.inputs.aimRotation = mouseAngle
 
-    // shooting
-    clientPlayer.inputs.useWeapon = (mouse.state.left.down || keyboard.state.Space) === true
-    // secondary / tactical cannon: right mouse button, left shift, or Q / E
-    clientPlayer.inputs.useTactical = (mouse.state.right.down || keyboard.state.ShiftLeft || keyboard.state.KeyQ || keyboard.state.KeyE) === true
-    clientPlayer.inputs.doReload = keyboard.state.KeyR === true
+    // shooting — the bound keys drive each action; the mouse buttons keep their
+    // fixed roles (left = fire, right = tactical) since aim stays on the mouse.
+    clientPlayer.inputs.useWeapon = (mouse.state.left.down || keyDown("fire")) === true
+    clientPlayer.inputs.useTactical = (mouse.state.right.down || keyDown("tactical")) === true
+    clientPlayer.inputs.doReload = keyDown("reload")
 
     // Mobile twin-stick overlay. The TouchControls component mutates `touchState`
     // on each pointer event; here we fold it into the same inputs object that the
@@ -63,6 +77,36 @@ export function processInputs(context: GameContext){
         clientPlayer.inputs.useWeapon = clientPlayer.inputs.useWeapon || touchState.useWeapon
         clientPlayer.inputs.useTactical = clientPlayer.inputs.useTactical || touchState.useTactical
         clientPlayer.inputs.doReload = clientPlayer.inputs.doReload || touchState.doReload
+    }
+
+    // Gamepad (controller) overlay. Same OR-in philosophy as touch: poll the
+    // first connected pad each tick and merge its intents without clobbering
+    // keyboard/mouse. readFirstGamepad returns null under SSR/node or when no
+    // controller is connected, in which case pollGamepad resets the state to
+    // inactive and nothing below fires.
+    pollGamepad(gamepadState, readFirstGamepad(), {
+        fire: gamepadBindings.fire,
+        tactical: gamepadBindings.tactical,
+        reload: gamepadBindings.reload,
+    })
+
+    if(gamepadState.active){
+        // Movement: the left stick wins while deflected, mirroring touch.
+        if(gamepadState.moveActive){
+            clientPlayer.inputs.movementAngle = gamepadState.movementAngle
+            clientPlayer.inputs.movementAmount = gamepadState.movementAmount
+        }
+
+        // Aim: the right stick steers the crosshair while deflected.
+        if(gamepadState.aimActive){
+            clientPlayer.inputs.aimRotation = gamepadState.aimRotation
+        }
+
+        // OR-in the action buttons so a held trigger/bumper fires even with an
+        // idle keyboard/mouse.
+        clientPlayer.inputs.useWeapon = clientPlayer.inputs.useWeapon || gamepadState.useWeapon
+        clientPlayer.inputs.useTactical = clientPlayer.inputs.useTactical || gamepadState.useTactical
+        clientPlayer.inputs.doReload = clientPlayer.inputs.doReload || gamepadState.doReload
     }
 
     // Tag this tick's input with a fresh, monotonically increasing sequence so

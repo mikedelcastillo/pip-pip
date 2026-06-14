@@ -43,6 +43,11 @@
         .controlKeys
             color: $color-main
             text-align: right
-            // Long key hints (e.g. "Right click / Shift / Q / E") wrap instead
-            // of pushing the row wider than a narrow phone screen.
+            // Long key hints (e.g. "Mouse / right stick") wrap instead of
+            // pushing the row wider than a narrow phone screen.
             min-width: 0
+
+.controlsAction
+    display: grid
+    justify-items: start
+    padding-top: 0.6em
