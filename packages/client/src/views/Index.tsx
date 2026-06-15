@@ -61,7 +61,7 @@ export default function Index() {
                     <GameButton onClick={() => { trackEvent("join_public_match"); setPanel("browse") }}>Join Public Match</GameButton>
                     <GameInput value={joinValue} onChange={setJoinValue} name="lobby-code" placeholder="Lobby code" onEnter={joinByCode} />
                     <GameButton onClick={joinByCode}>Join Game</GameButton>
-                    <GameButton onClick={() => { trackEvent("open_map_maker"); navigate("/editor") }}>Map Maker</GameButton>
+                    <GameButton onClick={() => { trackEvent("open_map_maker"); navigate("/maps") }}>Map Maker</GameButton>
                     <GameButton accent onClick={() => setPanel("settings")}>Settings</GameButton>
                     <GameButton accent onClick={() => setPanel("credits")}>Credits</GameButton>
                     <AlphaBanner onClick={() => setPanel("alpha")} />

@@ -1,0 +1,12 @@
+@import "../styles/variables"
+
+// The static map-layout thumbnail filling the top of each library card. The
+// backing store is dpr-scaled in JS; CSS sizes it to fill the card width while
+// keeping the canvas crisp (pixelated) on a tile preview.
+.thumbnail
+    display: block
+    width: 100%
+    height: auto
+    border-radius: $border-radius $border-radius 0 0
+    background-color: $color-dark-1
+    image-rendering: pixelated

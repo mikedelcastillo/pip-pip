@@ -1,6 +1,6 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import GameButton from "../components/GameButton"
 import GameInput from "../components/GameInput"
 import ConfirmModal from "../components/ConfirmModal"
@@ -296,12 +296,34 @@ export default function MapEditor(){
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const fileInputRef = useRef<HTMLInputElement | null>(null)
 
+    // The library map this editor session is bound to, decoded from the
+    // /editor/:mapName route param, or null when opened on the shared draft via
+    // plain /editor. When set, the editor LOADS that specific library entry on
+    // mount and AUTOSAVES back to it (not just the rolling draft slot), so each
+    // saved map is its own document - the Procreate/Docs-style library home opens a
+    // card straight into THAT map. Held in a ref so the autosave + Back handlers
+    // read the live value without re-deriving it (the route param is stable for the
+    // life of the view). decodeURIComponent reverses the editorMapPath encoding.
+    const params = useParams()
+    const libraryMapName = useMemo(() => {
+        const raw = params.mapName
+        if(typeof raw !== "string" || raw.length === 0) return null
+        try{
+            return decodeURIComponent(raw)
+        } catch(e){
+            return raw
+        }
+    }, [params.mapName])
+    const libraryMapRef = useRef<string | null>(libraryMapName)
+    libraryMapRef.current = libraryMapName
+
     // The mutable editor model. Held in a ref (not React state) so high-rate
     // pointer drags mutate it directly without a re-render per cell; a separate
     // `version` counter bumps to trigger redraws/UI refreshes when needed. On
-    // mount we restore an autosaved draft if one exists, so a reload or crash
-    // never loses progress; otherwise we start from a default-sized blank map.
-    const mapRef = useRef<EditorMap>(restoreInitialMap())
+    // mount we restore the bound library map (when one is named in the route),
+    // otherwise an autosaved draft if one exists, so a reload or crash never loses
+    // progress; otherwise we start from a default-sized blank map.
+    const mapRef = useRef<EditorMap>(restoreInitialMap(libraryMapName))
     const [version, setVersion] = useState(0)
     const bump = useCallback(() => setVersion((v) => v + 1), [])
 
@@ -451,11 +473,24 @@ export default function MapEditor(){
     // short moment after the last edit so a reload/crash recovers the draft. The
     // persistence itself lives in the pure model (saveEditorMap) for testability;
     // here we only schedule it off the `version` counter.
+    //
+    // When this session is bound to a LIBRARY map (opened from a card via
+    // /editor/:mapName), the autosave ALSO writes back to that library entry under
+    // its name, so the card's saved map stays in sync as the author edits - the
+    // library is the document, not just the rolling draft. The draft slot is still
+    // written too (a harmless extra slot) so a crash recovers either way. The
+    // library write reuses the pure saveMapToLibrary (overwriting an existing name
+    // never evicts another map); its result is ignored here since autosave is
+    // best-effort, exactly like the draft autosave.
     useEffect(() => {
         const storage = editorStorage()
         if(storage === null) return
         const id = window.setTimeout(() => {
             saveEditorMap(mapRef.current, storage)
+            const boundName = libraryMapRef.current
+            if(boundName !== null){
+                saveMapToLibrary(storage, boundName, mapRef.current.toGridMapData(), Date.now())
+            }
         }, 400)
         return () => window.clearTimeout(id)
     }, [version, name])
@@ -1798,6 +1833,12 @@ export default function MapEditor(){
         draw()
     }, [bump, draw, markDirty, refreshHistoryFlags])
 
+    // Where Back returns to: the LIBRARY HOME (/maps) when this session was opened
+    // on a specific saved map, so the author lands back in their card grid; the home
+    // menu (/) otherwise (a plain /editor draft). Read off the bound library name so
+    // both the in-app Back and the confirm-leave path agree.
+    const backDestination = libraryMapName !== null ? "/maps" : "/"
+
     // Leaving the editor: only confirm when there is unsaved work, otherwise go
     // straight back. The ConfirmModal handles the in-app Back prompt; the
     // beforeunload effect below handles a browser tab close / reload.
@@ -1805,14 +1846,14 @@ export default function MapEditor(){
         if(dirty){
             setConfirmLeave(true)
         } else{
-            navigate("/")
+            navigate(backDestination)
         }
-    }, [dirty, navigate])
+    }, [dirty, navigate, backDestination])
 
     const leaveNow = useCallback(() => {
         setConfirmLeave(false)
-        navigate("/")
-    }, [navigate])
+        navigate(backDestination)
+    }, [navigate, backDestination])
 
     // Browser-level leave guard: a tab close / reload with unsaved work triggers
     // the native "leave site?" prompt. Removed when clean so we never nag.
@@ -2468,12 +2509,25 @@ export default function MapEditor(){
     )
 }
 
-// Restore the autosaved draft on mount, or fall back to a fresh blank map. The
-// canvas is unbounded, so a fresh map starts empty (no fixed size) and the
-// author paints anywhere. Kept out of the component body so the initial
-// useRef/useState reads stay a single synchronous call.
-function restoreInitialMap(): EditorMap{
+// Restore the editor's initial map on mount. When the route names a LIBRARY map
+// (/editor/:mapName), load THAT entry so a card opens straight into its own map;
+// when its entry is missing/corrupt, fall back to a fresh blank map carrying that
+// name so the author can re-save it under the same title. With no library map named
+// (plain /editor), restore the rolling autosave draft, or a fresh blank map. The
+// canvas is unbounded, so a fresh map starts empty and the author paints anywhere.
+// Kept out of the component body so the initial useRef/useState reads stay a single
+// synchronous call.
+function restoreInitialMap(libraryMapName: string | null): EditorMap{
     const storage = editorStorage()
+    if(libraryMapName !== null){
+        if(storage !== null){
+            const data = loadMapFromLibrary(storage, libraryMapName)
+            if(data !== null) return EditorMap.fromGridMapData(data)
+        }
+        // No (loadable) entry under that name yet: start blank but titled, so the
+        // first autosave creates the library entry under the expected name.
+        return new EditorMap(libraryMapName)
+    }
     if(storage !== null){
         const restored = loadEditorMap(storage)
         if(restored !== null) return restored
