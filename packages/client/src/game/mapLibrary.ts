@@ -84,8 +84,8 @@ export type LibrarySummary = {
 // library would exceed LIBRARY_MAX_BYTES, "storage" when localStorage itself
 // rejected the write e.g. quota/private mode) plus a human message. Never throws.
 export type LibrarySaveResult =
-    | { ok: true, name: string, evicted?: string }
-    | { ok: false, reason: "empty-name" | "too-large" | "storage", message: string }
+    | { ok: true, name: string, evicted?: string, evictedData?: string }
+    | { ok: false, reason: "empty-name" | "too-large" | "storage" | "invalid", message: string }
 
 // Read the WHOLE library record from storage, tolerating every failure: a missing
 // slot, unreadable storage, non-JSON, or a non-object all return an EMPTY record
@@ -148,6 +148,18 @@ export function saveMapToLibrary(
         return { ok: false, reason: "empty-name", message: "Enter a name to save the map." }
     }
 
+    // The SAFE save path never persists a map that could not load back: the editor
+    // used to write whatever it exported and report success, so a degenerate or
+    // out-of-range (e.g. too-big) map saved "ok" yet showed as Unreadable forever.
+    // Reject invalid data here so the only way bad bytes reach the library is the
+    // explicit raw import used by the recovery tools. Callers repair-then-save (see
+    // the editor's Save to library) so a large map is adjusted to fit, not lost. Note
+    // a VALID but empty map (1x1, no tiles) still saves; the caller decides whether to
+    // skip an empty bound-autosave so a cleared canvas does not clobber a saved card.
+    if(validateGridMapData(data) === null){
+        return { ok: false, reason: "invalid", message: "This map can not be saved yet (it is empty, or too big to load). Try Auto-fix, or make it a little smaller." }
+    }
+
     const library = readLibrary(storage)
     const isNew = Object.prototype.hasOwnProperty.call(library, trimmed) === false
 
@@ -156,6 +168,9 @@ export function saveMapToLibrary(
     // (treated as -Infinity), and Object.entries preserves insertion order so the
     // first-inserted of a tie is chosen. Overwriting an existing name never evicts.
     let evicted: string | undefined
+    // The evicted entry's RAW bytes, returned so the caller can move them to the 30-day
+    // archive rather than destroying a real saved map on a routine save.
+    let evictedData: string | undefined
     if(isNew && Object.keys(library).length >= LIBRARY_MAX_ENTRIES){
         let oldestName: string | null = null
         let oldestAt = Infinity
@@ -167,6 +182,7 @@ export function saveMapToLibrary(
             }
         }
         if(oldestName !== null){
+            evictedData = library[oldestName].data
             delete library[oldestName]
             evicted = oldestName
         }
@@ -189,7 +205,7 @@ export function saveMapToLibrary(
         // UI can tell the author, rather than silently losing the save.
         return { ok: false, reason: "storage", message: "Could not save to the library (storage is full or unavailable)." }
     }
-    return evicted !== undefined ? { ok: true, name: trimmed, evicted } : { ok: true, name: trimmed }
+    return evicted !== undefined ? { ok: true, name: trimmed, evicted, evictedData } : { ok: true, name: trimmed }
 }
 
 // Summarise every saved map for the list UI, SORTED for a stable display: newest
@@ -370,6 +386,47 @@ export function renameLibraryMap(
         return { ok: false, reason: "storage", message: "Could not rename (storage is full or unavailable)." }
     }
     return { ok: true, name: toTrimmed }
+}
+
+// Fetch ONE library entry verbatim (its raw stored `data` string + savedAt), or
+// null when absent. Unlike loadMapFromLibrary this does NOT validate or parse, so a
+// map that fails validation (e.g. an "Unreadable" card) still yields its exact bytes
+// - the soft-delete + recovery tools need the raw payload, not a parsed map. Reads
+// through readLibrary so a corrupt slot degrades to null rather than throwing.
+export function getLibraryEntry(storage: LibraryStorage, name: string): LibraryEntry | null{
+    const library = readLibrary(storage)
+    const entry = library[name.trim()]
+    return typeof entry === "undefined" ? null : entry
+}
+
+// Write a RAW serialised-map string into the library under a fresh, non-colliding
+// name (derived from `preferredName`). This is the recovery/restore counterpart to
+// saveMapToLibrary: it deliberately does NOT validate, so the exact recovered bytes
+// (even an as-yet-unrepaired map) are preserved verbatim and can be opened or fixed
+// later. The stored map's own `name` field is re-stamped to the resulting name (best
+// effort) so it opens titled correctly. Guarded by the same byte ceiling + storage
+// try/catch as every other write; never throws.
+export function importRawMapToLibrary(
+    storage: LibraryStorage,
+    data: string,
+    preferredName: string,
+    now?: number,
+): LibraryMutateResult{
+    const library = readLibrary(storage)
+    const name = uniqueLibraryName(library, preferredName)
+    const entry: LibraryEntry = { data: renameSerializedMap(data, name) }
+    if(typeof now === "number" && Number.isFinite(now)) entry.savedAt = now
+    library[name] = entry
+    const serialised = serializeLibrary(library)
+    if(serialised.length > LIBRARY_MAX_BYTES){
+        return { ok: false, reason: "storage", message: "Library is full. Delete a saved map and try again." }
+    }
+    try{
+        storage.setItem(LIBRARY_STORAGE_KEY, serialised)
+    } catch(e){
+        return { ok: false, reason: "storage", message: "Could not save (storage is full or unavailable)." }
+    }
+    return { ok: true, name }
 }
 
 // The editor ROUTE path that opens a specific library map by name, e.g.

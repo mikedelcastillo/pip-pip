@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import GameButton from "../components/GameButton"
 import GameInput from "../components/GameInput"
 import ConfirmModal from "../components/ConfirmModal"
-import { loadGridMap } from "@pip-pip/game/src/logic/grid-map"
+import { loadGridMap, validateGridMapData, GridMapData } from "@pip-pip/game/src/logic/grid-map"
 import {
     EditorMap,
     EditorBrush,
@@ -56,7 +56,11 @@ import {
     listLibraryMaps,
     loadMapFromLibrary,
     deleteMapFromLibrary,
+    getLibraryEntry,
+    importRawMapToLibrary,
 } from "../game/mapLibrary"
+import { archivePut } from "../game/mapArchive"
+import { repairGridMapData } from "../game/mapRecovery"
 import { blockFaceCss } from "../game/mapGraphics"
 import { trackEvent, trackPageView } from "../analytics"
 import styles from "./MapEditor.module.sass"
@@ -313,6 +317,26 @@ function editorStorage(): Storage | null{
     }
 }
 
+// Build the GridMapData to persist to a LIBRARY entry: a valid map is saved as-is; an
+// invalid one (usually a map grown past the play-area bounds) is REPAIRED to a
+// loadable form so the library entry stays current and loadable rather than freezing
+// or storing Unreadable bytes. Returns the payload plus the repairs applied, or null
+// when the map can not be made loadable at all.
+function libraryPayload(map: EditorMap): { data: GridMapData, repairs: string[] } | null{
+    const data = map.toGridMapData()
+    if(validateGridMapData(data) !== null) return { data, repairs: [] }
+    const repaired = repairGridMapData(data)
+    return repaired.ok ? { data: repaired.data, repairs: repaired.repairs } : null
+}
+
+// Is the map effectively empty (nothing painted and no spawns)? Used to stop a
+// cleared canvas's background autosave from silently overwriting a populated saved
+// card (an explicit Save still lets the author save an empty map on purpose).
+function isEmptyMap(map: EditorMap): boolean{
+    const data = map.toGridMapData()
+    return data.tiles.some((t) => t > 0) === false && data.spawns.length === 0
+}
+
 // Show the right modifier in the undo/redo tooltips: Cmd on a Mac, Ctrl
 // everywhere else, so the on-screen hint matches the key the author would
 // actually press. Best-effort platform sniff; falls back to Ctrl when unknown.
@@ -519,18 +543,27 @@ export default function MapEditor(){
     // /editor/:mapName), the autosave ALSO writes back to that library entry under
     // its name, so the card's saved map stays in sync as the author edits - the
     // library is the document, not just the rolling draft. The draft slot is still
-    // written too (a harmless extra slot) so a crash recovers either way. The
-    // library write reuses the pure saveMapToLibrary (overwriting an existing name
-    // never evicts another map); its result is ignored here since autosave is
-    // best-effort, exactly like the draft autosave.
+    // written too (a harmless extra slot) so a crash recovers either way.
+    //
+    // Two safeguards keep the bound write from losing work: it REPAIRS an oversized
+    // map to a loadable form (libraryPayload) so the entry never freezes or stores
+    // Unreadable bytes, and it SKIPS a fully empty canvas so a stray autosave after a
+    // Clear can not overwrite a populated saved card. If the save evicts the oldest
+    // entry at the cap, the evicted bytes are moved to the archive, never destroyed.
     useEffect(() => {
         const storage = editorStorage()
         if(storage === null) return
         const id = window.setTimeout(() => {
             saveEditorMap(mapRef.current, storage)
             const boundName = libraryMapRef.current
-            if(boundName !== null){
-                saveMapToLibrary(storage, boundName, mapRef.current.toGridMapData(), Date.now())
+            if(boundName !== null && isEmptyMap(mapRef.current) === false){
+                const payload = libraryPayload(mapRef.current)
+                if(payload !== null){
+                    const result = saveMapToLibrary(storage, boundName, payload.data, Date.now())
+                    if(result.ok && typeof result.evicted === "string" && typeof result.evictedData === "string"){
+                        archivePut(storage, result.evicted, result.evictedData, Date.now())
+                    }
+                }
             }
         }, 400)
         return () => window.clearTimeout(id)
@@ -1885,18 +1918,37 @@ export default function MapEditor(){
             setMessage("Storage is unavailable, cannot save to the library.")
             return
         }
-        const data = mapRef.current.toGridMapData()
-        const result = saveMapToLibrary(storage, name, data, Date.now())
+        // Validate-or-repair so a map that grew past the play-area bounds is adjusted to
+        // fit rather than saved as an Unreadable card.
+        const payload = libraryPayload(mapRef.current)
+        if(payload === null){
+            // It can not be made loadable (e.g. far past the size cap). Never lose the
+            // click: stash the raw bytes so the work is kept as a recoverable card the
+            // author can shrink with the recovery tools, instead of refusing the save.
+            const stash = importRawMapToLibrary(storage, serializeGridMapData(mapRef.current.toGridMapData()), name, Date.now())
+            refreshLibrary()
+            setMessage(stash.ok
+                ? `Saved "${stash.name}", but it is too big to open. Use "Recover lost maps" to shrink it.`
+                : "Could not save this map (storage is full or unavailable).")
+            return
+        }
+        const result = saveMapToLibrary(storage, name, payload.data, Date.now())
         if(result.ok === false){
             setMessage(result.message)
             return
         }
+        // An eviction at the cap moves the oldest map to the 30-day archive (its bytes
+        // come back on result.evictedData) rather than destroying it.
+        if(typeof result.evicted === "string" && typeof result.evictedData === "string"){
+            archivePut(storage, result.evicted, result.evictedData, Date.now())
+        }
         refreshLibrary()
         trackEvent("save_map_to_library")
+        const adjusted = payload.repairs.length > 0 ? " (adjusted to fit the play area)" : ""
         setMessage(
             typeof result.evicted === "string"
-                ? `Saved "${result.name}" (removed oldest "${result.evicted}")`
-                : `Saved "${result.name}" to library`,
+                ? `Saved "${result.name}"${adjusted} (archived oldest "${result.evicted}")`
+                : `Saved "${result.name}" to library${adjusted}`,
         )
     }, [name, refreshLibrary])
 
@@ -1925,9 +1977,22 @@ export default function MapEditor(){
         setConfirmDeleteName(null)
         if(target === null) return
         const storage = editorStorage()
-        if(storage !== null) deleteMapFromLibrary(storage, target)
+        let archivedOk = true
+        if(storage !== null){
+            // Archive the exact bytes BEFORE removing, and only remove the library entry
+            // once they are safely archived (or there were no bytes to keep). If the
+            // archive write fails (storage full / private mode), keep the map in place
+            // so a delete can never become permanent loss.
+            const entry = getLibraryEntry(storage, target)
+            if(entry !== null){
+                archivedOk = archivePut(storage, target, entry.data, Date.now(), entry.savedAt) !== null
+            }
+            if(archivedOk) deleteMapFromLibrary(storage, target)
+        }
         refreshLibrary()
-        setMessage(`Deleted "${target}" from library`)
+        setMessage(archivedOk
+            ? `Moved "${target}" to the archive`
+            : `Could not archive "${target}" (storage is full). It was kept - export it first.`)
     }, [confirmDeleteName, refreshLibrary])
 
     // Refresh the library list whenever the options panel is opened, so it always
