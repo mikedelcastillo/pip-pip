@@ -141,6 +141,12 @@ const SHORTCUT_FOR: Record<EditorBrush, string> = {
     half_right: "",
 }
 
+// The keyboard shortcut for the RECOLOR tool. It is a resolving brush with no
+// entry in the model's EditorBrush-keyed BRUSH_SHORTCUTS, so the view owns this
+// key. "C" reads as "colour" and is otherwise free for painting (Cmd/Ctrl+C copy
+// is modifier-gated to select mode, so a bare C never clashes).
+const RECOLOR_SHORTCUT = "C"
+
 type ToolDef = { brush: PaintBrush, label: string, color: string, shortcut: string }
 
 // Human label per brush (the four slope directions show in the Auto-slope
@@ -172,6 +178,7 @@ const TOOLS: ToolDef[] = [
     { brush: "half_auto", label: "Auto half", color: COLOR_BLOCK, shortcut: "" },
     { brush: "deco", label: LABEL_FOR.deco, color: COLOR_DECO, shortcut: SHORTCUT_FOR.deco },
     { brush: "spawn", label: LABEL_FOR.spawn, color: COLOR_SPAWN, shortcut: SHORTCUT_FOR.spawn },
+    { brush: "recolor", label: "Recolor", color: COLOR_BLOCK, shortcut: RECOLOR_SHORTCUT },
 ]
 
 // The explicit slope directions shown in the Auto slope dropdown.
@@ -1959,6 +1966,14 @@ export default function MapEditor(){
                 setBrush(toolBrush)
                 return
             }
+            // RECOLOR has no model shortcut (it is a resolving brush); the view owns
+            // its "C" key. A bare C never clashes with Cmd/Ctrl+C copy (handled above
+            // under the modifier guard), so this only fires for an unmodified press.
+            if(key === RECOLOR_SHORTCUT.toLowerCase()){
+                e.preventDefault()
+                setBrush("recolor")
+                return
+            }
             if(key === "f"){
                 e.preventDefault()
                 fitNow()
@@ -1981,7 +1996,7 @@ export default function MapEditor(){
     // so the rail mirrors what a stroke will paint; deco/spawn/erase keep their
     // fixed affordance colours.
     const toolIconColor = useCallback((brushFor: PaintBrush, fallback: string): string => {
-        if(brushFor === "full" || brushFor === "auto" || brushFor === "half_auto"
+        if(brushFor === "full" || brushFor === "auto" || brushFor === "half_auto" || brushFor === "recolor"
             || isSlopeBrush(brushFor) || isHalfBrush(brushFor)){
             return materialFace
         }
@@ -2782,6 +2797,15 @@ function ToolIcon({ brush, color }: { brush: PaintBrush, color: string }){
                 <rect x="2" y="2" width="16" height="16" fill="none" stroke={color} strokeWidth="1.5" opacity="0.45" />
                 <rect x="2" y="10" width="16" height="8" fill={color} opacity="0.9" />
                 <circle cx="6" cy="6" r="1.8" fill={color} />
+            </svg>
+        )
+    }
+    if(brush === "recolor"){
+        // A paint DROPLET in the active material colour: the recolor tool repaints
+        // an existing tile's colour (never its shape), so its glyph IS a colour.
+        return (
+            <svg width={size} height={size} viewBox="0 0 20 20">
+                <path d="M10 2 C 6 8, 4.5 11.5, 10 17 C 15.5 11.5, 14 8, 10 2 Z" fill={color} />
             </svg>
         )
     }
