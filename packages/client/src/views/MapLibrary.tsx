@@ -14,12 +14,22 @@ import {
     deleteMapFromLibrary,
     duplicateLibraryMap,
     renameLibraryMap,
+    getLibraryEntry,
     editorMapPath,
 } from "../game/mapLibrary"
 import {
     mapFileName,
     serializeGridMapData,
 } from "../game/mapEditor"
+import {
+    archivePut,
+    purgeExpiredArchive,
+    listArchivedMaps,
+} from "../game/mapArchive"
+import { scanLocalRecoverableMaps } from "../game/mapRecovery"
+import { openIndexedDbBackupStore, mirrorLibraryFromStorage } from "../game/mapBackupDb"
+import RecoveryModal from "../components/RecoveryModal"
+import ArchiveModal from "../components/ArchiveModal"
 import { trackEvent, trackPageView } from "../analytics"
 import styles from "./MapLibrary.module.sass"
 
@@ -86,9 +96,27 @@ export default function MapLibrary(){
     // null when the rename modal is closed.
     const [renaming, setRenaming] = useState<string | null>(null)
     const [renameValue, setRenameValue] = useState("")
+    // The recovery + archive tools, plus a live badge count for each so the author can
+    // see at a glance that there is something to recover or restore.
+    const [recoveryOpen, setRecoveryOpen] = useState(false)
+    const [archiveOpen, setArchiveOpen] = useState(false)
+    const [recoveryCount, setRecoveryCount] = useState(0)
+    const [archiveCount, setArchiveCount] = useState(0)
 
     useEffect(() => {
         trackPageView("/maps")
+    }, [])
+
+    // On entering the library: purge any archive entries past their 30-day window, and
+    // mirror the current library into the IndexedDB backup so there is a durable copy
+    // beneath localStorage. Both are best-effort and never block the screen.
+    useEffect(() => {
+        const storage = libraryStorage()
+        if(storage === null) return
+        purgeExpiredArchive(storage, Date.now())
+        openIndexedDbBackupStore()
+            .then((store) => { if(store !== null) mirrorLibraryFromStorage(store, storage, Date.now()) })
+            .catch(() => undefined)
     }, [])
 
     // Re-read the whole library (summaries + parsed data for thumbnails) from
@@ -105,6 +133,13 @@ export default function MapLibrary(){
             summary,
             data: loadMapFromLibrary(storage, summary.name),
         })))
+        // Refresh the tool badges. The recovery count is a quick LOCAL-only sweep
+        // (the modal does the fuller async scan that also reads the IndexedDB backup)
+        // and excludes maps that already show as healthy library cards.
+        const recoverable = scanLocalRecoverableMaps(storage)
+            .filter((c) => (c.status === "healthy" && c.source === "library") === false)
+        setRecoveryCount(recoverable.length)
+        setArchiveCount(listArchivedMaps(storage, Date.now()).length)
     }, [])
 
     useEffect(() => {
@@ -186,15 +221,30 @@ export default function MapLibrary(){
         refresh()
     }, [renaming, renameValue, refresh])
 
-    // Delete after the inline confirm. Removes the entry and refreshes the grid.
+    // Delete after the inline confirm. A delete now ARCHIVES first: the entry's exact
+    // bytes (even an unreadable one) are moved into the 30-day archive, THEN removed
+    // from the library, so a mis-tap on Delete can always be undone from the archive.
     const onConfirmDelete = useCallback(() => {
         const target = confirmDeleteName
         setConfirmDeleteName(null)
         if(target === null) return
         const storage = libraryStorage()
-        if(storage !== null) deleteMapFromLibrary(storage, target)
+        let archivedOk = true
+        if(storage !== null){
+            // Archive the exact bytes BEFORE removing, and only remove the library entry
+            // once they are safely archived (or there were no bytes to keep). If the
+            // archive write fails (storage full / private mode), keep the map in place
+            // so a delete can never become permanent loss.
+            const entry = getLibraryEntry(storage, target)
+            if(entry !== null){
+                archivedOk = archivePut(storage, target, entry.data, Date.now(), entry.savedAt) !== null
+            }
+            if(archivedOk) deleteMapFromLibrary(storage, target)
+        }
         trackEvent("delete_map_from_library")
-        setMessage(`Deleted "${target}"`)
+        setMessage(archivedOk
+            ? `Moved "${target}" to the archive. Restore it within 30 days.`
+            : `Could not archive "${target}" (storage is full). It was kept - export it first, then delete.`)
         refresh()
     }, [confirmDeleteName, refresh])
 
@@ -212,6 +262,16 @@ export default function MapLibrary(){
                         <span className={styles.count}>{countLabel}</span>
                     </div>
                     {message !== "" && <div className={styles.message} role="status">{message}</div>}
+                    {/* Safety tools: recover maps that are not showing, and the 30-day
+                        archive of deleted maps. Big touch targets; each badges its count. */}
+                    <div className={styles.toolsRow}>
+                        <GameButton onClick={() => setRecoveryOpen(true)}>
+                            {recoveryCount > 0 ? `Recover lost maps (${recoveryCount})` : "Recover lost maps"}
+                        </GameButton>
+                        <GameButton accent onClick={() => setArchiveOpen(true)}>
+                            {archiveCount > 0 ? `Archive (${archiveCount})` : "Archive"}
+                        </GameButton>
+                    </div>
                 </div>
 
                 <div className={styles.grid}>
@@ -241,7 +301,7 @@ export default function MapLibrary(){
                             >
                                 {card.data !== null
                                     ? <MapThumbnail data={card.data} />
-                                    : <div className={styles.thumbnailMissing}>Unreadable</div>}
+                                    : <div className={styles.thumbnailMissing}>Needs recovery</div>}
                                 <div className={styles.cardInfo}>
                                     <span className={styles.cardName}>{card.summary.name}</span>
                                     <span className={styles.cardMeta}>
@@ -311,15 +371,25 @@ export default function MapLibrary(){
                 </Modal>
             )}
 
-            {/* DELETE confirm: a destructive action must never fire on a single tap. */}
+            {/* DELETE confirm: a destructive action must never fire on a single tap.
+                Delete now moves the map to the archive, so it is recoverable. */}
             {confirmDeleteName !== null && (
                 <ConfirmModal
                     title="Delete map"
-                    message={`Delete "${confirmDeleteName}" from your library? This cannot be undone.`}
+                    message={`Move "${confirmDeleteName}" to the archive? You can restore it for 30 days.`}
                     confirmLabel="Delete"
                     onConfirm={onConfirmDelete}
                     onClose={() => setConfirmDeleteName(null)}
                 />
+            )}
+
+            {/* RECOVER: sweep every storage surface for maps that are not showing and
+                restore them non-destructively. ARCHIVE: restore soft-deleted maps. */}
+            {recoveryOpen && (
+                <RecoveryModal onClose={() => setRecoveryOpen(false)} onRestored={refresh} />
+            )}
+            {archiveOpen && (
+                <ArchiveModal onClose={() => setArchiveOpen(false)} onRestored={refresh} />
             )}
         </div>
     )

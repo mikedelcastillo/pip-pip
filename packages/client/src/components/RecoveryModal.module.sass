@@ -1,0 +1,136 @@
+@import "../styles/variables"
+
+// The Recover-lost-maps modal body. Mobile-first: the candidate rows stack on a
+// phone and every action is a >= 44px tap target. Scrolls within the modal so a long
+// list never pushes the actions off-screen.
+
+.body
+    display: flex
+    flex-direction: column
+    gap: 0.8em
+    max-width: 560px
+
+.intro
+    margin: 0
+    line-height: 1.5
+    color: $color-text
+
+.message
+    padding: 0.4em 0.7em
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    background-color: rgba(13, 9, 11, 0.7)
+    color: $color-main
+
+.empty
+    padding: 1em
+    border: $border-size dashed $color-border
+    border-radius: $border-radius
+    color: $color-text
+    line-height: 1.5
+
+.toolbar
+    display: flex
+    align-items: center
+    justify-content: space-between
+    gap: 0.6em
+    flex-wrap: wrap
+
+.foundCount
+    color: $color-accent
+
+.list
+    list-style: none
+    margin: 0
+    padding: 0
+    display: flex
+    flex-direction: column
+    gap: 0.7em
+    max-height: 50vh
+    overflow-y: auto
+
+.row
+    display: flex
+    flex-wrap: wrap
+    gap: 0.7em
+    padding: 0.6em
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    background-color: rgba(21, 14, 18, 0.85)
+
+.thumb
+    flex: 0 0 auto
+    width: 88px
+
+.thumbMissing
+    display: flex
+    align-items: center
+    justify-content: center
+    width: 88px
+    height: 66px
+    background-color: $color-dark-1
+    color: $color-accent
+    font-size: 0.8em
+    text-align: center
+
+.info
+    flex: 1 1 140px
+    display: flex
+    flex-direction: column
+    gap: 0.2em
+    min-width: 0
+
+.name
+    font-size: 1.05em
+    word-break: break-word
+    color: $color-main
+
+.status
+    font-size: 0.85em
+    align-self: flex-start
+    padding: 0.05em 0.5em
+    border-radius: $border-radius
+    border: $border-size solid $color-border
+
+.status_healthy
+    color: $color-good
+    border-color: $color-good
+
+.status_repairable
+    color: $color-accent
+    border-color: $color-accent
+
+.status_raw
+    color: $color-text
+
+.meta
+    font-size: 0.85em
+    color: $color-accent
+
+.repairs
+    font-size: 0.8em
+    color: $color-text
+    line-height: 1.4
+
+.actions
+    flex: 1 1 100%
+    display: flex
+    flex-wrap: wrap
+    gap: 0.4em
+
+.action
+    flex: 1 1 auto
+    min-height: 44px
+    min-width: 120px
+    padding: 0 0.6em
+    border: $border-size solid $color-border
+    border-radius: $border-radius
+    background-color: rgba(13, 9, 11, 0.6)
+    color: $color-text
+    font-family: $font-family-body
+    font-size: 0.9em
+    cursor: pointer
+    transition: border-color 0.12s ease, color 0.12s ease
+    &:hover, &:focus-visible
+        border-color: $color-main
+        color: $color-main
