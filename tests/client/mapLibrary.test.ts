@@ -8,6 +8,9 @@ import {
     listLibraryMaps,
     loadMapFromLibrary,
     deleteMapFromLibrary,
+    uniqueLibraryName,
+    duplicateLibraryMap,
+    renameLibraryMap,
 } from "../../packages/client/src/game/mapLibrary"
 import { EditorMap, EDITOR_STORAGE_KEY, PLAY_MAP_STORAGE_KEY, serializeGridMapData } from "../../packages/client/src/game/mapEditor"
 import { GridMapData } from "../../packages/game/src/logic/grid-map"
@@ -277,5 +280,96 @@ describe("corrupt / missing storage tolerance", () => {
         expect(deleteMapFromLibrary(broken, "x")).toBe(false)
         // A save against unreadable storage surfaces a storage failure, never throws.
         expect(saveMapToLibrary(broken, "x", sampleMap("x"), 1)).toMatchObject({ ok: false, reason: "storage" })
+    })
+})
+
+describe("uniqueLibraryName", () => {
+    it("returns the trimmed base unchanged when it is free", () => {
+        expect(uniqueLibraryName({}, "Arena")).toBe("Arena")
+        expect(uniqueLibraryName({ Other: { data: "{}" } }, "  Arena  ")).toBe("Arena")
+    })
+
+    it("appends ' copy' then numbered copies on collisions", () => {
+        const lib = { Arena: { data: "{}" } }
+        expect(uniqueLibraryName(lib, "Arena")).toBe("Arena copy")
+        const lib2 = { Arena: { data: "{}" }, "Arena copy": { data: "{}" } }
+        expect(uniqueLibraryName(lib2, "Arena")).toBe("Arena copy 2")
+    })
+
+    it("falls back to a default stem for a blank base", () => {
+        expect(uniqueLibraryName({}, "   ")).toBe("Untitled")
+    })
+})
+
+describe("duplicateLibraryMap", () => {
+    it("copies an entry under a non-colliding name and re-stamps its map name", () => {
+        const storage = fakeStorage()
+        saveMapToLibrary(storage, "Arena", sampleMap("Arena", 3, 3, 2), 1000)
+        const res = duplicateLibraryMap(storage, "Arena", 2000)
+        expect(res).toMatchObject({ ok: true, name: "Arena copy" })
+        const list = listLibraryMaps(storage)
+        expect(list.map((s) => s.name).sort()).toEqual(["Arena", "Arena copy"])
+        // The copy carries the same geometry AND its own name re-stamped to the copy.
+        const loaded = loadMapFromLibrary(storage, "Arena copy")
+        expect(loaded?.cols).toBe(3)
+        expect(loaded?.name).toBe("Arena copy")
+        // The copy stamps the timestamp so it sorts newest-first.
+        expect(list[0].name).toBe("Arena copy")
+    })
+
+    it("returns a missing failure for an unknown source", () => {
+        const storage = fakeStorage()
+        expect(duplicateLibraryMap(storage, "Nope", 1)).toMatchObject({ ok: false, reason: "missing" })
+    })
+
+    it("surfaces a storage failure instead of throwing", () => {
+        const storage = fakeStorage()
+        saveMapToLibrary(storage, "Arena", sampleMap("Arena"), 1)
+        storage.fail = true
+        expect(duplicateLibraryMap(storage, "Arena", 2)).toMatchObject({ ok: false, reason: "storage" })
+    })
+})
+
+describe("renameLibraryMap", () => {
+    it("moves an entry to the new name, preserving savedAt and re-stamping the map name", () => {
+        const storage = fakeStorage()
+        saveMapToLibrary(storage, "Old", sampleMap("Old", 4, 4, 1), 1234)
+        const res = renameLibraryMap(storage, "Old", "New")
+        expect(res).toMatchObject({ ok: true, name: "New" })
+        const list = listLibraryMaps(storage)
+        expect(list.map((s) => s.name)).toEqual(["New"])
+        // savedAt carries over so the sort order is stable across a rename.
+        expect(list[0].savedAt).toBe(1234)
+        const loaded = loadMapFromLibrary(storage, "New")
+        expect(loaded?.name).toBe("New")
+        expect(loaded?.cols).toBe(4)
+        // The old name is gone.
+        expect(loadMapFromLibrary(storage, "Old")).toBe(null)
+    })
+
+    it("trims the target and treats a same-name rename as a clean no-op", () => {
+        const storage = fakeStorage()
+        saveMapToLibrary(storage, "Same", sampleMap("Same"), 1)
+        expect(renameLibraryMap(storage, "Same", "  Same  ")).toMatchObject({ ok: true, name: "Same" })
+        expect(listLibraryMaps(storage).map((s) => s.name)).toEqual(["Same"])
+    })
+
+    it("rejects a blank target, a missing source, and a collision without clobbering", () => {
+        const storage = fakeStorage()
+        saveMapToLibrary(storage, "A", sampleMap("A"), 1)
+        saveMapToLibrary(storage, "B", sampleMap("B", 5, 5, 2), 2)
+        expect(renameLibraryMap(storage, "A", "   ")).toMatchObject({ ok: false, reason: "empty-name" })
+        expect(renameLibraryMap(storage, "Ghost", "C")).toMatchObject({ ok: false, reason: "missing" })
+        // Renaming A onto the existing B is rejected and B is left intact.
+        expect(renameLibraryMap(storage, "A", "B")).toMatchObject({ ok: false, reason: "exists" })
+        expect(loadMapFromLibrary(storage, "B")?.cols).toBe(5)
+        expect(loadMapFromLibrary(storage, "A")).not.toBe(null)
+    })
+
+    it("surfaces a storage failure instead of throwing", () => {
+        const storage = fakeStorage()
+        saveMapToLibrary(storage, "X", sampleMap("X"), 1)
+        storage.fail = true
+        expect(renameLibraryMap(storage, "X", "Y")).toMatchObject({ ok: false, reason: "storage" })
     })
 })

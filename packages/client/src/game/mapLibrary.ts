@@ -265,3 +265,138 @@ export function deleteMapFromLibrary(storage: LibraryStorage, name: string): boo
     }
     return true
 }
+
+// A library name DERIVED from `base` that does not collide with any EXISTING entry
+// in the given record. When `base` (trimmed) is free it is returned as-is;
+// otherwise " copy" is appended, then " copy 2", " copy 3" ... until a free name is
+// found. A blank base falls back to a default stem so the result is always a usable
+// non-empty name. Pure over the passed record (it never reads storage itself), so
+// the duplicate helper and any caller can reuse it deterministically. The loop is
+// bounded by the record size, so it always terminates with a free name.
+export function uniqueLibraryName(library: LibraryRecord, base: string): string{
+    const stem = base.trim().length > 0 ? base.trim() : "Untitled"
+    if(Object.prototype.hasOwnProperty.call(library, stem) === false) return stem
+    // First try a plain " copy", then numbered copies. Bounded by the entry count
+    // so even a fully colliding library still resolves to a free name.
+    const ceiling = Object.keys(library).length + 2
+    for(let i = 1; i <= ceiling; i++){
+        const candidate = i === 1 ? `${stem} copy` : `${stem} copy ${i}`
+        if(Object.prototype.hasOwnProperty.call(library, candidate) === false) return candidate
+    }
+    // Unreachable in practice (the loop ceiling exceeds the collision count), but a
+    // final fallback keeps the return total: tack the count on so it stays unique.
+    return `${stem} copy ${ceiling + 1}`
+}
+
+// The result of a duplicate/rename attempt. A discriminated union mirroring
+// LibrarySaveResult so the caller can show a precise status: ok plus the resulting
+// name; otherwise a reason ("missing" when the source entry is gone, "empty-name"
+// for a blank rename target, "exists" when a rename target name is already taken,
+// "storage" when localStorage rejected the write) plus a human message. Never throws.
+export type LibraryMutateResult =
+    | { ok: true, name: string }
+    | { ok: false, reason: "missing" | "empty-name" | "exists" | "storage", message: string }
+
+// DUPLICATE a named entry under a fresh, non-colliding name (via uniqueLibraryName),
+// copying its stored map data verbatim. The COPY's name is mirrored INTO the copied
+// GridMapData JSON too (when parseable) so the duplicate opens in the editor under
+// its new name rather than the original's. Returns the new name on success, or a
+// "missing" failure when the source is gone / a "storage" failure when the write is
+// rejected. `now` is an OPTIONAL timestamp (this model never reads the clock); when
+// given it stamps the copy so it sorts newest-first. Never throws.
+export function duplicateLibraryMap(
+    storage: LibraryStorage,
+    name: string,
+    now?: number,
+): LibraryMutateResult{
+    const trimmed = name.trim()
+    const library = readLibrary(storage)
+    const source = library[trimmed]
+    if(typeof source === "undefined"){
+        return { ok: false, reason: "missing", message: "That map is no longer in your library." }
+    }
+    const newName = uniqueLibraryName(library, trimmed)
+    // Re-stamp the copied map's own `name` field to the new name so the duplicate
+    // loads in the editor titled as the copy. A non-object / unparseable payload is
+    // copied verbatim (the worst case is the editor showing the source's name).
+    const data = renameSerializedMap(source.data, newName)
+    const entry: LibraryEntry = { data }
+    if(typeof now === "number" && Number.isFinite(now)) entry.savedAt = now
+    library[newName] = entry
+    try{
+        storage.setItem(LIBRARY_STORAGE_KEY, serializeLibrary(library))
+    } catch(e){
+        return { ok: false, reason: "storage", message: "Could not duplicate (storage is full or unavailable)." }
+    }
+    return { ok: true, name: newName }
+}
+
+// RENAME a library entry from one name to another. The target is TRIMMED and a
+// blank/whitespace target is REJECTED (empty-name). A no-op rename (same trimmed
+// name) succeeds without touching storage. Renaming onto an EXISTING different
+// name is REJECTED (exists) so a rename never silently clobbers another saved map;
+// a missing source is REJECTED (missing). On success the entry moves to the new key
+// (preserving its savedAt) and the map's own `name` field is re-stamped to match,
+// so re-opening it shows the new title. Never throws.
+export function renameLibraryMap(
+    storage: LibraryStorage,
+    from: string,
+    to: string,
+): LibraryMutateResult{
+    const fromTrimmed = from.trim()
+    const toTrimmed = to.trim()
+    if(toTrimmed.length === 0){
+        return { ok: false, reason: "empty-name", message: "Enter a name for the map." }
+    }
+    const library = readLibrary(storage)
+    const source = library[fromTrimmed]
+    if(typeof source === "undefined"){
+        return { ok: false, reason: "missing", message: "That map is no longer in your library." }
+    }
+    // A rename to the SAME (trimmed) name is a clean no-op success: nothing to move.
+    if(toTrimmed === fromTrimmed) return { ok: true, name: toTrimmed }
+    if(Object.prototype.hasOwnProperty.call(library, toTrimmed)){
+        return { ok: false, reason: "exists", message: "A map with that name already exists." }
+    }
+    // Move the entry to the new key, re-stamping the map's own name field to match,
+    // and drop the old key so only the renamed entry remains.
+    const moved: LibraryEntry = { data: renameSerializedMap(source.data, toTrimmed) }
+    if(typeof source.savedAt === "number") moved.savedAt = source.savedAt
+    delete library[fromTrimmed]
+    library[toTrimmed] = moved
+    try{
+        storage.setItem(LIBRARY_STORAGE_KEY, serializeLibrary(library))
+    } catch(e){
+        return { ok: false, reason: "storage", message: "Could not rename (storage is full or unavailable)." }
+    }
+    return { ok: true, name: toTrimmed }
+}
+
+// The editor ROUTE path that opens a specific library map by name, e.g.
+// editorMapPath("My Arena") -> "/editor/My%20Arena". The name is URL-encoded so a
+// name with spaces / slashes / punctuation survives the route (the editor decodes
+// it via decodeURIComponent on the :mapName param). Kept here (DOM-free, pure) so
+// the route shape is shared by the library home + any other caller and is testable.
+export function editorMapPath(name: string): string{
+    return `/editor/${encodeURIComponent(name)}`
+}
+
+// Re-stamp the `name` field inside a serialised GridMapData JSON string to `name`,
+// returning the re-serialised string. A non-object / unparseable payload is returned
+// UNCHANGED (best-effort: the duplicate/rename still lands, the stored title just
+// trails the key). Internal helper for duplicate + rename so both keep the stored
+// map's own name in lockstep with its library key. Never throws.
+function renameSerializedMap(data: string, name: string): string{
+    let parsed: unknown
+    try{
+        parsed = JSON.parse(data)
+    } catch(e){
+        return data
+    }
+    if(typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return data
+    try{
+        return JSON.stringify({ ...(parsed as Record<string, unknown>), name })
+    } catch(e){
+        return data
+    }
+}
