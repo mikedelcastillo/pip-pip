@@ -15,6 +15,7 @@ import {
     stampClip,
     rotateClipCW,
     flipClip,
+    scaleClip,
     brushAtCell,
     materialAtCell,
     snapshotEditorMap,
@@ -247,6 +248,43 @@ describe("slope / auto-slope", () => {
     })
 })
 
+describe("auto half tile", () => {
+    it("undoes and redoes an isolated auto half (no neighbours) as one step", () => {
+        // half_auto with no solid neighbours resolves to the half_bottom default.
+        const map = new EditorMap()
+        const history = new EditorHistory()
+        assertOneStepRoundTrip(map, history, (m) => {
+            m.setCell(1, 1, "half_auto")
+        })
+    })
+
+    it("undoes and redoes an auto half (oriented from a neighbour) as one step", () => {
+        // half_auto hugs a single solid neighbour: a full block to the RIGHT of
+        // (1,1) makes it resolve to half_right. The whole begin -> setCell(half_auto)
+        // -> commit is one step.
+        const map = new EditorMap()
+        map.setCell(2, 1, "full")
+        const history = new EditorHistory()
+        assertOneStepRoundTrip(map, history, (m) => {
+            m.setCell(1, 1, "half_auto")
+        })
+    })
+})
+
+describe("recolor", () => {
+    it("undoes and redoes recolouring an existing tile as one step", () => {
+        // recolor keeps the tile's SHAPE and only changes its colour: seed a plum
+        // block, then begin -> setCell(recolor, "teal") -> commit recolours it. Undo
+        // restores the plum, redo re-applies the teal.
+        const map = new EditorMap()
+        map.setCell(1, 1, "full", "tile_default")
+        const history = new EditorHistory()
+        assertOneStepRoundTrip(map, history, (m) => {
+            m.setCell(1, 1, "recolor", "teal")
+        })
+    })
+})
+
 describe("mirror", () => {
     it("undoes and redoes a horizontal mirror as one step", () => {
         const map = seededMap()
@@ -294,6 +332,23 @@ describe("selection: rotate", () => {
             const clip = extractClip(m, sel)
             clearRegion(m, sel)
             stampClip(m, rotateClipCW(clip), sel.minCol, sel.minRow)
+        })
+    })
+})
+
+describe("selection: scale", () => {
+    it("undoes and redoes a scale (lift + resample + stamp) as one step", () => {
+        // The view's transform-handle scale: lift the selection, nearest-neighbour
+        // resample the clip to new dims, then stamp it back at the same top-left, all
+        // under one step. Scaling a 3x2 region UP to 5x4 grows the footprint, so the
+        // map changes and undo restores the original 3x2 content byte-for-byte.
+        const map = seededMap()
+        const history = new EditorHistory()
+        const sel: CellRect = { minCol: 0, minRow: 0, maxCol: 2, maxRow: 1 }
+        assertOneStepRoundTrip(map, history, (m) => {
+            const clip = extractClip(m, sel)
+            clearRegion(m, sel)
+            stampClip(m, scaleClip(clip, 5, 4), sel.minCol, sel.minRow)
         })
     })
 })
