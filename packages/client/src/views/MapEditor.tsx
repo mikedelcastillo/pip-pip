@@ -43,6 +43,12 @@ import {
     stampClip,
     rotateClipCW,
     flipClip,
+    TransformHandle,
+    handleHit,
+    resizeRectByHandle,
+    scaleClip,
+    rectDims,
+    angleToQuarterTurns,
 } from "../game/mapEditor"
 import {
     LibrarySummary,
@@ -118,6 +124,15 @@ const VIEWPORT_PADDING_CELLS = 2
 function clampScale(scale: number): number{
     return Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale))
 }
+
+// TRANSFORM-handle sizing (Aseprite-style scale/rotate of a selection). HANDLE_HIT
+// is the screen-space hit radius the pure handleHit test uses; it is generous so a
+// finger can grab a handle at 393px (mobile is the priority). HANDLE_DRAW is the
+// cosmetic square/knob side drawn on the canvas. The rotate knob floats
+// HANDLE_HIT * 2.5 above the top-centre in BOTH the draw and the hit test, so what
+// is drawn is exactly what is grabbed.
+const HANDLE_HIT = 16
+const HANDLE_DRAW = 10
 
 // Display labels for the brush shortcut keys, used to stamp each rail tool's
 // tooltip. The pure model owns the actual key -> brush mapping (BRUSH_SHORTCUTS);
@@ -757,6 +772,43 @@ export default function MapEditor(){
             ctx.setLineDash([5, 3])
             ctx.strokeRect(sx + 0.5, sy + 0.5, sw, sh)
             ctx.restore()
+
+            // TRANSFORM HANDLES: on a SETTLED selection or a floating clip (but not
+            // while a fresh marquee is being dragged), draw the 8 resize handles + the
+            // rotate knob so the selection can be scaled/rotated Aseprite-style. The
+            // screen positions MUST match handleHit's geometry exactly (corners, edge
+            // midpoints, and the knob HANDLE_HIT * 2.5 above top-centre) so what is
+            // drawn is exactly what a press grabs.
+            if(modeRef.current === "select" && marquee === null){
+                const hcx = sx + sw / 2
+                const hcy = sy + sh / 2
+                const knobY = sy - HANDLE_HIT * 2.5
+                const pts: [number, number][] = [
+                    [sx, sy], [hcx, sy], [sx + sw, sy],
+                    [sx + sw, hcy],
+                    [sx + sw, sy + sh], [hcx, sy + sh], [sx, sy + sh],
+                    [sx, hcy],
+                ]
+                ctx.save()
+                ctx.strokeStyle = COLOR_SELECTION
+                ctx.fillStyle = COLOR_CHECKER_B
+                ctx.lineWidth = 2
+                // Stem + knob for the rotate handle above the top edge.
+                ctx.beginPath()
+                ctx.moveTo(hcx, sy)
+                ctx.lineTo(hcx, knobY)
+                ctx.stroke()
+                ctx.beginPath()
+                ctx.arc(hcx, knobY, HANDLE_DRAW / 2 + 1, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.stroke()
+                // The 8 resize squares at the corners + edge midpoints.
+                for(const [hx, hy] of pts){
+                    ctx.fillRect(hx - HANDLE_DRAW / 2, hy - HANDLE_DRAW / 2, HANDLE_DRAW, HANDLE_DRAW)
+                    ctx.strokeRect(hx - HANDLE_DRAW / 2, hy - HANDLE_DRAW / 2, HANDLE_DRAW, HANDLE_DRAW)
+                }
+                ctx.restore()
+            }
         }
 
         // Optional collision overlay from loadGridMap: outline every rect wall
@@ -1172,8 +1224,8 @@ export default function MapEditor(){
     // and the next move, resetting `painting`/`drewThisGesture` and killing the
     // stroke (the "freehand only paints 2 tiles" bug). Reading the current callbacks
     // through this ref lets the gesture closure live for the whole drag.
-    const handlersRef = useRef({ paintAt, applyCells, applyShapeCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip })
-    handlersRef.current = { paintAt, applyCells, applyShapeCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip }
+    const handlersRef = useRef({ paintAt, applyCells, applyShapeCells, pickAt, cellFromEvent, geometry, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip })
+    handlersRef.current = { paintAt, applyCells, applyShapeCells, pickAt, cellFromEvent, geometry, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip }
 
     useEffect(() => {
         const canvas = canvasRef.current
@@ -1187,6 +1239,7 @@ export default function MapEditor(){
         const applyShapeCells = (items: ReturnType<typeof lineShapeCells>) => handlersRef.current.applyShapeCells(items)
         const pickAt = (clientX: number, clientY: number, returnToFreehand: boolean) => handlersRef.current.pickAt(clientX, clientY, returnToFreehand)
         const cellFromEvent = (clientX: number, clientY: number) => handlersRef.current.cellFromEvent(clientX, clientY)
+        const geometry = () => handlersRef.current.geometry()
         const applyZoom = (focalX: number, focalY: number, ratio: number) => handlersRef.current.applyZoom(focalX, focalY, ratio)
         const applyPan = (dx: number, dy: number) => handlersRef.current.applyPan(dx, dy)
         const refreshHistoryFlags = () => handlersRef.current.refreshHistoryFlags()
@@ -1214,13 +1267,32 @@ export default function MapEditor(){
         // the live single-pointer gesture is not a select gesture. moveOriginCell +
         // moveClipStart capture where the move drag began so the clip's position
         // tracks the pointer's cell delta.
-        let selectKind: "marquee" | "move" | null = null
+        let selectKind: "marquee" | "move" | "scale" | "rotate" | null = null
         let moveOriginCell: Cell = [0, 0]
         let moveClipStart: { col: number, row: number } = { col: 0, row: 0 }
         // Whether a move drag has LIFTED the selection into a floating clip yet (the
         // lift happens on the first real cell move, so a tap inside a selection does
         // not disturb the map and a pinch that starts on a selection never lifts).
         let moveLifted = false
+        // SCALE drag state: which handle is grabbed, the footprint rect + clip
+        // content at grab time (so every frame resamples the ORIGINAL clip, never
+        // compounding), and the down cell the drag delta is measured from.
+        let scaleHandle: TransformHandle = "none"
+        let scaleStartRect: CellRect = { minCol: 0, minRow: 0, maxCol: 0, maxRow: 0 }
+        let scaleBaseClip: EditorClip | null = null
+        let scaleDownCell: Cell = [0, 0]
+        // ROTATE drag state: the clip content at grab time, the fixed screen-space
+        // pivot (the footprint centre) the pointer angle is measured around, the
+        // angle at grab time, the cell-space centre to re-centre each rotation on,
+        // and how many quarter turns are currently applied (so a frame only re-rotates
+        // when the snapped turn count changes).
+        let rotateBaseClip: EditorClip | null = null
+        let rotatePivotX = 0
+        let rotatePivotY = 0
+        let rotateStartAngle = 0
+        let rotateCenterCol = 0
+        let rotateCenterRow = 0
+        let rotateAppliedTurns = 0
 
         // The current MOVE-able footprint in cells: a floating clip's footprint
         // (its position + dims) when one is up, otherwise the active selection.
@@ -1293,6 +1365,56 @@ export default function MapEditor(){
                     downY = e.clientY
                     const cellPos = cellFromEvent(e.clientX, e.clientY)
                     const footprint = footprintRect()
+                    // TRANSFORM HANDLES take precedence over move/marquee: a press on a
+                    // resize handle or the rotate knob of the current selection / clip
+                    // starts a SCALE or ROTATE. Hit-tested in SCREEN space (handles are
+                    // small px targets) via the pure handleHit, against the footprint's
+                    // on-screen rect.
+                    const handle: TransformHandle = footprint === null ? "none" : (() => {
+                        const g = geometry()
+                        const cr = canvas.getBoundingClientRect()
+                        const fx = g.ox + footprint.minCol * g.cell
+                        const fy = g.oy + footprint.minRow * g.cell
+                        const fw = (footprint.maxCol - footprint.minCol + 1) * g.cell
+                        const fh = (footprint.maxRow - footprint.minRow + 1) * g.cell
+                        return handleHit(fx, fy, fw, fh, e.clientX - cr.left, e.clientY - cr.top, HANDLE_HIT)
+                    })()
+                    if(footprint !== null && handle !== "none" && handle !== "body"){
+                        // Grabbed a handle: lift the selection into a floating clip if it
+                        // is not already floating (opening ONE history step the eventual
+                        // stamp closes), then arm the matching transform gesture. A
+                        // handle press that never drags leaves an unchanged clip, so its
+                        // stamp commits nothing (no undo step).
+                        if(clipRef.current === null && liftSelectionToClip() === null){
+                            selectKind = null
+                            painting = false
+                            e.preventDefault()
+                            return
+                        }
+                        const clip = clipRef.current
+                        const at = clipPosRef.current
+                        if(clip === null){ selectKind = null; painting = false; e.preventDefault(); return }
+                        if(handle === "rotate"){
+                            selectKind = "rotate"
+                            rotateBaseClip = clip
+                            rotateAppliedTurns = 0
+                            rotateCenterCol = at.col + clip.cols / 2
+                            rotateCenterRow = at.row + clip.rows / 2
+                            const g = geometry()
+                            const cr = canvas.getBoundingClientRect()
+                            rotatePivotX = g.ox + rotateCenterCol * g.cell
+                            rotatePivotY = g.oy + rotateCenterRow * g.cell
+                            rotateStartAngle = Math.atan2((e.clientY - cr.top) - rotatePivotY, (e.clientX - cr.left) - rotatePivotX)
+                        } else{
+                            selectKind = "scale"
+                            scaleHandle = handle
+                            scaleBaseClip = clip
+                            scaleStartRect = { minCol: at.col, minRow: at.row, maxCol: at.col + clip.cols - 1, maxRow: at.row + clip.rows - 1 }
+                            scaleDownCell = cellPos !== null ? [cellPos.col, cellPos.row] : [at.col, at.row]
+                        }
+                        e.preventDefault()
+                        return
+                    }
                     if(cellPos !== null && footprint !== null
                         && cellPos.col >= footprint.minCol && cellPos.col <= footprint.maxCol
                         && cellPos.row >= footprint.minRow && cellPos.row <= footprint.maxRow){
@@ -1435,6 +1557,38 @@ export default function MapEditor(){
                                     maxRow: clipPosRef.current.row + c.rows - 1,
                                 })
                             }
+                            draw()
+                        }
+                    } else if(selectKind === "scale" && scaleBaseClip !== null){
+                        // SCALE drag: resize the footprint rect by the dragged handle
+                        // (anchoring the opposite edge), then nearest-neighbour resample
+                        // the ORIGINAL clip to the new dims and reposition it at the new
+                        // top-left. Always resamples scaleBaseClip so dragging never
+                        // compounds rounding.
+                        const dCol = cellPos.col - scaleDownCell[0]
+                        const dRow = cellPos.row - scaleDownCell[1]
+                        const newRect = resizeRectByHandle(scaleStartRect, scaleHandle, dCol, dRow)
+                        const dims = rectDims(newRect)
+                        clipRef.current = scaleClip(scaleBaseClip, dims.cols, dims.rows)
+                        clipPosRef.current = { col: newRect.minCol, row: newRect.minRow }
+                        setSelection(newRect)
+                        draw()
+                    } else if(selectKind === "rotate" && rotateBaseClip !== null){
+                        // ROTATE drag: snap the pointer's angle around the fixed pivot to
+                        // the nearest quarter turn and apply that many CW rotations to the
+                        // ORIGINAL clip, re-centring on the same cell so it spins in place.
+                        const cr = canvas.getBoundingClientRect()
+                        const ang = Math.atan2((e.clientY - cr.top) - rotatePivotY, (e.clientX - cr.left) - rotatePivotX)
+                        const turns = ((angleToQuarterTurns(rotateStartAngle, ang) % 4) + 4) % 4
+                        if(turns !== rotateAppliedTurns){
+                            let c = rotateBaseClip
+                            for(let i = 0; i < turns; i++) c = rotateClipCW(c)
+                            const minCol = Math.round(rotateCenterCol - c.cols / 2)
+                            const minRow = Math.round(rotateCenterRow - c.rows / 2)
+                            clipRef.current = c
+                            clipPosRef.current = { col: minCol, row: minRow }
+                            setSelection({ minCol, minRow, maxCol: minCol + c.cols - 1, maxRow: minRow + c.rows - 1 })
+                            rotateAppliedTurns = turns
                             draw()
                         }
                     }
