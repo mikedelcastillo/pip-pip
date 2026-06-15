@@ -11,7 +11,8 @@ import { generateId } from "@pip-pip/core/src/lib/utils"
 import { PipShip } from "./ship"
 import { PipGameMap } from "./map"
 import { PipMapType, PIP_MAPS, CUSTOM_MAP_INDEX, makeCustomMapType } from "../maps"
-import { GridMapData, loadGridMap, validateGridMapData } from "./grid-map"
+import { GridMapData, GridPipGameMap, loadGridMap, validateGridMapData } from "./grid-map"
+import { POWERUP_BLOCK_SIZE, POWERUP_SPAWN_INTERVAL_TICKS, POWERUP_SPAWN_PER_INTERVAL, POWERUP_SPAWN_WEIGHTS } from "./powerup-config"
 import { tickDown } from "./utils"
 import { INTERP_DELAY_TICKS } from "./constants"
 
@@ -186,14 +187,21 @@ export class PipPipGame{
     ships: Record<string, PipShip> = {}
 
     // Server-authoritative powerup spawning (gated on options.spawnPowerups):
-    // at most POWERUP_MAX_ACTIVE alive at once, a fresh one attempted every
-    // POWERUP_SPAWN_INTERVAL_TICKS during MATCH. Respawn falls out of the same
-    // cap/interval loop once a pickup frees a slot.
-    readonly POWERUP_MAX_ACTIVE = 4
-    readonly POWERUP_SPAWN_INTERVAL_TICKS = this.tps * 8 // ~8 seconds
+    // density-based, not a fixed cap. The target is one powerup per
+    // POWERUP_BLOCK_SIZE^2 EMPTY (walkable) tiles, so bigger open maps fill with
+    // proportionally more powerups. POWERUP_SPAWN_PER_INTERVAL are placed every
+    // POWERUP_SPAWN_INTERVAL_TICKS during MATCH (one at a time by default), so the
+    // field fills in gradually toward the density target; the same loop tops the
+    // field back up after a pickup frees a slot.
+    readonly POWERUP_SPAWN_INTERVAL_TICKS = POWERUP_SPAWN_INTERVAL_TICKS
     // Counts down to the next spawn attempt; starts at a full interval so the
     // field is not flooded the instant a match begins.
-    powerupSpawnTimer = this.tps * 8
+    powerupSpawnTimer = POWERUP_SPAWN_INTERVAL_TICKS
+    // Lazily-built cache of world-space centres for every EMPTY (walkable) tile of
+    // the current grid map; the candidate pool for density spawning. Built on first
+    // use and invalidated (set undefined) whenever the map changes (setMap /
+    // setCustomMap), so it always matches the live geometry.
+    private powerupTileCenters?: Vector2[]
 
     host?: PipPlayer
 
@@ -284,6 +292,8 @@ export class PipPipGame{
         // joiner (and the server sync) sees a built-in index, not stale custom
         // data. setCustomMap is the only path that sets this back.
         this.customMapData = undefined
+        // The walkable-tile cache is now stale (geometry changed); rebuild lazily.
+        this.powerupTileCenters = undefined
 
         this.events.emit("setMap", { mapIndex: index, mapType })
     }
@@ -327,6 +337,8 @@ export class PipPipGame{
         this.mapIndex = CUSTOM_MAP_INDEX
         this.mapType = mapType
         this.customMapData = valid
+        // The walkable-tile cache is now stale (geometry changed); rebuild lazily.
+        this.powerupTileCenters = undefined
 
         this.events.emit("setMap", { mapIndex: CUSTOM_MAP_INDEX, mapType })
     }
@@ -1043,9 +1055,10 @@ export class PipPipGame{
     // Server-authoritative powerup spawning. Gated on options.spawnPowerups so a
     // non-authoritative client never invents pickups (it only receives them via
     // packets). Only runs during MATCH (the single MATCH-branch caller already
-    // guarantees this). Tops the field up to POWERUP_MAX_ACTIVE, attempting one
-    // new spawn every POWERUP_SPAWN_INTERVAL_TICKS; the same loop handles respawn
-    // after a pickup frees a slot.
+    // guarantees this). Every POWERUP_SPAWN_INTERVAL_TICKS it places up to
+    // POWERUP_SPAWN_PER_INTERVAL powerups, but never beyond the density target
+    // (one per POWERUP_BLOCK_SIZE^2 empty tiles); the same loop handles respawn
+    // after a pickup drops the active count back below the target.
     updatePowerupSpawns(){
         if(this.options.spawnPowerups !== true) return
 
@@ -1055,28 +1068,114 @@ export class PipPipGame{
         }
         this.powerupSpawnTimer = this.POWERUP_SPAWN_INTERVAL_TICKS
 
-        if(this.powerups.getActive().length >= this.POWERUP_MAX_ACTIVE) return
+        for(let i = 0; i < POWERUP_SPAWN_PER_INTERVAL; i++){
+            if(this.powerups.getActive().length >= this.powerupDensityTarget()) break
 
-        const position = this.randomPowerupPosition()
-        if(typeof position === "undefined") return
+            const position = this.randomFreePowerupTile()
+            if(typeof position === "undefined") break
 
-        // Weighted pool: each entry is one "ticket", so a type listed more often
-        // is more likely. health/ammo/haste/shield each get 2 tickets; the strong
-        // "invis" cloak, "ricochet" and "rapidfire" each get a single ticket so
-        // they show up roughly half as often. Extend this pool (adjust the repeats
-        // to tune rarity) as types are added.
-        const types: PowerupType[] = [
-            "health", "health",
-            "ammo", "ammo",
-            "haste", "haste",
-            "shield", "shield",
-            "invis",
-            "ricochet",
-            "rapidfire",
-        ]
-        const type = types[Math.floor(Math.random() * types.length)]
+            const type = this.weightedRandomPowerupType()
+            this.powerups.new({ position, type })
+        }
+    }
 
-        this.powerups.new({ position, type })
+    // Build (once) the world-space centres of every EMPTY (walkable) tile of the
+    // current grid map. value 0 = empty/walkable; any value >= 1 is a palette entry
+    // (solid OR deco) and is never a spawn target. Tile (col,row) centres at
+    // ((col + originCol) * cellSize, (row + originRow) * cellSize) -- matching
+    // grid-map.ts, where cell (c,r) is centred on (c*cellSize, r*cellSize) with NO
+    // half-cell offset, so a powerup sits exactly on the tile centre (and well
+    // clear of the walls in adjacent cells: radius 24 < half a 72-unit cell).
+    // Returns [] when the live map is not a GridPipGameMap (no tile grid).
+    private buildPowerupTileCenters(): Vector2[] {
+        const centers: Vector2[] = []
+        if(!(this.map instanceof GridPipGameMap)) return centers
+
+        const src = this.map.source
+        const { cols, rows, cellSize, tiles } = src
+        const originCol = src.originCol ?? 0
+        const originRow = src.originRow ?? 0
+
+        for(let row = 0; row < rows; row++){
+            for(let col = 0; col < cols; col++){
+                if((tiles[row * cols + col] ?? 0) !== 0) continue
+                centers.push(new Vector2(
+                    (col + originCol) * cellSize,
+                    (row + originRow) * cellSize,
+                ))
+            }
+        }
+
+        return centers
+    }
+
+    // Cached accessor for the walkable-tile centres, building them on first use.
+    private getPowerupTileCenters(): Vector2[] {
+        if(typeof this.powerupTileCenters === "undefined"){
+            this.powerupTileCenters = this.buildPowerupTileCenters()
+        }
+        return this.powerupTileCenters
+    }
+
+    // Density target: how many powerups the current map should hold, one per
+    // POWERUP_BLOCK_SIZE x POWERUP_BLOCK_SIZE block of empty tiles. Returns 0 on
+    // maps with no walkable tiles (e.g. non-grid maps).
+    powerupDensityTarget(): number {
+        const tileCount = this.getPowerupTileCenters().length
+        return Math.floor(tileCount / (POWERUP_BLOCK_SIZE * POWERUP_BLOCK_SIZE))
+    }
+
+    // Weighted-random powerup type using POWERUP_SPAWN_WEIGHTS: sum the weights,
+    // roll within the total, then walk the entries subtracting each weight until
+    // the roll is consumed. A type with double the weight is picked ~twice as often.
+    weightedRandomPowerupType(): PowerupType {
+        const entries = Object.entries(POWERUP_SPAWN_WEIGHTS) as [PowerupType, number][]
+        let total = 0
+        for(const [, weight] of entries) total += weight
+
+        let roll = Math.random() * total
+        for(const [type, weight] of entries){
+            roll -= weight
+            if(roll < 0) return type
+        }
+        // Fallback (only reachable through floating-point edge cases): last entry.
+        return entries[entries.length - 1][0]
+    }
+
+    // Pick a uniformly-random EMPTY tile that no active powerup already occupies.
+    // Occupancy is determined by mapping each active powerup's world position back
+    // to its cell (the inverse of buildPowerupTileCenters' centre formula) and
+    // skipping any candidate whose cell is taken. Falls back to randomPowerupPosition
+    // when the live map is not a GridPipGameMap; returns undefined when no free tile
+    // exists.
+    randomFreePowerupTile(): Vector2 | undefined {
+        if(!(this.map instanceof GridPipGameMap)) return this.randomPowerupPosition()
+
+        const centers = this.getPowerupTileCenters()
+        if(centers.length === 0) return undefined
+
+        const src = this.map.source
+        const { cellSize } = src
+        const originCol = src.originCol ?? 0
+        const originRow = src.originRow ?? 0
+
+        const occupied = new Set<string>()
+        for(const powerup of this.powerups.getActive()){
+            const col = Math.round(powerup.position.x / cellSize - originCol)
+            const row = Math.round(powerup.position.y / cellSize - originRow)
+            occupied.add(`${col},${row}`)
+        }
+
+        const free: Vector2[] = []
+        for(const center of centers){
+            const col = Math.round(center.x / cellSize - originCol)
+            const row = Math.round(center.y / cellSize - originRow)
+            if(occupied.has(`${col},${row}`)) continue
+            free.push(center)
+        }
+        if(free.length === 0) return undefined
+
+        return free[Math.floor(Math.random() * free.length)]
     }
 
     // Pick an open world position for a powerup. Reuses the map's spawn points

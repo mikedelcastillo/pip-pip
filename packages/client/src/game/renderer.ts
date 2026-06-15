@@ -260,6 +260,7 @@ export class PowerupGraphic extends PoolableGraphic {
         shield: 0xAA66FF,
         invis: 0xCCE6FF,
         ricochet: 0xFF66AA,
+        rapidfire: 0xFFE14D,
     }
 
     powerup?: Powerup
@@ -1003,9 +1004,9 @@ export class PipPipRenderer{
             // CLOAK: a ship with the "invis" buff fades out. From the viewer's
             // seat an ENEMY (any remote ship) drops to near-zero alpha so it is
             // effectively invisible; the LOCAL player keeps a faint outline so
-            // they can still see where they are while cloaked. Alpha rides on the
-            // ship sprite only (shipContainer) — the health bar / buff overlays
-            // stay fully readable. Full alpha is restored the instant the timer
+            // they can still see where they are while cloaked. The same alpha is
+            // applied below to the name, health bar and buff rings so none of them
+            // betray a hidden ship. Full alpha is restored the instant the timer
             // ends.
             graphic.shipContainer.alpha = graphic.player.ship.isInvisible
                 ? (isClient ? 0.35 : 0.05)
@@ -1051,6 +1052,11 @@ export class PipPipRenderer{
                 graphic.nameText.text = graphic.player.name
             }
             graphic.nameText.alpha = graphic.shipContainer.alpha
+
+            // Health bar and buff rings fade with the cloak too, so they don't
+            // betray a hidden ship.
+            graphic.overlayGraphic.alpha = graphic.shipContainer.alpha
+            graphic.buffGraphic.alpha = graphic.shipContainer.alpha
 
             // Buff cues, drawn on their OWN buffGraphic (centred on the ship). A
             // pulsing purple ring around a shielded ship; a subtle cyan halo for

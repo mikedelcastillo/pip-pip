@@ -166,20 +166,21 @@ export const packetManager = new PacketManager({
         healthRegenerationHeal: $uint8,
         invincibility: $uint8,
         // Timed-buff timers (HASTE_TICKS / SHIELD_TICKS / INVIS_TICKS /
-        // RICOCHET_TICKS / RAPIDFIRE_TICKS). uint8, so durations must stay <= 255
-        // ticks. Networked so remote ships' buffs are known (for the visual + the
-        // tactical powerup feed countdown) and the local player's prediction uses
+        // RICOCHET_TICKS / RAPIDFIRE_TICKS). uint16 (max 65535 ticks) because buff
+        // durations exceed 255 and buffs stack. Networked so remote ships' buffs
+        // are known (for the visual + the tactical powerup feed countdown) and the
+        // local player's prediction uses
         // the same haste. `invisibility` drives the cloak fade and is DISTINCT from
         // the `invincibility` no-damage timer above. `ricochet` is the bouncing-
         // bullet window; the bounce is still resolved server-side on the bullets,
         // but the timer rides the wire so the feed can show its remaining time on
         // enemies. `rapidfire` is the faster-trigger window (the rate scaling is
         // applied locally in PipShip.shoot off this same timer).
-        haste: $uint8,
-        shield: $uint8,
-        invisibility: $uint8,
-        ricochet: $uint8,
-        rapidfire: $uint8,
+        haste: $uint16,
+        shield: $uint16,
+        invisibility: $uint16,
+        ricochet: $uint16,
+        rapidfire: $uint16,
     }),
 
     playerShipCapacities: new Packet({

@@ -64,14 +64,12 @@ describe("activeBuffs", () => {
 
     it("orders the longest-window buff first, breaking ties by time left", () => {
         // All four active at one tick each: ordering is purely by max window, so
-        // the longest-duration buffs (haste/ricochet at 200) come before the
-        // shorter ones (invis 180, shield 170).
+        // the order is strictly duration-descending: ricochet (600), invis (400),
+        // shield (300), haste (200).
         const stats = makeStats({
             hasteTicks: 1, shieldTicks: 1, invisTicks: 1, ricochetTicks: 1,
         })
         const order = activeBuffs(stats).map((b) => b.type)
-        // haste and ricochet share the largest window; both precede invis + shield.
-        expect(order.slice(0, 2).sort()).toEqual(["haste", "ricochet"])
-        expect(order.slice(2)).toEqual(["invis", "shield"])
+        expect(order).toEqual(["ricochet", "invis", "shield", "haste"])
     })
 })

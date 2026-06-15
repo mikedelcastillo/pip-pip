@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react"
 import { GAME_CONTEXT } from "../game"
 import { worldToMinimap } from "../game/minimap"
+import { POWERUP_COLORS } from "../game/store"
 import styles from "./Minimap.module.sass"
 
 // Logical (CSS-pixel) radar size. The canvas backing store is scaled by the
@@ -73,6 +74,16 @@ export default function Minimap() {
                     ctx.lineTo(b.x, b.y)
                     ctx.stroke()
                 }
+            }
+
+            // Power-up pickups, drawn under the player dots so players read on
+            // top. Each is a small dot tinted by its type's brand color.
+            for(const powerup of game.powerups.getActive()){
+                const p = worldToMinimap(powerup.position.x, powerup.position.y, bounds, SIZE, PADDING)
+                ctx.fillStyle = POWERUP_COLORS[powerup.type]
+                ctx.beginPath()
+                ctx.arc(p.x, p.y, 2, 0, Math.PI * 2)
+                ctx.fill()
             }
 
             // One dot per spawned, non-spectator player. The local player is
