@@ -272,10 +272,10 @@ describe("Object.values(this.players) per-tick hoist - equivalence", () => {
             tickNumber: 320,
             phase: 2,
             playerCount: 6,
-            shipCoordSum: 109.04439776822407,
+            shipCoordSum: 441.58852769030653,
             killsSum: 1,
             deathsSum: 1,
-            damageSum: 122,
+            damageSum: 135,
         }
 
         expect(digest).toEqual(refDigest)

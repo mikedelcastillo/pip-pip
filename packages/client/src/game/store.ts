@@ -258,7 +258,7 @@ export function powerupLabel(type: PowerupType): string {
 
 // Per-type colors, matching the HUD/pickup palette so a buff reads the same
 // color in the feed as it does on the buff bars and the world pickup.
-const POWERUP_COLORS: Record<PowerupType, string> = {
+export const POWERUP_COLORS: Record<PowerupType, string> = {
     health: "#33DD55",
     ammo: "#FFAA33",
     haste: "#33CCFF",

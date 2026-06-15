@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { Vector2 } from "@pip-pip/core/src/physics"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RAPIDFIRE_TICKS, RAPIDFIRE_MULTIPLIER, applyPowerupEffect } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, RAPIDFIRE_MULTIPLIER, applyPowerupEffect } from "@pip-pip/game/src/logic/powerup"
+import { MAX_BUFF_TICKS } from "@pip-pip/game/src/logic/powerup-config"
+import { packetManager, encode } from "@pip-pip/game/src/networking/packets"
 
 // Ship index 3 ("Blu") uses pure default stats, so its numbers are predictable.
 const BLU = 3
@@ -268,13 +270,13 @@ describe("map powerups", () => {
         for(let i = 0; i < game.POWERUP_SPAWN_INTERVAL_TICKS * 5; i++) game.update()
         const active = game.powerups.getActive().length
         expect(active).toBeGreaterThan(0)
-        expect(active).toBeLessThanOrEqual(game.POWERUP_MAX_ACTIVE)
+        expect(active).toBeLessThanOrEqual(game.powerupDensityTarget())
     })
 
-    it("never spawns more than the active cap", () => {
+    it("never spawns more than the density target", () => {
         const { game } = makeArena()
         for(let i = 0; i < game.POWERUP_SPAWN_INTERVAL_TICKS * 20; i++) game.update()
-        expect(game.powerups.getActive().length).toBeLessThanOrEqual(game.POWERUP_MAX_ACTIVE)
+        expect(game.powerups.getActive().length).toBeLessThanOrEqual(game.powerupDensityTarget())
     })
 
     it("does not spawn powerups when spawnPowerups is disabled", () => {
@@ -317,8 +319,11 @@ describe("invisibility (cloak) buff", () => {
         expect(player.ship.timings.invisibility).toBe(INVIS_TICKS)
     })
 
-    it("INVIS_TICKS fits in a uint8 so it survives the playerShipTimings wire", () => {
-        expect(INVIS_TICKS).toBeLessThanOrEqual(255)
+    it("INVIS_TICKS fits in the uint16 playerShipTimings wire (now > uint8)", () => {
+        // The rework widened the buff timers to uint16; INVIS_TICKS exceeds the
+        // old uint8 cap and must fit the new 65535 ceiling.
+        expect(INVIS_TICKS).toBeGreaterThan(255)
+        expect(INVIS_TICKS).toBeLessThanOrEqual(65535)
     })
 
     it("isInvisible reflects the invisibility timer", () => {
@@ -380,8 +385,11 @@ describe("rapidfire buff", () => {
         expect(player.ship.hasRapidfire).toBe(true)
     })
 
-    it("RAPIDFIRE_TICKS fits in a uint8 so it survives the playerShipTimings wire", () => {
-        expect(RAPIDFIRE_TICKS).toBeLessThanOrEqual(255)
+    it("RAPIDFIRE_TICKS fits in the uint16 playerShipTimings wire (now > uint8)", () => {
+        // The rework widened the buff timers to uint16; RAPIDFIRE_TICKS exceeds
+        // the old uint8 cap and must fit the new 65535 ceiling.
+        expect(RAPIDFIRE_TICKS).toBeGreaterThan(255)
+        expect(RAPIDFIRE_TICKS).toBeLessThanOrEqual(65535)
     })
 
     it("hasRapidfire reflects the rapidfire timer", () => {
@@ -497,5 +505,77 @@ describe("rapidfire buff", () => {
             if(ship.shoot()) break
         }
         expect(restoredTicks).toBe(plainInterval)
+    })
+})
+
+describe("timed-buff stacking", () => {
+    it("re-grabbing the SAME buff ADDS its duration (haste stacks to 2x)", () => {
+        const { player } = makeArena()
+        expect(player.ship.timings.haste).toBe(0)
+
+        applyPowerupEffect("haste", player)
+        expect(player.ship.timings.haste).toBe(HASTE_TICKS)
+
+        applyPowerupEffect("haste", player)
+        expect(player.ship.timings.haste).toBe(2 * HASTE_TICKS)
+    })
+
+    it("stacking is clamped at MAX_BUFF_TICKS no matter how many are grabbed", () => {
+        const { player } = makeArena()
+
+        // Apply far more than enough to exceed the clamp (each adds HASTE_TICKS).
+        const grabs = Math.ceil(MAX_BUFF_TICKS / HASTE_TICKS) + 5
+        for(let i = 0; i < grabs; i++) applyPowerupEffect("haste", player)
+
+        expect(player.ship.timings.haste).toBe(MAX_BUFF_TICKS)
+    })
+
+    it("stacks each timed buff independently into its own timing slot", () => {
+        const { player } = makeArena()
+
+        applyPowerupEffect("shield", player)
+        applyPowerupEffect("shield", player)
+        applyPowerupEffect("invis", player)
+        applyPowerupEffect("invis", player)
+        applyPowerupEffect("ricochet", player)
+        applyPowerupEffect("rapidfire", player)
+
+        expect(player.ship.timings.shield).toBe(2 * SHIELD_TICKS)
+        expect(player.ship.timings.invisibility).toBe(2 * INVIS_TICKS)
+        expect(player.ship.timings.ricochet).toBe(RICOCHET_TICKS)
+        expect(player.ship.timings.rapidfire).toBe(RAPIDFIRE_TICKS)
+    })
+})
+
+describe("playerShipTimings wire is uint16 (buff timers survive a round-trip)", () => {
+    it("round-trips a 600-tick invisibility/ricochet through encode + decode", () => {
+        const { player } = makeArena()
+
+        // 600 > 255, so a uint8 field would wrap; the widened uint16 must keep it.
+        player.ship.timings.invisibility = 600
+        player.ship.timings.ricochet = 600
+
+        const bytes = encode.playerShipTimings(player)
+        const decoded = packetManager.decode(bytes)
+
+        const timings = decoded.playerShipTimings?.[0]
+        expect(timings).toBeDefined()
+        expect(timings?.playerId).toBe(player.id)
+        expect(timings?.invisibility).toBe(600)
+        expect(timings?.ricochet).toBe(600)
+    })
+
+    it("round-trips the maximum uint16 buff timer (MAX_BUFF_TICKS) intact", () => {
+        const { player } = makeArena()
+        player.ship.timings.haste = MAX_BUFF_TICKS
+        player.ship.timings.shield = MAX_BUFF_TICKS
+        player.ship.timings.rapidfire = MAX_BUFF_TICKS
+
+        const decoded = packetManager.decode(encode.playerShipTimings(player))
+        const timings = decoded.playerShipTimings?.[0]
+
+        expect(timings?.haste).toBe(MAX_BUFF_TICKS)
+        expect(timings?.shield).toBe(MAX_BUFF_TICKS)
+        expect(timings?.rapidfire).toBe(MAX_BUFF_TICKS)
     })
 })

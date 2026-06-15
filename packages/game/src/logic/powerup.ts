@@ -3,6 +3,11 @@ import { generateId } from "@pip-pip/core/src/lib/utils"
 
 import { PipPlayer } from "./player"
 import { PipPipGame } from "."
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, MAX_BUFF_TICKS } from "./powerup-config"
+
+// Re-export the timed-buff durations so existing importers of this module keep
+// working now that the values live in powerup-config.
+export { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS } from "./powerup-config"
 
 // Map pickups. "health"/"ammo" are instant-effect; "haste"/"shield"/"invis"/
 // "ricochet"/"rapidfire" are timed buffs applied to the ship's timings (ticked
@@ -48,20 +53,6 @@ export const POWERUP_RADIUS = 24
 // How much health a "health" pickup restores (capped at the ship's max).
 export const POWERUP_HEALTH_AMOUNT = 50
 
-// Timed-buff durations, in ticks (game runs at 20 tps). HASTE/SHIELD/INVIS/
-// RICOCHET/RAPIDFIRE are all networked as $uint8 in playerShipTimings, so EVERY
-// value here MUST stay <= 255 (the hard uint8 cap) or it wraps on the wire. Tuned
-// long enough to feel like a real power window: HASTE ~10s, SHIELD ~8.5s, INVIS
-// ~9s, RICOCHET ~10s of bouncing bullets, RAPIDFIRE ~10s of a faster trigger. The
-// ricochet bounce itself is still resolved server-side on the (networked)
-// bullets; the timer rides the wire so the tactical feed + remote ships know how
-// long it has left.
-export const HASTE_TICKS = 20 * 10 // 200 ticks (~10s, <= 255)
-export const SHIELD_TICKS = 170 // ~8.5s, <= 255
-export const INVIS_TICKS = 180 // ~9s, <= 255
-export const RICOCHET_TICKS = 20 * 10 // 200 ticks (~10s, <= 255)
-export const RAPIDFIRE_TICKS = 20 * 10 // 200 ticks (~10s, <= 255)
-
 // While hasted, movement acceleration (and the speed cap that derives from it)
 // is multiplied by this factor. Applied in computeMovementAcceleration so the
 // shared client-prediction + server step stay consistent for the local player.
@@ -77,9 +68,10 @@ export const RAPIDFIRE_MULTIPLIER = 0.5
 
 // Apply a powerup's effect to a player's ship. Single decision point so new
 // types slot in here. Instant types ("health"/"ammo") mutate capacities; timed
-// types ("haste"/"shield"/"invis"/"ricochet"/"rapidfire") set a ship timing that
-// ticks down in ship.update. Server-authoritative callers gate this (see
-// PipPipGame.pickupPowerup); this function itself only mutates the ship.
+// types ("haste"/"shield"/"invis"/"ricochet"/"rapidfire") now STACK: each pickup
+// ADDS its duration to the ship timing that ticks down in ship.update, clamped to
+// MAX_BUFF_TICKS so it never overflows the wire. Server-authoritative callers gate
+// this (see PipPipGame.pickupPowerup); this function itself only mutates the ship.
 export function applyPowerupEffect(type: PowerupType, player: PipPlayer){
     const ship = player.ship
     if(type === "health"){
@@ -88,15 +80,15 @@ export function applyPowerupEffect(type: PowerupType, player: PipPlayer){
         ship.capacities.weapon = ship.stats.weapon.capacity
         ship.capacities.tactical = ship.stats.tactical.capacity
     } else if(type === "haste"){
-        ship.timings.haste = HASTE_TICKS
+        ship.timings.haste = Math.min(MAX_BUFF_TICKS, ship.timings.haste + HASTE_TICKS)
     } else if(type === "shield"){
-        ship.timings.shield = SHIELD_TICKS
+        ship.timings.shield = Math.min(MAX_BUFF_TICKS, ship.timings.shield + SHIELD_TICKS)
     } else if(type === "invis"){
-        ship.timings.invisibility = INVIS_TICKS
+        ship.timings.invisibility = Math.min(MAX_BUFF_TICKS, ship.timings.invisibility + INVIS_TICKS)
     } else if(type === "ricochet"){
-        ship.timings.ricochet = RICOCHET_TICKS
+        ship.timings.ricochet = Math.min(MAX_BUFF_TICKS, ship.timings.ricochet + RICOCHET_TICKS)
     } else if(type === "rapidfire"){
-        ship.timings.rapidfire = RAPIDFIRE_TICKS
+        ship.timings.rapidfire = Math.min(MAX_BUFF_TICKS, ship.timings.rapidfire + RAPIDFIRE_TICKS)
     }
 }
 

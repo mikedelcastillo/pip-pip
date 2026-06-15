@@ -56,8 +56,8 @@ describe("ricochet powerup", () => {
         expect(player.ship.hasRicochet).toBe(true)
     })
 
-    it("RICOCHET_TICKS fits in a uint8 (uint8-safe even though it is off the wire)", () => {
-        expect(RICOCHET_TICKS).toBeLessThanOrEqual(255)
+    it("RICOCHET_TICKS fits in the uint16 playerShipTimings wire field", () => {
+        expect(RICOCHET_TICKS).toBeLessThanOrEqual(65535)
     })
 
     it("the ricochet timer ticks down to 0 over its duration", () => {
