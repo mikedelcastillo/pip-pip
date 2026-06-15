@@ -935,6 +935,148 @@ export function flipClip(clip: EditorClip, axis: MirrorAxis): EditorClip{
     return { cols: clip.cols, rows: clip.rows, tiles, spawns }
 }
 
+// TRANSFORM HANDLES (free-transform a footprint, Photoshop/Figma style). When a
+// region is selected the view draws 8 resize handles (4 corners + 4 edge
+// midpoints) plus a ROTATE knob above the top edge; dragging a handle resizes the
+// footprint, dragging the body translates it, and the knob rotates. Each name is
+// what the hit test returns and the view dispatches on. "body" = inside the rect
+// but not on a handle (drag-to-move); "none" = nothing under the pointer. All the
+// geometry below is PURE + DOM-free so it unit-tests independently of the view.
+export type TransformHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "rotate" | "body" | "none"
+
+// The inclusive width/height of a CellRect in cells: a 1x1 rect (min == max) is
+// 1x1, not 0x0. Pure + unit-tested; the view sizes the footprint with this.
+export function rectDims(rect: CellRect): { cols: number, rows: number }{
+    return {
+        cols: rect.maxCol - rect.minCol + 1,
+        rows: rect.maxRow - rect.minRow + 1,
+    }
+}
+
+// NEAREST-NEIGHBOUR resample of a clip to new cell dimensions. Every destination
+// cell (dc, dr) maps back to the source cell (floor(dc * cols / newCols),
+// floor(dr * rows / newRows)) and copies that source tile's {shape, key}
+// VERBATIM: shapes are never geometrically altered (a diag_tl stays a diag_tl, it
+// is only duplicated or dropped), so scaling keeps the authored look and only
+// changes how many cells each tile spans. Spawns resample by the same ratio and
+// are DE-DUPLICATED (two source spawns can collapse onto one destination cell).
+// newCols/newRows are clamped to >= 1 so a zero/negative argument can never make
+// an empty or inverted clip. Pure: returns a NEW clip, leaving the input
+// untouched. Unit-tested.
+export function scaleClip(clip: EditorClip, newCols: number, newRows: number): EditorClip{
+    const cols = Math.max(1, Math.floor(newCols))
+    const rows = Math.max(1, Math.floor(newRows))
+    // Index the source by clip-relative key so each destination cell is a single
+    // O(1) lookup of "is there a tile at the mapped-back source cell".
+    const source = new Map<string, EditorClipTile>()
+    for(const tile of clip.tiles){
+        source.set(cellKey(tile.col, tile.row), tile)
+    }
+    const tiles: EditorClipTile[] = []
+    for(let dr = 0; dr < rows; dr++){
+        for(let dc = 0; dc < cols; dc++){
+            const sc = Math.floor(dc * clip.cols / cols)
+            const sr = Math.floor(dr * clip.rows / rows)
+            const tile = source.get(cellKey(sc, sr))
+            if(typeof tile === "undefined") continue
+            // Copy shape + key verbatim; only the destination coordinate changes.
+            tiles.push({ col: dc, row: dr, shape: tile.shape, key: tile.key })
+        }
+    }
+    // Resample spawns by the same ratio and de-dup: scaling DOWN can map several
+    // source spawns onto one destination cell, and a clip must not carry the same
+    // spawn twice.
+    const spawns: [number, number][] = []
+    const seen = new Set<string>()
+    for(const [c, r] of clip.spawns){
+        const dc = Math.floor(c * cols / clip.cols)
+        const dr = Math.floor(r * rows / clip.rows)
+        const key = cellKey(dc, dr)
+        if(seen.has(key)) continue
+        seen.add(key)
+        spawns.push([dc, dr])
+    }
+    return { cols, rows, tiles, spawns }
+}
+
+// Resize an inclusive CellRect by dragging `handle` (dCol, dRow) cells, anchoring
+// the OPPOSITE edge/corner so the side under the pointer is the only one that
+// moves: dragging "se" moves maxCol/maxRow (minCol/minRow fixed); "nw" moves the
+// mins; an edge handle ("n"/"e"/"s"/"w") moves only that one edge; "body"
+// translates the whole rect by (dCol, dRow). The dragged edge is CLAMPED so it
+// never crosses the anchor: a rect stays at least 1x1 (min <= max). "rotate" and
+// "none" leave the rect unchanged (rotation does not resize). Pure + unit-tested.
+export function resizeRectByHandle(rect: CellRect, handle: TransformHandle, dCol: number, dRow: number): CellRect{
+    let minCol = rect.minCol
+    let minRow = rect.minRow
+    let maxCol = rect.maxCol
+    let maxRow = rect.maxRow
+    if(handle === "body"){
+        return {
+            minCol: minCol + dCol,
+            minRow: minRow + dRow,
+            maxCol: maxCol + dCol,
+            maxRow: maxRow + dRow,
+        }
+    }
+    // Whether this handle touches the west / east / north / south edge.
+    const movesWest = handle === "nw" || handle === "w" || handle === "sw"
+    const movesEast = handle === "ne" || handle === "e" || handle === "se"
+    const movesNorth = handle === "nw" || handle === "n" || handle === "ne"
+    const movesSouth = handle === "sw" || handle === "s" || handle === "se"
+    // Move each dragged edge, then clamp it to the anchor so it never inverts the
+    // rect (the dragged min can rise at most to maxCol; the dragged max can fall at
+    // most to minCol), keeping cols/rows >= 1.
+    if(movesWest) minCol = Math.min(minCol + dCol, maxCol)
+    if(movesEast) maxCol = Math.max(maxCol + dCol, minCol)
+    if(movesNorth) minRow = Math.min(minRow + dRow, maxRow)
+    if(movesSouth) maxRow = Math.max(maxRow + dRow, minRow)
+    return { minCol, minRow, maxCol, maxRow }
+}
+
+// PURE screen-space hit test for the transform handles. (x, y, w, h) is the
+// footprint's SCREEN rectangle in px; (px, py) is the pointer in px; `size` is the
+// handle hit radius in px. The 8 resize handles sit at the rect's corners and edge
+// midpoints, and the ROTATE knob floats `size * 2.5` above the top-centre. A
+// pointer within EUCLIDEAN distance `size` of a handle point returns that handle;
+// CORNERS take precedence over edges where their radii overlap. If no handle is
+// hit but the pointer is inside the rect, it is a body drag ("body"); otherwise
+// "none". Unit-tested.
+export function handleHit(x: number, y: number, w: number, h: number, px: number, py: number, size: number): TransformHandle{
+    const cx = x + w / 2
+    const cy = y + h / 2
+    const near = (hx: number, hy: number): boolean => {
+        const ddx = px - hx
+        const ddy = py - hy
+        return ddx * ddx + ddy * ddy <= size * size
+    }
+    // The rotate knob floats above the top-centre.
+    if(near(cx, y - size * 2.5)) return "rotate"
+    // Corners FIRST so they win over an edge midpoint where the two overlap.
+    if(near(x, y)) return "nw"
+    if(near(x + w, y)) return "ne"
+    if(near(x + w, y + h)) return "se"
+    if(near(x, y + h)) return "sw"
+    // Edge midpoints.
+    if(near(cx, y)) return "n"
+    if(near(x + w, cy)) return "e"
+    if(near(cx, y + h)) return "s"
+    if(near(x, cy)) return "w"
+    // Not on a handle: inside the rect is a body drag, outside is nothing.
+    if(px >= x && px <= x + w && py >= y && py <= y + h) return "body"
+    return "none"
+}
+
+// The signed number of 90-degree QUARTER TURNS between two angles in RADIANS, for
+// a rotate-knob drag that snaps to the nearest quarter turn: round((current -
+// start) / (PI / 2)), so the rotation snaps at the +/-45-degree boundary. POSITIVE
+// is clockwise (the direction rotateClipCW turns), so the view applies the result
+// by calling rotateClipCW that many times (a negative count rotates the other way,
+// i.e. CCW). Pure + unit-tested.
+export function angleToQuarterTurns(startAngle: number, currentAngle: number): number{
+    return Math.round((currentAngle - startAngle) / (Math.PI / 2))
+}
+
 // The brush that corresponds to a cell's CURRENT content, for the eyedropper /
 // PICK tool: a single tap reads the cell back into the active brush so the author
 // can re-select "the thing already painted there" without guessing. A spawn WINS

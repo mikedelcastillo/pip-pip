@@ -51,6 +51,12 @@ import {
     rotateShapeCW,
     rotateClipCW,
     flipClip,
+    TransformHandle,
+    rectDims,
+    scaleClip,
+    resizeRectByHandle,
+    handleHit,
+    angleToQuarterTurns,
 } from "../../packages/client/src/game/mapEditor"
 import { TileShape } from "../../packages/game/src/logic/grid-map"
 import { loadGridMap } from "../../packages/game/src/logic/grid-map"
@@ -2125,5 +2131,229 @@ describe("move/cut as ONE undo step (selection history granularity)", () => {
         expect(history.canUndo()).toBe(false)
         expect(map.tileAt(0, 0)).toBe(0)
         expect(map.palette[map.tileAt(5, 5) - 1]).toEqual({ shape: "full", key: "rust" })
+    })
+})
+
+describe("transform handles math", () => {
+    // A helper to build a clip with explicit tiles from {col,row,shape,key} so the
+    // resample expectations read clearly cell-by-cell.
+    function clip(cols: number, rows: number, tiles: { col: number, row: number, shape: TileShape, key: string }[], spawns: [number, number][] = []): EditorClip{
+        return { cols, rows, tiles, spawns }
+    }
+
+    describe("rectDims (inclusive width/height)", () => {
+        it("a 1x1 rect (min == max) is 1x1", () => {
+            expect(rectDims({ minCol: 3, minRow: 4, maxCol: 3, maxRow: 4 })).toEqual({ cols: 1, rows: 1 })
+        })
+        it("a wider rect counts inclusively", () => {
+            expect(rectDims({ minCol: 0, minRow: 0, maxCol: 4, maxRow: 2 })).toEqual({ cols: 5, rows: 3 })
+            expect(rectDims({ minCol: -2, minRow: -1, maxCol: 1, maxRow: 1 })).toEqual({ cols: 4, rows: 3 })
+        })
+    })
+
+    describe("scaleClip (nearest-neighbour resample)", () => {
+        it("is the identity when newCols/newRows equal the clip dims", () => {
+            const src = clip(2, 2, [
+                { col: 0, row: 0, shape: "full", key: "rust" },
+                { col: 1, row: 0, shape: "diag_tl", key: "teal" },
+                { col: 0, row: 1, shape: "deco", key: "tile_hidden" },
+            ], [[1, 1]])
+            const out = scaleClip(src, 2, 2)
+            expect(out.cols).toBe(2)
+            expect(out.rows).toBe(2)
+            // Same tiles at the same cells with the same {shape,key}.
+            expect(out.tiles).toEqual([
+                { col: 0, row: 0, shape: "full", key: "rust" },
+                { col: 1, row: 0, shape: "diag_tl", key: "teal" },
+                { col: 0, row: 1, shape: "deco", key: "tile_hidden" },
+            ])
+            expect(out.spawns).toEqual([[1, 1]])
+        })
+
+        it("2x up-scale duplicates each source cell into a 2x2 block, preserving {shape,key}", () => {
+            const src = clip(2, 1, [
+                { col: 0, row: 0, shape: "full", key: "rust" },
+                { col: 1, row: 0, shape: "diag_tl", key: "teal" },
+            ])
+            const out = scaleClip(src, 4, 2)
+            expect(out.cols).toBe(4)
+            expect(out.rows).toBe(2)
+            // Source col 0 spans dest cols 0-1, source col 1 spans dest cols 2-3,
+            // and the single source row spans both dest rows: a 2x2 block each.
+            expect(out.tiles).toEqual([
+                { col: 0, row: 0, shape: "full", key: "rust" },
+                { col: 1, row: 0, shape: "full", key: "rust" },
+                { col: 2, row: 0, shape: "diag_tl", key: "teal" },
+                { col: 3, row: 0, shape: "diag_tl", key: "teal" },
+                { col: 0, row: 1, shape: "full", key: "rust" },
+                { col: 1, row: 1, shape: "full", key: "rust" },
+                { col: 2, row: 1, shape: "diag_tl", key: "teal" },
+                { col: 3, row: 1, shape: "diag_tl", key: "teal" },
+            ])
+        })
+
+        it("down-scale drops/merges per floor() with explicit expected cells", () => {
+            // 4 cols -> 2 cols: dest col 0 maps to src floor(0*4/2)=0, dest col 1
+            // maps to src floor(1*4/2)=2. So src cols 0 and 2 survive; 1 and 3 drop.
+            const src = clip(4, 1, [
+                { col: 0, row: 0, shape: "full", key: "a" },
+                { col: 1, row: 0, shape: "full", key: "b" },
+                { col: 2, row: 0, shape: "diag_br", key: "c" },
+                { col: 3, row: 0, shape: "full", key: "d" },
+            ])
+            const out = scaleClip(src, 2, 1)
+            expect(out.cols).toBe(2)
+            expect(out.rows).toBe(1)
+            expect(out.tiles).toEqual([
+                { col: 0, row: 0, shape: "full", key: "a" },
+                { col: 1, row: 0, shape: "diag_br", key: "c" },
+            ])
+        })
+
+        it("resamples spawns and de-duplicates collisions on down-scale", () => {
+            // 4 cols -> 2 cols. spawn c=0 -> floor(0*2/4)=0; c=1 -> floor(2/4)=0
+            // (collides with the first, de-duped); c=2 -> floor(4/4)=1; c=3 -> 1
+            // (collides, de-duped). So two distinct spawns remain.
+            const src = clip(4, 1, [], [[0, 0], [1, 0], [2, 0], [3, 0]])
+            const out = scaleClip(src, 2, 1)
+            expect(out.spawns).toEqual([[0, 0], [1, 0]])
+        })
+
+        it("keeps an empty clip empty", () => {
+            const out = scaleClip(clip(3, 3, []), 6, 6)
+            expect(out.cols).toBe(6)
+            expect(out.rows).toBe(6)
+            expect(out.tiles).toEqual([])
+            expect(out.spawns).toEqual([])
+        })
+
+        it("clamps a zero or negative target to 1", () => {
+            const src = clip(2, 2, [{ col: 0, row: 0, shape: "full", key: "rust" }])
+            const a = scaleClip(src, 0, 5)
+            expect(a.cols).toBe(1)
+            expect(a.rows).toBe(5)
+            const b = scaleClip(src, -3, -1)
+            expect(b.cols).toBe(1)
+            expect(b.rows).toBe(1)
+        })
+
+        it("never geometrically alters a shape (a diag_tl stays diag_tl)", () => {
+            const src = clip(1, 1, [{ col: 0, row: 0, shape: "diag_tl", key: "teal" }])
+            const out = scaleClip(src, 3, 3)
+            // Every one of the 9 resampled cells is still the SAME diag_tl shape.
+            expect(out.tiles).toHaveLength(9)
+            for(const t of out.tiles){
+                expect(t.shape).toBe("diag_tl")
+                expect(t.key).toBe("teal")
+            }
+        })
+    })
+
+    describe("resizeRectByHandle (drag a handle, anchor the opposite edge)", () => {
+        const base: CellRect = { minCol: 2, minRow: 3, maxCol: 6, maxRow: 7 }
+
+        it("se moves the max corner, anchoring the min corner", () => {
+            expect(resizeRectByHandle(base, "se", 2, 3)).toEqual({ minCol: 2, minRow: 3, maxCol: 8, maxRow: 10 })
+        })
+        it("nw moves the min corner, anchoring the max corner", () => {
+            expect(resizeRectByHandle(base, "nw", -1, -2)).toEqual({ minCol: 1, minRow: 1, maxCol: 6, maxRow: 7 })
+        })
+        it("ne moves maxCol + minRow", () => {
+            expect(resizeRectByHandle(base, "ne", 2, -1)).toEqual({ minCol: 2, minRow: 2, maxCol: 8, maxRow: 7 })
+        })
+        it("sw moves minCol + maxRow", () => {
+            expect(resizeRectByHandle(base, "sw", -1, 2)).toEqual({ minCol: 1, minRow: 3, maxCol: 6, maxRow: 9 })
+        })
+        it("n moves only minRow", () => {
+            expect(resizeRectByHandle(base, "n", 5, -2)).toEqual({ minCol: 2, minRow: 1, maxCol: 6, maxRow: 7 })
+        })
+        it("s moves only maxRow", () => {
+            expect(resizeRectByHandle(base, "s", 5, 2)).toEqual({ minCol: 2, minRow: 3, maxCol: 6, maxRow: 9 })
+        })
+        it("e moves only maxCol", () => {
+            expect(resizeRectByHandle(base, "e", 3, 5)).toEqual({ minCol: 2, minRow: 3, maxCol: 9, maxRow: 7 })
+        })
+        it("w moves only minCol", () => {
+            expect(resizeRectByHandle(base, "w", -1, 5)).toEqual({ minCol: 1, minRow: 3, maxCol: 6, maxRow: 7 })
+        })
+        it("body translates the whole rect", () => {
+            expect(resizeRectByHandle(base, "body", 10, -5)).toEqual({ minCol: 12, minRow: -2, maxCol: 16, maxRow: 2 })
+        })
+        it("rotate and none leave the rect unchanged", () => {
+            expect(resizeRectByHandle(base, "rotate", 4, 4)).toEqual(base)
+            expect(resizeRectByHandle(base, "none", 4, 4)).toEqual(base)
+        })
+        it("clamps to a 1x1 minimum when an edge is dragged past its anchor", () => {
+            // Dragging "se" far into the negative collapses max onto min (1x1).
+            expect(resizeRectByHandle(base, "se", -100, -100)).toEqual({ minCol: 2, minRow: 3, maxCol: 2, maxRow: 3 })
+            // Dragging "nw" far into the positive collapses min onto max (1x1).
+            expect(resizeRectByHandle(base, "nw", 100, 100)).toEqual({ minCol: 6, minRow: 7, maxCol: 6, maxRow: 7 })
+        })
+    })
+
+    describe("handleHit (screen-space hit test)", () => {
+        // A 100x60 footprint at (10, 20) with a hit radius of 5px.
+        const x = 10, y = 20, w = 100, h = 60, size = 5
+        const hit = (px: number, py: number): TransformHandle => handleHit(x, y, w, h, px, py, size)
+        const cx = x + w / 2 // 60
+        const cy = y + h / 2 // 50
+
+        it("returns each corner when the pointer is on it", () => {
+            expect(hit(x, y)).toBe("nw")
+            expect(hit(x + w, y)).toBe("ne")
+            expect(hit(x + w, y + h)).toBe("se")
+            expect(hit(x, y + h)).toBe("sw")
+        })
+        it("returns each edge midpoint when the pointer is on it", () => {
+            expect(hit(cx, y)).toBe("n")
+            expect(hit(x + w, cy)).toBe("e")
+            expect(hit(cx, y + h)).toBe("s")
+            expect(hit(x, cy)).toBe("w")
+        })
+        it("returns rotate when the pointer is on the knob above the top-centre", () => {
+            expect(hit(cx, y - size * 2.5)).toBe("rotate")
+        })
+        it("returns body when the pointer is inside but off every handle", () => {
+            expect(hit(cx, cy)).toBe("body")
+        })
+        it("returns none when the pointer is far from everything", () => {
+            expect(hit(x + w + 200, y + h + 200)).toBe("none")
+            expect(hit(x - 50, y - 50)).toBe("none")
+        })
+        it("gives corners precedence over edges at a shared point", () => {
+            // At the NW corner an "n"/"w" midpoint test could also match for a wide
+            // radius; the corner must win. Make the radius large enough that the nw
+            // corner and the w-edge midpoint both contain a point near the corner,
+            // and assert the corner is returned.
+            const bigSize = 40
+            // A point near the nw corner is within bigSize of BOTH nw (0,0 offset)
+            // and the w midpoint (0, h/2). Corner precedence -> "nw".
+            expect(handleHit(0, 0, 50, 50, 2, 2, bigSize)).toBe("nw")
+        })
+    })
+
+    describe("angleToQuarterTurns (snap a rotate drag to quarter turns)", () => {
+        const PI = Math.PI
+        it("is 0 for a near-identical angle", () => {
+            expect(angleToQuarterTurns(0, 0)).toBe(0)
+            expect(angleToQuarterTurns(1, 1.1)).toBe(0)
+        })
+        it("is +1 at about +90 degrees (clockwise)", () => {
+            expect(angleToQuarterTurns(0, PI / 2)).toBe(1)
+            expect(angleToQuarterTurns(0, PI / 2 + 0.1)).toBe(1)
+        })
+        it("is -1 at about -90 degrees", () => {
+            expect(angleToQuarterTurns(0, -PI / 2)).toBe(-1)
+        })
+        it("snaps at the +/-45 degree boundary", () => {
+            // Just under 45 degrees rounds to 0; just over rounds to 1.
+            expect(angleToQuarterTurns(0, PI / 4 - 0.01)).toBe(0)
+            expect(angleToQuarterTurns(0, PI / 4 + 0.01)).toBe(1)
+        })
+        it("counts multiple turns (a half turn is 2 quarter turns)", () => {
+            expect(angleToQuarterTurns(0, PI)).toBe(2)
+            expect(angleToQuarterTurns(0, -PI)).toBe(-2)
+            expect(angleToQuarterTurns(0, 3 * PI / 2)).toBe(3)
+        })
     })
 })
