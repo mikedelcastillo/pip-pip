@@ -1417,11 +1417,18 @@ export default function MapEditor(){
                     if(wasMarquee !== null){
                         marqueeRef.current = null
                         if(didDrag){
-                            setSelection(normalizeRect(wasMarquee.start, wasMarquee.current))
+                            // Set selectionRef SYNCHRONOUSLY before the draw() below.
+                            // selectionRef tracks `selection` only on the NEXT render,
+                            // so without this the immediate redraw reads the PREVIOUS
+                            // selection - the "new marquee shows the old selection" bug.
+                            const rect = normalizeRect(wasMarquee.start, wasMarquee.current)
+                            selectionRef.current = rect
+                            setSelection(rect)
                         } else{
                             // A tap with no drag: clear the selection (committing any
                             // floating clip into the map first so it is not dropped).
                             commitFloatingClip()
+                            selectionRef.current = null
                             setSelection(null)
                         }
                     }
@@ -1733,12 +1740,25 @@ export default function MapEditor(){
     // the restored draft (it fires off the `version` bump). The button
     // disabled-state flags are refreshed after each.
     const undo = useCallback(() => {
+        // A selection MOVE/transform left FLOATING holds an OPEN history step (the
+        // lift cleared the source under begin(); the stamp that commits it has not
+        // run). Stamp it first so the move becomes a closed, undoable step - else
+        // historyRef.undo() finds nothing committed and the in-flight move is lost
+        // (the "marquee/transform changes are not in undo/redo" bug).
+        const hadFloat = clipRef.current !== null
+        if(hadFloat) commitFloatingClip()
         if(historyRef.current.undo(mapRef.current) === false) return
+        // After reverting a move, drop the selection so the dashed outline does not
+        // dangle over content that was just undone.
+        if(hadFloat){
+            selectionRef.current = null
+            setSelection(null)
+        }
         refreshHistoryFlags()
         markDirty()
         bump()
         draw()
-    }, [bump, draw, markDirty, refreshHistoryFlags])
+    }, [bump, draw, markDirty, refreshHistoryFlags, commitFloatingClip])
 
     const redo = useCallback(() => {
         if(historyRef.current.redo(mapRef.current) === false) return
