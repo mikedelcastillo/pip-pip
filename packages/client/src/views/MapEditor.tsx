@@ -8,6 +8,7 @@ import { loadGridMap } from "@pip-pip/game/src/logic/grid-map"
 import {
     EditorMap,
     EditorBrush,
+    PaintBrush,
     EditorHistory,
     DrawMode,
     SLOPE_BRUSHES,
@@ -140,7 +141,7 @@ const SHORTCUT_FOR: Record<EditorBrush, string> = {
     half_right: "",
 }
 
-type ToolDef = { brush: EditorBrush, label: string, color: string, shortcut: string }
+type ToolDef = { brush: PaintBrush, label: string, color: string, shortcut: string }
 
 // Human label per brush (the four slope directions show in the Auto-slope
 // dropdown; the four half directions show in the Half tool's flyout). Pulled
@@ -168,7 +169,7 @@ const TOOLS: ToolDef[] = [
     { brush: "empty", label: LABEL_FOR.empty, color: COLOR_GRID_STRONG, shortcut: SHORTCUT_FOR.empty },
     { brush: "full", label: LABEL_FOR.full, color: COLOR_BLOCK, shortcut: SHORTCUT_FOR.full },
     { brush: "auto", label: LABEL_FOR.auto, color: COLOR_SLOPE, shortcut: SHORTCUT_FOR.auto },
-    { brush: "half_top", label: "Half", color: COLOR_BLOCK, shortcut: SHORTCUT_FOR.half_top },
+    { brush: "half_auto", label: "Auto half", color: COLOR_BLOCK, shortcut: "" },
     { brush: "deco", label: LABEL_FOR.deco, color: COLOR_DECO, shortcut: SHORTCUT_FOR.deco },
     { brush: "spawn", label: LABEL_FOR.spawn, color: COLOR_SPAWN, shortcut: SHORTCUT_FOR.spawn },
 ]
@@ -184,6 +185,18 @@ const SLOPE_TOOLS: ToolDef[] = SLOPE_BRUSHES.map((b) => ({
 const HALF_TOOLS: ToolDef[] = HALF_BRUSHES.map((b) => ({
     brush: b, label: LABEL_FOR[b], color: COLOR_BLOCK, shortcut: SHORTCUT_FOR[b],
 }))
+
+// Is the active brush one of the four explicit slope / half DIRECTIONS? The
+// model's SLOPE_BRUSHES / HALF_BRUSHES are EditorBrush[], but the view holds the
+// active brush as the wider PaintBrush (it can also be a RESOLVING brush:
+// half_auto / recolor). These predicates test membership without scattering
+// casts; a resolving brush is in neither set, so they correctly return false.
+function isSlopeBrush(b: PaintBrush): boolean{
+    return (SLOPE_BRUSHES as PaintBrush[]).indexOf(b) !== -1
+}
+function isHalfBrush(b: PaintBrush): boolean{
+    return (HALF_BRUSHES as PaintBrush[]).indexOf(b) !== -1
+}
 
 // The DRAW MODES, orthogonal to the brush: the brush says WHAT to paint, the
 // mode says HOW. Freehand is the default (one cell per pointer position);
@@ -253,7 +266,9 @@ function hexToRgba(hex: string, alpha: number): string{
 // material: an erase brush previews red (removing), deco previews its fixed faded
 // hue (deco ignores the material), and every colourable brush previews in its
 // material's face colour so the author sees the colour they will paint.
-function previewFillStyle(brush: EditorBrush, materialKey: string): string{
+// half_auto resolves to a (colourable) half tile, so it previews in the material
+// face like any colourable brush.
+function previewFillStyle(brush: PaintBrush, materialKey: string): string{
     if(brush === "empty") return COLOR_PREVIEW_ERASE
     if(brush === "deco") return hexToRgba(rgbHexFromCss(COLOR_DECO), PREVIEW_ALPHA)
     return hexToRgba(blockFaceCss(materialKey), PREVIEW_ALPHA)
@@ -351,7 +366,11 @@ export default function MapEditor(){
     const pointersRef = useRef<Map<number, { x: number, y: number }>>(new Map())
 
     const initial = mapRef.current
-    const [brush, setBrush] = useState<EditorBrush>("full")
+    // The active brush is the WIDER PaintBrush: the fixed-shape EditorBrush set
+    // plus the two resolving brushes (half_auto auto-orients a half tile from its
+    // neighbours; recolor repaints an existing tile's colour). setCell accepts
+    // PaintBrush directly, so the imperative paint paths pass it through unchanged.
+    const [brush, setBrush] = useState<PaintBrush>("full")
     // The active MATERIAL (block colour). Applies to the block brush AND every
     // slope (explicit + auto) so a slope matches its block colour; deco ignores it
     // (it stays the non-colliding tile_hidden). Held in React state so the picker
@@ -1961,10 +1980,9 @@ export default function MapEditor(){
     // explicit directions) and the half tools all show the ACTIVE material colour
     // so the rail mirrors what a stroke will paint; deco/spawn/erase keep their
     // fixed affordance colours.
-    const toolIconColor = useCallback((brushFor: EditorBrush, fallback: string): string => {
-        if(brushFor === "full" || brushFor === "auto"
-            || SLOPE_BRUSHES.indexOf(brushFor) !== -1
-            || HALF_BRUSHES.indexOf(brushFor) !== -1){
+    const toolIconColor = useCallback((brushFor: PaintBrush, fallback: string): string => {
+        if(brushFor === "full" || brushFor === "auto" || brushFor === "half_auto"
+            || isSlopeBrush(brushFor) || isHalfBrush(brushFor)){
             return materialFace
         }
         return fallback
@@ -2030,8 +2048,8 @@ export default function MapEditor(){
                         // Auto slope: the active state covers the auto brush AND any
                         // explicit direction (they live in its dropdown). The rail
                         // icon mirrors whichever is selected.
-                            const slopeActive = brush === "auto" || SLOPE_BRUSHES.indexOf(brush) !== -1
-                            const iconBrush: EditorBrush = SLOPE_BRUSHES.indexOf(brush) !== -1 ? brush : "auto"
+                            const slopeActive = brush === "auto" || isSlopeBrush(brush)
+                            const iconBrush: PaintBrush = isSlopeBrush(brush) ? brush : "auto"
                             return (
                                 <div key="auto" className={styles.toolGroup}>
                                     <Tooltip label={tool.label} shortcut={tool.shortcut} placement="right">
@@ -2084,23 +2102,22 @@ export default function MapEditor(){
                                 </div>
                             )
                         }
-                        if(tool.brush === "half_top"){
-                            // Half tile: a single tool whose active state covers the
-                            // whole half-brush group, with a DIRECTION FLYOUT listing
-                            // the four half shapes (mirroring the Auto-slope tool +
-                            // its slope flyout). The half shapes have no keyboard
-                            // shortcut, so the flyout is the one place a direction is
-                            // chosen. The rail icon mirrors whichever half is selected
-                            // (defaulting to half_top when none is).
-                            const halfActive = HALF_BRUSHES.indexOf(brush) !== -1
-                            const iconBrush: EditorBrush = halfActive ? brush : "half_top"
+                        if(tool.brush === "half_auto"){
+                            // Half tile: the PRIMARY button is Auto half (it picks the
+                            // half ORIENTATION from neighbours, the half analogue of
+                            // Auto slope), with a DIRECTION FLYOUT listing the four
+                            // explicit half shapes. The active state covers the auto
+                            // brush AND any explicit direction; the rail icon mirrors
+                            // whichever explicit half is selected, else the auto glyph.
+                            const halfActive = brush === "half_auto" || isHalfBrush(brush)
+                            const iconBrush: PaintBrush = isHalfBrush(brush) ? brush : "half_auto"
                             return (
                                 <div key="half" className={styles.toolGroup}>
                                     <Tooltip label={tool.label} placement="right">
                                         <button
                                             type="button"
                                             className={`${styles.tool} ${halfActive ? styles.toolActive : ""}`}
-                                            onClick={() => setBrush("half_top")}
+                                            onClick={() => setBrush("half_auto")}
                                             aria-pressed={halfActive}
                                             aria-label={tool.label}
                                             title={tool.label}
@@ -2724,7 +2741,7 @@ function drawTile(ctx: CanvasRenderingContext2D, shape: string, faceColor: strin
 // A small SVG glyph for each rail tool so the toolbar reads at a glance: a
 // filled square for blocks, a triangle for the matching diagonal, a faded box
 // for deco, a ring for spawn, and a hollow box for erase.
-function ToolIcon({ brush, color }: { brush: EditorBrush, color: string }){
+function ToolIcon({ brush, color }: { brush: PaintBrush, color: string }){
     const size = 22
     if(brush === "spawn"){
         return (
@@ -2753,6 +2770,17 @@ function ToolIcon({ brush, color }: { brush: EditorBrush, color: string }){
         return (
             <svg width={size} height={size} viewBox="0 0 20 20">
                 <polygon points="3,17 17,17 17,4" fill={color} opacity="0.9" />
+                <circle cx="6" cy="6" r="1.8" fill={color} />
+            </svg>
+        )
+    }
+    if(brush === "half_auto"){
+        // A half (bottom) box with the same spark as Auto slope, signalling the
+        // half ORIENTATION is picked automatically from the cell's neighbours.
+        return (
+            <svg width={size} height={size} viewBox="0 0 20 20">
+                <rect x="2" y="2" width="16" height="16" fill="none" stroke={color} strokeWidth="1.5" opacity="0.45" />
+                <rect x="2" y="10" width="16" height="8" fill={color} opacity="0.9" />
                 <circle cx="6" cy="6" r="1.8" fill={color} />
             </svg>
         )
