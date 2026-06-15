@@ -24,6 +24,7 @@ import {
     stashPlayMap,
     rectCells,
     lineCells,
+    lineShapeCells,
     boundedFloodFill,
     brushAtCell,
     materialAtCell,
@@ -825,6 +826,25 @@ export default function MapEditor(){
         return changed
     }, [bump, draw, markDirty])
 
+    // Like applyCells but paints a PER-CELL shape (from lineShapeCells) instead of
+    // the active brush, so a slope-aware line writes a slope or a full block per
+    // cell. The active MATERIAL (colour) still applies. One batch + redraw; the
+    // caller owns the history step (so the whole line is one undo step).
+    const applyShapeCells = useCallback((items: ReturnType<typeof lineShapeCells>) => {
+        const map = mapRef.current
+        const materialNow = materialRef.current
+        let changed = false
+        for(const { cell, shape } of items){
+            if(map.setCell(cell[0], cell[1], shape, materialNow)) changed = true
+        }
+        if(changed){
+            markDirty()
+            bump()
+            draw()
+        }
+        return changed
+    }, [bump, draw, markDirty])
+
     // SELECTION / TRANSFORM actions. Each MAP MUTATION commits as ONE undo step:
     // a move/transform LIFT opens a history step (clearing the source) that the
     // matching STAMP closes, so lift -> drag/rotate/flip -> stamp is a single step;
@@ -1091,8 +1111,8 @@ export default function MapEditor(){
     // and the next move, resetting `painting`/`drewThisGesture` and killing the
     // stroke (the "freehand only paints 2 tiles" bug). Reading the current callbacks
     // through this ref lets the gesture closure live for the whole drag.
-    const handlersRef = useRef({ paintAt, applyCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip })
-    handlersRef.current = { paintAt, applyCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip }
+    const handlersRef = useRef({ paintAt, applyCells, applyShapeCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip })
+    handlersRef.current = { paintAt, applyCells, applyShapeCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip }
 
     useEffect(() => {
         const canvas = canvasRef.current
@@ -1103,6 +1123,7 @@ export default function MapEditor(){
         const draw = () => handlersRef.current.draw()
         const paintAt = (clientX: number, clientY: number) => handlersRef.current.paintAt(clientX, clientY)
         const applyCells = (cells: Cell[]) => handlersRef.current.applyCells(cells)
+        const applyShapeCells = (items: ReturnType<typeof lineShapeCells>) => handlersRef.current.applyShapeCells(items)
         const pickAt = (clientX: number, clientY: number, returnToFreehand: boolean) => handlersRef.current.pickAt(clientX, clientY, returnToFreehand)
         const cellFromEvent = (clientX: number, clientY: number) => handlersRef.current.cellFromEvent(clientX, clientY)
         const applyZoom = (focalX: number, focalY: number, ratio: number) => handlersRef.current.applyZoom(focalX, focalY, ratio)
@@ -1439,10 +1460,19 @@ export default function MapEditor(){
                     // the history step opened at pointer-down (a no-op shape commits
                     // nothing). A zero-length drag (tap) is a single cell.
                     shapeRef.current = null
-                    const cells = modeRef.current === "rect"
-                        ? rectCells(openShape.start, openShape.current)
-                        : lineCells(openShape.start, openShape.current)
-                    applyCells(cells)
+                    if(modeRef.current === "line" && brushRef.current === "auto"){
+                        // Slope-aware line: paint a slope or a full block PER CELL so
+                        // the line follows its angle - a 45deg line is all slopes, a
+                        // shallow line mixes slopes + blocks, a horizontal/vertical line
+                        // is all blocks. Only for the auto/slope brush; an explicit
+                        // brush still draws a uniform line of that exact brush.
+                        applyShapeCells(lineShapeCells(openShape.start, openShape.current))
+                    } else{
+                        const cells = modeRef.current === "rect"
+                            ? rectCells(openShape.start, openShape.current)
+                            : lineCells(openShape.start, openShape.current)
+                        applyCells(cells)
+                    }
                     if(historyRef.current.commit(mapRef.current)){
                         refreshHistoryFlags()
                     } else{
