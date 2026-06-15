@@ -27,7 +27,9 @@ import {
     rectCells,
     lineCells,
     lineShapeCells,
-    slopeForDirection,
+    slopeAlternationPair,
+    shapeEdgeSolid,
+    autoHalfShape,
     boundedFloodFill,
     brushAtCell,
     materialAtCell,
@@ -377,6 +379,261 @@ describe("EditorMap auto-slope brush", () => {
         // No solid neighbours -> auto resolves to a full block.
         expect(map.setCell(2, 2, "auto")).toBe(true)
         expect(map.tileAt(2, 2)).toBe(paletteValueForShape("full"))
+    })
+
+    it("counts a neighbouring SLOPE whose flat side faces this cell as a wall", () => {
+        const map = new EditorMap()
+        // ABOVE (2,2): a diag_bl, whose flat (full-length) edges are bottom + left;
+        // its BOTTOM edge faces DOWN into (2,2), so it walls the top.
+        map.setCell(2, 1, "diag_bl")
+        // LEFT of (2,2): a diag_tr, whose flat edges are top + right; its RIGHT edge
+        // faces into (2,2), so it walls the left.
+        map.setCell(1, 2, "diag_tr")
+        // Two perpendicular walls (top + left) -> diag_tl, exactly as for full blocks.
+        expect(map.setCell(2, 2, "auto")).toBe(true)
+        expect(map.tileAt(2, 2)).toBe(paletteValueForShape("diag_tl"))
+    })
+
+    it("does NOT count a neighbouring slope whose flat side faces AWAY", () => {
+        const map = new EditorMap()
+        // ABOVE (2,2): a diag_tl, whose flat edges are top + left; its BOTTOM edge is
+        // the bevelled hypotenuse, NOT solid, so it does NOT wall the top.
+        map.setCell(2, 1, "diag_tl")
+        // LEFT of (2,2): a full block walls the left.
+        map.setCell(1, 2, "full")
+        // Only the left is walled (one wall) -> no clean corner -> full block.
+        expect(map.setCell(2, 2, "auto")).toBe(true)
+        expect(map.tileAt(2, 2)).toBe(paletteValueForShape("full"))
+    })
+
+    it("counts a neighbouring HALF tile whose flat side faces this cell", () => {
+        const map = new EditorMap()
+        // ABOVE (2,2): half_bottom fills the lower half, so its BOTTOM edge faces down
+        // into (2,2) as a solid wall.
+        map.setCell(2, 1, "half_bottom")
+        // RIGHT of (2,2): half_left fills the left half, so its LEFT edge faces into
+        // (2,2) as a solid wall.
+        map.setCell(3, 2, "half_left")
+        // Walls on top + right -> diag_tr.
+        expect(map.setCell(2, 2, "auto")).toBe(true)
+        expect(map.tileAt(2, 2)).toBe(paletteValueForShape("diag_tr"))
+    })
+})
+
+describe("shapeEdgeSolid (which cell edges a shape walls)", () => {
+    const SIDES = ["top", "right", "bottom", "left"] as const
+
+    it("a full block is solid on all four edges", () => {
+        for(const side of SIDES){
+            expect(shapeEdgeSolid("full", side)).toBe(true)
+        }
+    })
+
+    it("deco walls no edge (no collision)", () => {
+        for(const side of SIDES){
+            expect(shapeEdgeSolid("deco", side)).toBe(false)
+        }
+    })
+
+    it("each diagonal is solid on the two edges meeting its filled corner", () => {
+        // diag_br fills bottom-right -> bottom + right solid, top + left open.
+        expect(shapeEdgeSolid("diag_br", "bottom")).toBe(true)
+        expect(shapeEdgeSolid("diag_br", "right")).toBe(true)
+        expect(shapeEdgeSolid("diag_br", "top")).toBe(false)
+        expect(shapeEdgeSolid("diag_br", "left")).toBe(false)
+        // diag_tl -> top + left.
+        expect(shapeEdgeSolid("diag_tl", "top")).toBe(true)
+        expect(shapeEdgeSolid("diag_tl", "left")).toBe(true)
+        expect(shapeEdgeSolid("diag_tl", "bottom")).toBe(false)
+        expect(shapeEdgeSolid("diag_tl", "right")).toBe(false)
+        // diag_tr -> top + right.
+        expect(shapeEdgeSolid("diag_tr", "top")).toBe(true)
+        expect(shapeEdgeSolid("diag_tr", "right")).toBe(true)
+        expect(shapeEdgeSolid("diag_tr", "bottom")).toBe(false)
+        expect(shapeEdgeSolid("diag_tr", "left")).toBe(false)
+        // diag_bl -> bottom + left.
+        expect(shapeEdgeSolid("diag_bl", "bottom")).toBe(true)
+        expect(shapeEdgeSolid("diag_bl", "left")).toBe(true)
+        expect(shapeEdgeSolid("diag_bl", "top")).toBe(false)
+        expect(shapeEdgeSolid("diag_bl", "right")).toBe(false)
+    })
+
+    it("a half tile is solid on its filled side + the two perpendicular sides; open opposite", () => {
+        // half_top fills the upper band -> open only on the bottom (mid-cell) face.
+        expect(shapeEdgeSolid("half_top", "top")).toBe(true)
+        expect(shapeEdgeSolid("half_top", "left")).toBe(true)
+        expect(shapeEdgeSolid("half_top", "right")).toBe(true)
+        expect(shapeEdgeSolid("half_top", "bottom")).toBe(false)
+        // half_bottom -> open only on top.
+        expect(shapeEdgeSolid("half_bottom", "bottom")).toBe(true)
+        expect(shapeEdgeSolid("half_bottom", "left")).toBe(true)
+        expect(shapeEdgeSolid("half_bottom", "right")).toBe(true)
+        expect(shapeEdgeSolid("half_bottom", "top")).toBe(false)
+        // half_left -> open only on right.
+        expect(shapeEdgeSolid("half_left", "left")).toBe(true)
+        expect(shapeEdgeSolid("half_left", "top")).toBe(true)
+        expect(shapeEdgeSolid("half_left", "bottom")).toBe(true)
+        expect(shapeEdgeSolid("half_left", "right")).toBe(false)
+        // half_right -> open only on left.
+        expect(shapeEdgeSolid("half_right", "right")).toBe(true)
+        expect(shapeEdgeSolid("half_right", "top")).toBe(true)
+        expect(shapeEdgeSolid("half_right", "bottom")).toBe(true)
+        expect(shapeEdgeSolid("half_right", "left")).toBe(false)
+    })
+})
+
+describe("autoHalfShape (neighbour-aware auto half-block)", () => {
+    it("hugs the single solid neighbour: a wall on one side -> the half on that side", () => {
+        // (top, right, bottom, left)
+        expect(autoHalfShape(false, false, true, false)).toBe("half_bottom") // wall below
+        expect(autoHalfShape(true, false, false, false)).toBe("half_top") // wall above
+        expect(autoHalfShape(false, true, false, false)).toBe("half_right") // wall right
+        expect(autoHalfShape(false, false, false, true)).toBe("half_left") // wall left
+    })
+
+    it("fills the whole gap with a full block between OPPOSITE walls (a corridor)", () => {
+        expect(autoHalfShape(true, false, true, false)).toBe("full") // top + bottom
+        expect(autoHalfShape(false, true, false, true)).toBe("full") // left + right
+    })
+
+    it("falls back to half_bottom when ambiguous (none, a perpendicular pair, three, four)", () => {
+        expect(autoHalfShape(false, false, false, false)).toBe("half_bottom") // isolated
+        expect(autoHalfShape(true, true, false, false)).toBe("half_bottom") // perpendicular pair
+        expect(autoHalfShape(true, true, true, false)).toBe("half_bottom") // three walls
+        expect(autoHalfShape(true, true, true, true)).toBe("half_bottom") // surrounded
+    })
+})
+
+describe("EditorMap half_auto brush", () => {
+    it("paints the half that hugs a single solid neighbour", () => {
+        const map = new EditorMap()
+        // A full block BELOW (2,2): the auto half sits on the bottom -> half_bottom.
+        map.setCell(2, 3, "full")
+        expect(map.setCell(2, 2, "half_auto")).toBe(true)
+        expect(map.tileAt(2, 2)).toBe(paletteValueForShape("half_bottom"))
+    })
+
+    it("resolves against a neighbouring SLOPE's flat side (same neighbour test as auto-slope)", () => {
+        const map = new EditorMap()
+        // LEFT of (2,2): a diag_br whose RIGHT edge is solid and faces into (2,2), so
+        // the half hugs the left -> half_left.
+        map.setCell(1, 2, "diag_br")
+        expect(map.setCell(2, 2, "half_auto")).toBe(true)
+        expect(map.tileAt(2, 2)).toBe(paletteValueForShape("half_left"))
+    })
+
+    it("fills a corridor (opposite walls) with a full block", () => {
+        const map = new EditorMap()
+        map.setCell(1, 2, "full") // left wall
+        map.setCell(3, 2, "full") // right wall
+        expect(map.setCell(2, 2, "half_auto")).toBe(true)
+        expect(map.tileAt(2, 2)).toBe(paletteValueForShape("full"))
+    })
+
+    it("adopts the active material for the resolved half shape", () => {
+        const map = new EditorMap()
+        map.setCell(2, 3, "full", "teal") // wall below
+        map.setCell(2, 2, "half_auto", "cobalt")
+        const value = map.tileAt(2, 2)
+        expect(map.palette[value - 1]).toEqual({ shape: "half_bottom", key: "cobalt" })
+    })
+
+    it("evicts a spawn like every other shape brush (mutual exclusion)", () => {
+        const map = new EditorMap()
+        map.setCell(2, 3, "full") // wall below so it resolves to half_bottom
+        map.setCell(2, 2, "spawn")
+        expect(map.hasSpawn(2, 2)).toBe(true)
+        expect(map.setCell(2, 2, "half_auto")).toBe(true)
+        expect(map.hasSpawn(2, 2)).toBe(false)
+        expect(map.tileAt(2, 2)).not.toBe(0)
+    })
+})
+
+describe("EditorMap recolor brush", () => {
+    it("changes only an existing tile's material/key, keeping its shape, and reports the change", () => {
+        const map = new EditorMap()
+        map.setCell(2, 2, "diag_br", "rust")
+        const before = map.tileAt(2, 2)
+        // Recolour to teal: the shape stays diag_br, only the colour changes.
+        expect(map.setCell(2, 2, "recolor", "teal")).toBe(true)
+        const after = map.tileAt(2, 2)
+        expect(after).not.toBe(before)
+        expect(map.palette[after - 1]).toEqual({ shape: "diag_br", key: "teal" })
+    })
+
+    it("reuses the same append-only palette path (a new colour appends, existing reused)", () => {
+        const map = new EditorMap()
+        const seedLength = map.palette.length
+        map.setCell(0, 0, "full", "tile_default") // reuses the seed full entry
+        expect(map.palette.length).toBe(seedLength)
+        // Recolour to a never-seen colour for this shape: appends ONE entry.
+        expect(map.setCell(0, 0, "recolor", "rust")).toBe(true)
+        const value = map.tileAt(0, 0)
+        expect(map.palette[value - 1]).toEqual({ shape: "full", key: "rust" })
+        expect(map.palette.length).toBe(seedLength + 1)
+        // Recolour back to a colour that already has a {full, key} entry reuses it.
+        expect(map.setCell(0, 0, "recolor", "tile_default")).toBe(true)
+        expect(map.tileAt(0, 0)).toBe(1)
+        expect(map.palette.length).toBe(seedLength + 1)
+    })
+
+    it("is a NO-OP (returns false, creates nothing) on an empty cell", () => {
+        const map = new EditorMap()
+        expect(map.setCell(5, 5, "recolor", "teal")).toBe(false)
+        expect(map.tileAt(5, 5)).toBe(0)
+        expect(map.tiles.size).toBe(0)
+    })
+
+    it("is a NO-OP on a spawn cell (never recolours a spawn, never creates a tile)", () => {
+        const map = new EditorMap()
+        map.setCell(4, 4, "spawn")
+        expect(map.setCell(4, 4, "recolor", "teal")).toBe(false)
+        expect(map.hasSpawn(4, 4)).toBe(true)
+        expect(map.tileAt(4, 4)).toBe(0)
+    })
+
+    it("re-applying the SAME colour is a no-op (returns false, one undo step only when changed)", () => {
+        const map = new EditorMap()
+        map.setCell(1, 1, "full", "rust")
+        // Recolour to the colour it already has: nothing changes.
+        expect(map.setCell(1, 1, "recolor", "rust")).toBe(false)
+    })
+
+    it("keeps a deco tile non-colliding (tile_hidden) instead of adopting a material", () => {
+        const map = new EditorMap()
+        map.setCell(7, 7, "deco")
+        // A recolor on deco resolves the key to tile_hidden, so nothing changes.
+        expect(map.setCell(7, 7, "recolor", "rust")).toBe(false)
+        const value = map.tileAt(7, 7)
+        expect(map.palette[value - 1]).toEqual({ shape: "deco", key: "tile_hidden" })
+    })
+
+    it("recolor never changes the SHAPE (a half tile stays a half tile)", () => {
+        const map = new EditorMap()
+        map.setCell(3, 3, "half_top", "rust")
+        expect(map.setCell(3, 3, "recolor", "accent")).toBe(true)
+        const value = map.tileAt(3, 3)
+        expect(map.palette[value - 1]).toEqual({ shape: "half_top", key: "accent" })
+    })
+
+    it("a recolor that changes something is ONE undo step; a no-op recolor stroke commits nothing", () => {
+        const map = new EditorMap()
+        map.setCell(0, 0, "full", "rust")
+        const history = new EditorHistory()
+
+        // A recolor stroke that changes the tile commits one step.
+        history.begin(map)
+        map.setCell(0, 0, "recolor", "teal")
+        expect(history.commit(map)).toBe(true)
+        expect(map.palette[map.tileAt(0, 0) - 1]).toEqual({ shape: "full", key: "teal" })
+        // Undo restores the original colour exactly.
+        expect(history.undo(map)).toBe(true)
+        expect(map.palette[map.tileAt(0, 0) - 1]).toEqual({ shape: "full", key: "rust" })
+
+        // A recolor stroke over only empty cells changes nothing -> no history entry.
+        history.begin(map)
+        map.setCell(9, 9, "recolor", "teal")
+        expect(history.commit(map)).toBe(false)
     })
 })
 
@@ -899,6 +1156,18 @@ describe("lineShapeCells (slope-aware line)", () => {
         expect(entries.every(e => isDiag(e.shape))).toBe(true)
     })
 
+    it("a 45-degree line ALTERNATES two diag shapes (slope band, not identical triangles)", () => {
+        const shapes = lineShapeCells([0, 0], [4, 4]).map(e => e.shape)
+        // The diagonal cells are NOT all the same: they alternate EXACTLY two diag
+        // shapes (the antialiasing-with-slopes look), so the distinct set has size 2.
+        const distinct = Array.from(new Set(shapes))
+        expect(distinct.length).toBe(2)
+        expect(distinct.every(isDiag)).toBe(true)
+        // Specifically a down-right run alternates diag_br / diag_tr, starting on the
+        // pair's first member.
+        expect(shapes).toEqual(["diag_br", "diag_tr", "diag_br", "diag_tr", "diag_br"])
+    })
+
     it("a horizontal line is ALL full blocks", () => {
         const entries = lineShapeCells([0, 0], [5, 0])
         expect(cellsOf(entries)).toEqual(lineCells([0, 0], [5, 0]))
@@ -911,42 +1180,40 @@ describe("lineShapeCells (slope-aware line)", () => {
         expect(entries.every(e => e.shape === "full")).toBe(true)
     })
 
-    it("a shallow line is a MIX of full blocks and slope tiles", () => {
+    it("a shallow line is a MIX of full blocks and slope tiles (runs stay full, steps alternate)", () => {
         const entries = lineShapeCells([0, 0], [6, 2])
         expect(cellsOf(entries)).toEqual(lineCells([0, 0], [6, 2]))
         const shapes = entries.map(e => e.shape)
-        // A shallow line alternates runs (full) and diagonal steps (slope), so BOTH
-        // must be present.
+        // A shallow line alternates straight RUNS (full) and diagonal STEPS (slope),
+        // so BOTH must be present.
         expect(shapes.indexOf("full")).not.toBe(-1)
         expect(shapes.some(isDiag)).toBe(true)
+        // The two diagonal STEP cells alternate the two pair shapes (br then tr for a
+        // down-right shallow line); the run cells in between stay full.
+        const diagShapes = shapes.filter(isDiag)
+        expect(diagShapes).toEqual(["diag_br", "diag_tr"])
+        // Exactly the known full/step pattern, so run cells are confirmed full.
+        expect(shapes).toEqual(["full", "full", "diag_br", "full", "full", "diag_tr", "full"])
     })
 
-    it("orients down-right and up-right 45 lines to different diag families", () => {
-        const downRight = lineShapeCells([0, 0], [4, 4]) // sx=+1, sy=+1 -> "\"
-        const upRight = lineShapeCells([0, 0], [4, -4]) // sx=+1, sy=-1 -> "/"
-        const downRightDiag = downRight.find(e => isDiag(e.shape))
-        const upRightDiag = upRight.find(e => isDiag(e.shape))
-        expect(downRightDiag).toBeDefined()
-        expect(upRightDiag).toBeDefined()
-        // Down-right (backslash) and up-right (forward-slash) must NOT share a diag
-        // family: their hypotenuses run opposite ways.
-        expect(downRightDiag!.shape).not.toBe(upRightDiag!.shape)
-        // Down-right 45 is horizontal-major "\" -> diag_bl; up-right is "/" -> diag_br.
-        expect(downRightDiag!.shape).toBe("diag_bl")
-        expect(upRightDiag!.shape).toBe("diag_br")
+    it("alternates the correctly-mirrored pair in each of the four diagonal directions", () => {
+        // Each 45-degree run alternates EXACTLY two diag shapes, mirrored per quadrant
+        // so the band always slants the same way as the stroke.
+        expect(lineShapeCells([0, 0], [4, 4]).map(e => e.shape))
+            .toEqual(["diag_br", "diag_tr", "diag_br", "diag_tr", "diag_br"]) // down-right
+        expect(lineShapeCells([0, 0], [-4, 4]).map(e => e.shape))
+            .toEqual(["diag_bl", "diag_tl", "diag_bl", "diag_tl", "diag_bl"]) // down-left
+        expect(lineShapeCells([0, 0], [4, -4]).map(e => e.shape))
+            .toEqual(["diag_tr", "diag_br", "diag_tr", "diag_br", "diag_tr"]) // up-right
+        expect(lineShapeCells([0, 0], [-4, -4]).map(e => e.shape))
+            .toEqual(["diag_tl", "diag_bl", "diag_tl", "diag_bl", "diag_tl"]) // up-left
     })
 
-    it("pins the slopeForDirection orientation table", () => {
-        // Horizontal-major: solid on the BOTTOM corner.
-        expect(slopeForDirection(1, 1, "horizontal")).toBe("diag_bl") // down-right "\"
-        expect(slopeForDirection(-1, -1, "horizontal")).toBe("diag_bl") // up-left "\"
-        expect(slopeForDirection(1, -1, "horizontal")).toBe("diag_br") // up-right "/"
-        expect(slopeForDirection(-1, 1, "horizontal")).toBe("diag_br") // down-left "/"
-        // Vertical-major: solid on the TOP corner.
-        expect(slopeForDirection(1, 1, "vertical")).toBe("diag_tr") // "\"
-        expect(slopeForDirection(-1, -1, "vertical")).toBe("diag_tr") // "\"
-        expect(slopeForDirection(1, -1, "vertical")).toBe("diag_tl") // "/"
-        expect(slopeForDirection(-1, 1, "vertical")).toBe("diag_tl") // "/"
+    it("pins the slopeAlternationPair table (down-right base, mirrored per quadrant)", () => {
+        expect(slopeAlternationPair(1, 1)).toEqual(["diag_br", "diag_tr"]) // down-right
+        expect(slopeAlternationPair(-1, 1)).toEqual(["diag_bl", "diag_tl"]) // down-left (mirror H)
+        expect(slopeAlternationPair(1, -1)).toEqual(["diag_tr", "diag_br"]) // up-right (mirror V)
+        expect(slopeAlternationPair(-1, -1)).toEqual(["diag_tl", "diag_bl"]) // up-left (mirror H+V)
     })
 
     it("a==b yields one full cell", () => {

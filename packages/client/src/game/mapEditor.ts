@@ -22,8 +22,29 @@ import { TILE_SIZE } from "@pip-pip/game/src/logic/constants"
 // paintable things. The four "half_*" brushes paint a half-tile (half the cell,
 // flat edge down the middle) that collides as a simple axis-aligned half-cell
 // box; they live in a direction flyout under the single "Half" tool.
+//
+// EditorBrush is exactly the FIXED-SHAPE brushes: each one either erases, toggles
+// a spawn, or writes a known concrete tile shape. Tool tables in the view that
+// must be EXHAUSTIVE per brush (e.g. Record<EditorBrush, string> label/shortcut
+// maps) key off this union, so it deliberately excludes the RESOLVING brushes
+// below (which have no fixed shape and no fixed label/shortcut of their own).
 export type EditorBrush = "empty" | "full" | "auto" | "diag_tl" | "diag_tr" | "diag_bl" | "diag_br" | "deco" | "spawn"
     | "half_top" | "half_bottom" | "half_left" | "half_right"
+
+// The RESOLVING brushes resolve their effect from the target cell + its
+// neighbours at paint time instead of carrying a fixed shape:
+//   "half_auto" picks a half-tile ORIENTATION from neighbours (like "auto" does
+//     for slopes), so it has no single shape and never sits in EDITOR_PALETTE.
+//   "recolor" recolours an EXISTING tile in place (keeping its shape) and never
+//     creates or erases a tile, so it is not a shape either.
+// They are kept OUT of EditorBrush so the view's exhaustive per-brush tables stay
+// complete, and folded back in via PaintBrush (the full set setCell accepts).
+export type ResolvingBrush = "half_auto" | "recolor"
+
+// Every brush EditorMap.setCell accepts: the fixed-shape EditorBrush union plus
+// the two resolving brushes. setCell branches on the resolving brushes BEFORE it
+// ever treats a brush as a concrete TileShape, so they need no palette entry.
+export type PaintBrush = EditorBrush | ResolvingBrush
 
 // The four explicit slope directions, tucked under the Auto slope tool.
 export const SLOPE_BRUSHES: EditorBrush[] = ["diag_tl", "diag_tr", "diag_bl", "diag_br"]
@@ -92,6 +113,76 @@ export function autoSlopeShape(top: boolean, right: boolean, bottom: boolean, le
     if(bottom && left && !top && !right) return "diag_bl"
     if(bottom && right && !top && !left) return "diag_br"
     return "full"
+}
+
+// Does `shape` present a SOLID, FULL-LENGTH wall on the named cell side? A solid
+// edge is one a neighbouring cell butts flat against (so auto-resolution can treat
+// that neighbour as a wall on this side). Derived straight from the collision
+// geometry in packages/game/src/logic/grid-map.ts:
+//   - "full" fills the whole cell, so all four edges are solid.
+//   - A diagonal fills the triangle in its named corner; the two cell edges that
+//     MEET that corner are full-length walls, the other two are the bevelled
+//     (hypotenuse) side and are not solid:
+//       diag_tl (top-left)     -> top + left
+//       diag_tr (top-right)    -> top + right
+//       diag_bl (bottom-left)  -> bottom + left
+//       diag_br (bottom-right) -> bottom + right
+//   - A half-tile fills the half-cell box on its named side (halfTileRect); the
+//     box's three OUTER edges are full-length walls and the inner mid-cell face is
+//     not. So the filled side plus the two perpendicular sides are solid, and only
+//     the opposite (mid-cell) side is open:
+//       half_top    -> top + left + right     (open: bottom)
+//       half_bottom -> bottom + left + right  (open: top)
+//       half_left   -> left + top + bottom    (open: right)
+//       half_right  -> right + top + bottom   (open: left)
+//   - "deco" carries no collision and an empty cell has no walls, so neither has a
+//     solid edge on any side.
+// Pure + total over TileShape + unit-tested.
+export function shapeEdgeSolid(shape: TileShape, side: "top" | "right" | "bottom" | "left"): boolean{
+    if(shape === "full") return true
+    if(shape === "deco") return false
+    if(shape === "diag_tl") return side === "top" || side === "left"
+    if(shape === "diag_tr") return side === "top" || side === "right"
+    if(shape === "diag_bl") return side === "bottom" || side === "left"
+    if(shape === "diag_br") return side === "bottom" || side === "right"
+    // Half-tiles: the filled side + the two perpendicular sides are solid; only
+    // the opposite mid-cell face is open.
+    if(shape === "half_top") return side !== "bottom"
+    if(shape === "half_bottom") return side !== "top"
+    if(shape === "half_left") return side !== "right"
+    if(shape === "half_right") return side !== "left"
+    return false
+}
+
+// AUTO HALF-BLOCK: pick the half-tile ORIENTATION that sits AGAINST the solid
+// neighbour(s), the half-tile analogue of autoSlopeShape. A half-tile fills toward
+// the side where there is a wall to back onto, so a single solid neighbour decides
+// the orientation:
+//   wall BELOW  -> half_bottom (the half hugs the floor)
+//   wall ABOVE  -> half_top
+//   wall RIGHT  -> half_right
+//   wall LEFT   -> half_left
+// A single clean neighbour wins. With OPPOSITE walls (a corridor: top+bottom or
+// left+right) there is no single side to hug, so it fills the whole gap with a
+// "full" block. Any other ambiguous count (perpendicular pair, three or four
+// walls, or none) falls back to "half_bottom" as a sensible neutral default (the
+// most common floor-hugging case). Pure + unit-tested.
+export function autoHalfShape(top: boolean, right: boolean, bottom: boolean, left: boolean): TileShape{
+    const count = (top ? 1 : 0) + (right ? 1 : 0) + (bottom ? 1 : 0) + (left ? 1 : 0)
+    // Exactly one wall: hug it.
+    if(count === 1){
+        if(bottom) return "half_bottom"
+        if(top) return "half_top"
+        if(right) return "half_right"
+        return "half_left"
+    }
+    // A pair of OPPOSITE walls (corridor): no single side to hug, so fill the gap.
+    if((top && bottom && !left && !right) || (left && right && !top && !bottom)){
+        return "full"
+    }
+    // Anything ambiguous (none, a perpendicular pair, three, or four walls):
+    // default to the common floor-hugging half.
+    return "half_bottom"
 }
 
 // The fixed editor palette. The editor authors with a SINGLE shared texture key
@@ -246,40 +337,34 @@ export function lineCells(a: Cell, b: Cell): Cell[]{
     return cells
 }
 
-// SLOPE-AWARE LINE ORIENTATION TABLE: given the stroke axis signs (sx, sy in
-// {-1,+1}) and which axis the line travels along most (major), return the single
-// diagonal slope tile whose hypotenuse is PARALLEL to the stroke and whose solid
-// (filled) corner sits on the run side, so a run of full blocks + this slope at
-// each diagonal step read as ONE continuous wedge the ship glides along.
-//
-// How the table is derived (corners per packages/game/src/logic/grid-map.ts:218
-// diagonalSegmentEndpoints; hypotenuse = the exposed ramp surface):
-//   diag_tl fills TOP-LEFT     -> hypotenuse "/" (top-right -> bottom-left)
-//   diag_tr fills TOP-RIGHT    -> hypotenuse "\" (top-left  -> bottom-right)
-//   diag_bl fills BOTTOM-LEFT  -> hypotenuse "\" (top-left  -> bottom-right)
-//   diag_br fills BOTTOM-RIGHT -> hypotenuse "/" (top-right -> bottom-left)
-//
-// 1) HYPOTENUSE must match the stroke direction (sx, sy):
-//      same sign  (sx === sy)  -> stroke runs "\", so diag_tr OR diag_bl
-//      diff sign  (sx !== sy)  -> stroke runs "/", so diag_tl OR diag_br
-// 2) The SOLID corner then picks which of that pair to use, so the slope's solid
-//    body merges with the major-axis run of full blocks into one wedge:
-//      horizontal-major -> the run is a horizontal band, solid sits BELOW the
-//        ramp: pick the BOTTOM corner  -> "\" => diag_bl, "/" => diag_br
-//      vertical-major   -> the run is a vertical band, solid sits ABOVE the
-//        ramp: pick the TOP corner     -> "\" => diag_tr, "/" => diag_tl
-//
-// This stays consistent across all 4 quadrants x 2 majors and is symmetric:
-// flipping both signs keeps the family; swapping the major flips top<->bottom.
-// Pure + unit-tested.
-export function slopeForDirection(sx: number, sy: number, major: "horizontal" | "vertical"): TileShape{
-    const backslash = sx === sy // stroke runs "\" when the two axis signs agree
-    if(major === "horizontal"){
-        // Horizontal run -> solid on the BOTTOM corner.
-        return backslash ? "diag_bl" : "diag_br"
+// SLOPE-LINE ALTERNATION PAIR: the TWO diagonal shapes a diagonal run alternates
+// between to read as a continuous "slope band" (an antialiasing-with-slopes look)
+// rather than a staircase of identical triangles. The base case is a DOWN-RIGHT
+// stroke (sx = +1, sy = +1), which alternates diag_br / diag_tr; the other three
+// quadrants are the geometric MIRRORS of that pair (so the band always slants the
+// same way as the stroke):
+//   down-right (+,+): [diag_br, diag_tr]
+//   down-left  (-,+): mirror H -> [diag_bl, diag_tl]
+//   up-right   (+,-): mirror V -> [diag_tr, diag_br]
+//   up-left    (-,-): mirror H+V -> [diag_tl, diag_bl]
+// Both shapes in a pair meet the stroke's leading diagonal from opposite corners,
+// so consecutive diagonal steps overlap into one unbroken wedge. Pure +
+// unit-tested; derived via mirrorShape so it can never drift from the geometry.
+export function slopeAlternationPair(sx: number, sy: number): [TileShape, TileShape]{
+    // Base pair for a down-right stroke.
+    let a: TileShape = "diag_br"
+    let b: TileShape = "diag_tr"
+    // Mirror horizontally for a leftward stroke, vertically for an upward one, so
+    // the pair slants the same way the stroke runs in every quadrant.
+    if(sx < 0){
+        a = mirrorShape(a, "horizontal")
+        b = mirrorShape(b, "horizontal")
     }
-    // Vertical run -> solid on the TOP corner.
-    return backslash ? "diag_tr" : "diag_tl"
+    if(sy < 0){
+        a = mirrorShape(a, "vertical")
+        b = mirrorShape(b, "vertical")
+    }
+    return [a, b]
 }
 
 // SLOPE-AWARE LINE: the same cells as lineCells(a, b), each tagged with the
@@ -289,12 +374,19 @@ export function slopeForDirection(sx: number, sy: number, major: "horizontal" | 
 // of slope tiles (the steps) and full blocks (the runs); a pure horizontal or
 // vertical line never steps diagonally, so every cell is a full BLOCK.
 //
+// The DIAGONAL STEP cells do NOT all share one slope: consecutive steps ALTERNATE
+// between the two shapes of slopeAlternationPair, so a 45-degree run reads as a
+// continuous slope band rather than a staircase of identical triangles. The
+// alternation counts DIAGONAL STEPS (not cells), so the straight RUN cells of a
+// shallow line never advance the toggle and the diagonal steps either side of a
+// run keep alternating cleanly.
+//
 // Built directly ON lineCells so the rasterization (which cells, in what order)
 // stays byte-identical: we only ADD a shape per cell. A cell is a DIAGONAL STEP
 // when it moved on BOTH axes relative to the previous cell (the first cell
-// compares to the NEXT instead, having no previous); those become a slope from
-// slopeForDirection. Run cells (moved on one axis only), the first/last cells,
-// and every cell of a pure-axis line resolve to "full". Pure + unit-tested.
+// compares to the NEXT instead, having no previous). Run cells (moved on one axis
+// only), the first/last cells, and every cell of a pure-axis line resolve to
+// "full". Pure + unit-tested.
 export function lineShapeCells(a: Cell, b: Cell): { cell: Cell, shape: TileShape }[]{
     const cells = lineCells(a, b)
     const dx = b[0] - a[0]
@@ -306,8 +398,10 @@ export function lineShapeCells(a: Cell, b: Cell): { cell: Cell, shape: TileShape
     }
     const sx = dx < 0 ? -1 : 1
     const sy = dy < 0 ? -1 : 1
-    const major: "horizontal" | "vertical" = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical"
-    const slope = slopeForDirection(sx, sy, major)
+    const [slopeA, slopeB] = slopeAlternationPair(sx, sy)
+    // Counts DIAGONAL STEPS so consecutive steps flip between the two slope shapes;
+    // run cells leave it untouched.
+    let step = 0
     return cells.map((cell, i) => {
         // Compare each cell to its PREVIOUS cell to detect a diagonal step; the
         // first cell has no previous, so it compares to the NEXT cell instead.
@@ -315,7 +409,11 @@ export function lineShapeCells(a: Cell, b: Cell): { cell: Cell, shape: TileShape
         // No reference (a degenerate single-cell list) -> full.
         if(typeof ref === "undefined") return { cell, shape: "full" as TileShape }
         const movedBoth = cell[0] !== ref[0] && cell[1] !== ref[1]
-        return { cell, shape: movedBoth ? slope : "full" as TileShape }
+        if(movedBoth === false) return { cell, shape: "full" as TileShape }
+        // Alternate the two pair shapes per diagonal step.
+        const shape = step % 2 === 0 ? slopeA : slopeB
+        step++
+        return { cell, shape }
     })
 }
 
@@ -424,8 +522,8 @@ export class EditorMap{
         return this.spawns.some(([c, r]) => c === col && r === row)
     }
 
-    // Is the cell a FULL (square wall) tile? The auto-slope tool reads which
-    // orthogonal neighbours are walls to choose the slope direction.
+    // Is the cell a FULL (square wall) tile? Kept for callers that specifically
+    // want a full block (the auto tools now use the richer solid-edge test below).
     isFull(col: number, row: number): boolean{
         const value = this.tileAt(col, row)
         if(value <= 0) return false
@@ -433,14 +531,52 @@ export class EditorMap{
         return typeof entry !== "undefined" && entry.shape === "full"
     }
 
-    // The shape the AUTO brush paints at a cell, derived from its full neighbours.
+    // The concrete TileShape at a cell, or undefined when the cell is empty or its
+    // value is out of palette. Lets the auto tools read a neighbour's shape (not
+    // just "is it full") so they can honour slopes + half-tiles too.
+    shapeAt(col: number, row: number): TileShape | undefined{
+        const value = this.tileAt(col, row)
+        if(value <= 0) return undefined
+        const entry = this.palette[value - 1]
+        return typeof entry === "undefined" ? undefined : entry.shape
+    }
+
+    // The four neighbour-solidity booleans (top, right, bottom, left) the AUTO
+    // tools resolve against: a side is solid when the neighbour on that side EXISTS
+    // and presents a FULL-LENGTH wall on the edge FACING this cell. So a full block
+    // counts (all edges solid), and a slope or half-tile counts only when its flat
+    // side faces here (e.g. a half_bottom ABOVE this cell faces DOWN with its open
+    // mid-cell edge, so it does NOT count; a half_top above faces down with its
+    // solid filled edge, so it DOES). The facing edge is the OPPOSITE of the
+    // direction the neighbour lies in: the neighbour above must be solid on its
+    // BOTTOM edge to wall this cell's top, etc. Shared by autoShapeAt +
+    // autoHalfShapeAt so both read neighbours identically.
+    neighbourSolidEdges(col: number, row: number): { top: boolean, right: boolean, bottom: boolean, left: boolean }{
+        const solid = (nc: number, nr: number, facing: "top" | "right" | "bottom" | "left"): boolean => {
+            const shape = this.shapeAt(nc, nr)
+            return typeof shape !== "undefined" && shapeEdgeSolid(shape, facing)
+        }
+        return {
+            top: solid(col, row - 1, "bottom"),
+            right: solid(col + 1, row, "left"),
+            bottom: solid(col, row + 1, "top"),
+            left: solid(col - 1, row, "right"),
+        }
+    }
+
+    // The shape the AUTO (slope) brush paints at a cell, derived from which
+    // orthogonal neighbours wall it (full blocks AND slopes/half-tiles whose flat
+    // side faces here both count).
     autoShapeAt(col: number, row: number): TileShape{
-        return autoSlopeShape(
-            this.isFull(col, row - 1),
-            this.isFull(col + 1, row),
-            this.isFull(col, row + 1),
-            this.isFull(col - 1, row),
-        )
+        const n = this.neighbourSolidEdges(col, row)
+        return autoSlopeShape(n.top, n.right, n.bottom, n.left)
+    }
+
+    // The shape the AUTO HALF (half_auto) brush paints at a cell, derived from the
+    // same neighbour-solidity as the auto slope: it hugs the side that has a wall.
+    autoHalfShapeAt(col: number, row: number): TileShape{
+        const n = this.neighbourSolidEdges(col, row)
+        return autoHalfShape(n.top, n.right, n.bottom, n.left)
     }
 
     // Find the "palette index + 1" value for a {shape, key} pair, APPENDING a new
@@ -460,21 +596,51 @@ export class EditorMap{
         return this.palette.length
     }
 
+    // Recolour the EXISTING tile at a cell to the active material, keeping its
+    // SHAPE. The "recolor" brush only ever recolours: an empty cell or a spawn is
+    // left untouched (it never creates or erases a tile), and a deco tile keeps its
+    // non-colliding tile_hidden key. Returns true only when the cell's value
+    // actually changed, so a recolor stroke that hits nothing recolourable (or
+    // re-applies the same colour) is one no-op and creates no undo step. Routed
+    // through the SAME append-only paletteValueFor as painting, so a never-seen
+    // {shape, key} grows the palette without touching any existing index.
+    recolorCell(col: number, row: number, materialKey: string): boolean{
+        // A spawn holds no tile, and an empty cell has nothing to recolour.
+        if(this.hasSpawn(col, row)) return false
+        const shape = this.shapeAt(col, row)
+        if(typeof shape === "undefined") return false
+        // Deco is non-colliding decoration: it keeps tile_hidden, never a material.
+        const nextKey = shape === "deco" ? "tile_hidden" : materialKey
+        const key = cellKey(col, row)
+        const next = this.paletteValueFor(shape, nextKey)
+        if(this.tiles.get(key) === next) return false
+        this.tiles.set(key, next)
+        return true
+    }
+
     // Paint one brush into one cell at ANY coordinate, in the active MATERIAL
     // (colour). "empty" erases the tile, every shape brush writes a tile of that
     // shape in the given material (deco ignores the material and stays the
-    // non-colliding "tile_hidden" key), and "spawn" toggles a spawn marker. The
-    // {shape, materialKey} pair resolves to a palette value via the APPEND-ONLY
-    // paletteValueFor, so a never-seen colour grows the palette without touching
-    // any existing index. A cell can NEVER hold both a tile and a spawn: painting
-    // a tile onto a cell that has a spawn removes the spawn, and toggling a spawn
-    // onto a cell that has a tile removes the tile. Returns true when something
-    // actually changed, so the view can skip redundant redraws while dragging.
-    // The material defaults to DEFAULT_MATERIAL_KEY so call sites that do not care
-    // about colour (tests, the eraser, spawns) keep working unchanged.
-    setCell(col: number, row: number, brush: EditorBrush, materialKey: string = DEFAULT_MATERIAL_KEY): boolean{
+    // non-colliding "tile_hidden" key), and "spawn" toggles a spawn marker. The two
+    // RESOLVING brushes resolve at paint time: "half_auto" picks a half-tile
+    // orientation from neighbours (like "auto" does for slopes) and "recolor"
+    // recolours the existing tile in place (keeping its shape, never creating or
+    // erasing one). The {shape, materialKey} pair resolves to a palette value via
+    // the APPEND-ONLY paletteValueFor, so a never-seen colour grows the palette
+    // without touching any existing index. A cell can NEVER hold both a tile and a
+    // spawn: painting a tile onto a cell that has a spawn removes the spawn, and
+    // toggling a spawn onto a cell that has a tile removes the tile. Returns true
+    // when something actually changed, so the view can skip redundant redraws while
+    // dragging. The material defaults to DEFAULT_MATERIAL_KEY so call sites that do
+    // not care about colour (tests, the eraser, spawns) keep working unchanged.
+    setCell(col: number, row: number, brush: PaintBrush, materialKey: string = DEFAULT_MATERIAL_KEY): boolean{
         if(brush === "spawn"){
             return this.toggleSpawn(col, row)
+        }
+
+        // Recolour resolves to "change the existing tile's colour, nothing else".
+        if(brush === "recolor"){
+            return this.recolorCell(col, row, materialKey)
         }
 
         const key = cellKey(col, row)
@@ -484,11 +650,24 @@ export class EditorMap{
             return true
         }
 
-        // Auto slope resolves to a concrete shape from the cell's neighbours; every
-        // other shape brush IS its shape. The colour comes from the active material
-        // (deco forces tile_hidden via materialKeyForBrush).
-        const shape: TileShape = brush === "auto" ? this.autoShapeAt(col, row) : brush
-        const next = this.paletteValueFor(shape, materialKeyForBrush(brush, materialKey))
+        // Resolve the concrete SHAPE + colour key. Auto slope / auto half resolve
+        // their shape from the cell's neighbours; every other shape brush IS its
+        // shape. The colour comes from the active material (deco forces tile_hidden
+        // via materialKeyForBrush; the auto brushes carry no deco shape so they keep
+        // the material).
+        let shape: TileShape
+        let colourKey: string
+        if(brush === "auto"){
+            shape = this.autoShapeAt(col, row)
+            colourKey = materialKey
+        } else if(brush === "half_auto"){
+            shape = this.autoHalfShapeAt(col, row)
+            colourKey = materialKey
+        } else{
+            shape = brush
+            colourKey = materialKeyForBrush(brush, materialKey)
+        }
+        const next = this.paletteValueFor(shape, colourKey)
         const hadSpawn = this.removeSpawn(col, row)
         if(this.tiles.get(key) === next && hadSpawn === false) return false
         this.tiles.set(key, next)
