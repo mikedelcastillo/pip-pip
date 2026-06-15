@@ -56,23 +56,31 @@
     left: calc(0.6em + var(--inset-left))
     z-index: 20
     display: flex
-    flex-direction: column
+    // WRAP tools into extra columns when the viewport is too short to stack them
+    // all in one column, so every tool stays reachable. A single scrolling column
+    // hid the lower tools (slope/half/deco/spawn) below the fold on short screens
+    // (the user could not reach the slope tool or its flyout at all). overflow is
+    // visible so the slope/half direction flyouts are never clipped either.
+    flex-flow: column wrap
+    align-content: flex-start
     gap: 0.3em
     padding: 0.4em
     max-height: calc(100% - 5em - var(--inset-top) - var(--inset-bottom))
-    overflow-y: auto
+    overflow: visible
 
-// A group of buttons within the left rail (modes, or brushes). Transparent: the
-// surrounding .leftRail panel provides the frosted background and border.
+// A group of buttons within the left rail (modes, or brushes). display:contents so
+// its buttons become direct wrap-items of .leftRail (keeping the toolbar role for
+// a11y) and thus wrap individually into the next column rather than as a whole
+// block. The .leftRail gap spaces the buttons.
 .railSection
-    display: flex
-    flex-direction: column
-    gap: 0.3em
+    display: contents
 
 // Thin separator between the mode group and the brush group inside the left rail.
+// align-self stretch so it spans the column width as a wrap item.
 .railDivider
     height: 1px
-    margin: 0.15em 0.2em
+    align-self: stretch
+    margin: 0.1em 0
     background: $color-border
     flex: none
 
