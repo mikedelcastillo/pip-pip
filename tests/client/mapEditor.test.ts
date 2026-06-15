@@ -26,6 +26,8 @@ import {
     clearPlayMap,
     rectCells,
     lineCells,
+    lineShapeCells,
+    slopeForDirection,
     boundedFloodFill,
     brushAtCell,
     materialAtCell,
@@ -868,6 +870,84 @@ describe("lineCells (8-connected Bresenham pixel line)", () => {
         expect(cells[0]).toEqual([5, 5])
         expect(cells[cells.length - 1]).toEqual([1, 3])
         expect(isGapFree(cells)).toBe(true)
+    })
+})
+
+describe("lineShapeCells (slope-aware line)", () => {
+    // The cells (ignoring shape) must always equal lineCells in the same order:
+    // lineShapeCells only ADDS a shape, it never changes the rasterization.
+    function cellsOf(entries: { cell: Cell, shape: TileShape }[]): Cell[]{
+        return entries.map(e => e.cell)
+    }
+    const DIAGS: TileShape[] = ["diag_tl", "diag_tr", "diag_bl", "diag_br"]
+    function isDiag(shape: TileShape): boolean{
+        return DIAGS.indexOf(shape) !== -1
+    }
+
+    it("a 45-degree line is ALL diagonal slopes", () => {
+        const entries = lineShapeCells([0, 0], [4, 4])
+        expect(entries.length).toBe(5)
+        expect(cellsOf(entries)).toEqual(lineCells([0, 0], [4, 4]))
+        // Every cell of a 45-degree line stepped on both axes, so every shape is a
+        // diagonal slope (never "full").
+        expect(entries.every(e => isDiag(e.shape))).toBe(true)
+    })
+
+    it("a horizontal line is ALL full blocks", () => {
+        const entries = lineShapeCells([0, 0], [5, 0])
+        expect(cellsOf(entries)).toEqual(lineCells([0, 0], [5, 0]))
+        expect(entries.every(e => e.shape === "full")).toBe(true)
+    })
+
+    it("a vertical line is ALL full blocks", () => {
+        const entries = lineShapeCells([0, 0], [0, 5])
+        expect(cellsOf(entries)).toEqual(lineCells([0, 0], [0, 5]))
+        expect(entries.every(e => e.shape === "full")).toBe(true)
+    })
+
+    it("a shallow line is a MIX of full blocks and slope tiles", () => {
+        const entries = lineShapeCells([0, 0], [6, 2])
+        expect(cellsOf(entries)).toEqual(lineCells([0, 0], [6, 2]))
+        const shapes = entries.map(e => e.shape)
+        // A shallow line alternates runs (full) and diagonal steps (slope), so BOTH
+        // must be present.
+        expect(shapes.indexOf("full")).not.toBe(-1)
+        expect(shapes.some(isDiag)).toBe(true)
+    })
+
+    it("orients down-right and up-right 45 lines to different diag families", () => {
+        const downRight = lineShapeCells([0, 0], [4, 4]) // sx=+1, sy=+1 -> "\"
+        const upRight = lineShapeCells([0, 0], [4, -4]) // sx=+1, sy=-1 -> "/"
+        const downRightDiag = downRight.find(e => isDiag(e.shape))
+        const upRightDiag = upRight.find(e => isDiag(e.shape))
+        expect(downRightDiag).toBeDefined()
+        expect(upRightDiag).toBeDefined()
+        // Down-right (backslash) and up-right (forward-slash) must NOT share a diag
+        // family: their hypotenuses run opposite ways.
+        expect(downRightDiag!.shape).not.toBe(upRightDiag!.shape)
+        // Down-right 45 is horizontal-major "\" -> diag_bl; up-right is "/" -> diag_br.
+        expect(downRightDiag!.shape).toBe("diag_bl")
+        expect(upRightDiag!.shape).toBe("diag_br")
+    })
+
+    it("pins the slopeForDirection orientation table", () => {
+        // Horizontal-major: solid on the BOTTOM corner.
+        expect(slopeForDirection(1, 1, "horizontal")).toBe("diag_bl") // down-right "\"
+        expect(slopeForDirection(-1, -1, "horizontal")).toBe("diag_bl") // up-left "\"
+        expect(slopeForDirection(1, -1, "horizontal")).toBe("diag_br") // up-right "/"
+        expect(slopeForDirection(-1, 1, "horizontal")).toBe("diag_br") // down-left "/"
+        // Vertical-major: solid on the TOP corner.
+        expect(slopeForDirection(1, 1, "vertical")).toBe("diag_tr") // "\"
+        expect(slopeForDirection(-1, -1, "vertical")).toBe("diag_tr") // "\"
+        expect(slopeForDirection(1, -1, "vertical")).toBe("diag_tl") // "/"
+        expect(slopeForDirection(-1, 1, "vertical")).toBe("diag_tl") // "/"
+    })
+
+    it("a==b yields one full cell", () => {
+        const entries = lineShapeCells([2, 2], [2, 2])
+        expect(entries.length).toBe(1)
+        expect(entries[0].cell).toEqual([2, 2])
+        expect(entries[0].shape).toBe("full")
     })
 })
 

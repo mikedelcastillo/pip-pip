@@ -246,6 +246,79 @@ export function lineCells(a: Cell, b: Cell): Cell[]{
     return cells
 }
 
+// SLOPE-AWARE LINE ORIENTATION TABLE: given the stroke axis signs (sx, sy in
+// {-1,+1}) and which axis the line travels along most (major), return the single
+// diagonal slope tile whose hypotenuse is PARALLEL to the stroke and whose solid
+// (filled) corner sits on the run side, so a run of full blocks + this slope at
+// each diagonal step read as ONE continuous wedge the ship glides along.
+//
+// How the table is derived (corners per packages/game/src/logic/grid-map.ts:218
+// diagonalSegmentEndpoints; hypotenuse = the exposed ramp surface):
+//   diag_tl fills TOP-LEFT     -> hypotenuse "/" (top-right -> bottom-left)
+//   diag_tr fills TOP-RIGHT    -> hypotenuse "\" (top-left  -> bottom-right)
+//   diag_bl fills BOTTOM-LEFT  -> hypotenuse "\" (top-left  -> bottom-right)
+//   diag_br fills BOTTOM-RIGHT -> hypotenuse "/" (top-right -> bottom-left)
+//
+// 1) HYPOTENUSE must match the stroke direction (sx, sy):
+//      same sign  (sx === sy)  -> stroke runs "\", so diag_tr OR diag_bl
+//      diff sign  (sx !== sy)  -> stroke runs "/", so diag_tl OR diag_br
+// 2) The SOLID corner then picks which of that pair to use, so the slope's solid
+//    body merges with the major-axis run of full blocks into one wedge:
+//      horizontal-major -> the run is a horizontal band, solid sits BELOW the
+//        ramp: pick the BOTTOM corner  -> "\" => diag_bl, "/" => diag_br
+//      vertical-major   -> the run is a vertical band, solid sits ABOVE the
+//        ramp: pick the TOP corner     -> "\" => diag_tr, "/" => diag_tl
+//
+// This stays consistent across all 4 quadrants x 2 majors and is symmetric:
+// flipping both signs keeps the family; swapping the major flips top<->bottom.
+// Pure + unit-tested.
+export function slopeForDirection(sx: number, sy: number, major: "horizontal" | "vertical"): TileShape{
+    const backslash = sx === sy // stroke runs "\" when the two axis signs agree
+    if(major === "horizontal"){
+        // Horizontal run -> solid on the BOTTOM corner.
+        return backslash ? "diag_bl" : "diag_br"
+    }
+    // Vertical run -> solid on the TOP corner.
+    return backslash ? "diag_tr" : "diag_tl"
+}
+
+// SLOPE-AWARE LINE: the same cells as lineCells(a, b), each tagged with the
+// TileShape that best approximates the line's angle with slope tiles. A
+// 45-degree line steps diagonally every cell, so EVERY cell is a slope; a shallow
+// (~30-degree) line alternates diagonal steps and straight runs, so it is a MIX
+// of slope tiles (the steps) and full blocks (the runs); a pure horizontal or
+// vertical line never steps diagonally, so every cell is a full BLOCK.
+//
+// Built directly ON lineCells so the rasterization (which cells, in what order)
+// stays byte-identical: we only ADD a shape per cell. A cell is a DIAGONAL STEP
+// when it moved on BOTH axes relative to the previous cell (the first cell
+// compares to the NEXT instead, having no previous); those become a slope from
+// slopeForDirection. Run cells (moved on one axis only), the first/last cells,
+// and every cell of a pure-axis line resolve to "full". Pure + unit-tested.
+export function lineShapeCells(a: Cell, b: Cell): { cell: Cell, shape: TileShape }[]{
+    const cells = lineCells(a, b)
+    const dx = b[0] - a[0]
+    const dy = b[1] - a[1]
+    // Pure horizontal / vertical (or a single cell): no diagonal steps exist, so
+    // the whole line is full blocks. Returning early also avoids a 0-sign slope.
+    if(dx === 0 || dy === 0){
+        return cells.map(cell => ({ cell, shape: "full" as TileShape }))
+    }
+    const sx = dx < 0 ? -1 : 1
+    const sy = dy < 0 ? -1 : 1
+    const major: "horizontal" | "vertical" = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical"
+    const slope = slopeForDirection(sx, sy, major)
+    return cells.map((cell, i) => {
+        // Compare each cell to its PREVIOUS cell to detect a diagonal step; the
+        // first cell has no previous, so it compares to the NEXT cell instead.
+        const ref = i === 0 ? cells[i + 1] : cells[i - 1]
+        // No reference (a degenerate single-cell list) -> full.
+        if(typeof ref === "undefined") return { cell, shape: "full" as TileShape }
+        const movedBoth = cell[0] !== ref[0] && cell[1] !== ref[1]
+        return { cell, shape: movedBoth ? slope : "full" as TileShape }
+    })
+}
+
 // The default extra margin (in cells) the bounded flood fill expands the painted
 // content bounding box by before clamping. Lets a fill spill one or two cells
 // into the empty border around the content (so an enclosed room whose walls sit
