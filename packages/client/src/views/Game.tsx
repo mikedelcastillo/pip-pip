@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { GAME_CONTEXT } from "../game"
+import { enterLobby } from "../game/enterLobby"
 import { useUiStore } from "../store/ui"
 import GameView from "../components/GameView"
 import LobbyNotFound from "../components/LobbyNotFound"
@@ -29,11 +30,12 @@ export default function Game() {
         let cancelled = false
         ;(async () => {
             setFailure(null)
-            setLoading(true, "Connecting...")
+            setLoading(true, "Joining lobby...")
             try {
-                await GAME_CONTEXT.client.connect()
-                setLoading(true, "Joining lobby...")
-                await GAME_CONTEXT.client.joinLobby(id)
+                // Join (HTTP) BEFORE opening the socket so the server only ever
+                // syncs THIS lobby - never the previous one a reused connection
+                // still belongs to. See enterLobby for the full rationale.
+                await enterLobby(GAME_CONTEXT.client, id)
                 if (!cancelled) setReady(true)
             } catch (e) {
                 console.warn(e)

@@ -23,6 +23,7 @@ import {
 } from "@pip-pip/game/src/networking/packets"
 import { Ticker } from "@pip-pip/core/src/common/ticker"
 import { processPackets, sendPackets } from "./client"
+import { enterLobby } from "./enterLobby"
 import { processInputs } from "./ui"
 import { processChat } from "./chat"
 import { CACHE_NAME_KEY, sanitize } from "@pip-pip/game/src/logic/utils"
@@ -335,8 +336,11 @@ export class GameContext {
     // (see views/Game.tsx). Throws if either step fails so the caller can keep
     // the disconnect modal up.
     async reconnect(lobbyId: string) {
-        await this.client.connect()
-        await this.client.joinLobby(lobbyId)
+        // Same safe order as a first entry (join the lobby over HTTP BEFORE
+        // opening the socket): on a reconnect the connection is already in this
+        // lobby so the join is a no-op, but routing it through enterLobby keeps a
+        // single ordering and never opens the socket on a stale lobby.
+        await enterLobby(this.client, lobbyId)
         // The server may have pruned the connection during the outage, so connect()
         // can hand back a FRESH connectionId. game.clientPlayerId was set once in
         // mountGameView to the OLD id and is updated nowhere else, so re-sync it the
