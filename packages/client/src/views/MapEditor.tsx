@@ -1083,9 +1083,33 @@ export default function MapEditor(){
     // drag alive even if the finger/cursor briefly leaves the canvas. touchAction
     // none (set in the module) stops the browser scrolling/zooming the page while
     // the author paints.
+    // Latest-callback ref for the pointer effect below. The effect must subscribe
+    // ONCE (empty deps) or it tears down the live gesture closure mid-drag: a
+    // freehand paint calls bump() -> setVersion, which rebuilds the collision memo
+    // and so changes the identity of draw/paintAt/applyCells every paint. With those
+    // in the deps array React re-ran the effect between the first ~2 painted cells
+    // and the next move, resetting `painting`/`drewThisGesture` and killing the
+    // stroke (the "freehand only paints 2 tiles" bug). Reading the current callbacks
+    // through this ref lets the gesture closure live for the whole drag.
+    const handlersRef = useRef({ paintAt, applyCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip })
+    handlersRef.current = { paintAt, applyCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip }
+
     useEffect(() => {
         const canvas = canvasRef.current
         if(canvas === null) return
+
+        // Thin wrappers that read the LATEST callback through handlersRef at call
+        // time, so the body below stays unchanged while the effect subscribes once.
+        const draw = () => handlersRef.current.draw()
+        const paintAt = (clientX: number, clientY: number) => handlersRef.current.paintAt(clientX, clientY)
+        const applyCells = (cells: Cell[]) => handlersRef.current.applyCells(cells)
+        const pickAt = (clientX: number, clientY: number, returnToFreehand: boolean) => handlersRef.current.pickAt(clientX, clientY, returnToFreehand)
+        const cellFromEvent = (clientX: number, clientY: number) => handlersRef.current.cellFromEvent(clientX, clientY)
+        const applyZoom = (focalX: number, focalY: number, ratio: number) => handlersRef.current.applyZoom(focalX, focalY, ratio)
+        const applyPan = (dx: number, dy: number) => handlersRef.current.applyPan(dx, dy)
+        const refreshHistoryFlags = () => handlersRef.current.refreshHistoryFlags()
+        const liftSelectionToClip = () => handlersRef.current.liftSelectionToClip()
+        const commitFloatingClip = () => handlersRef.current.commitFloatingClip()
 
         const pointers = pointersRef.current
         // Whether a single-pointer gesture is live and may paint/preview/commit.
@@ -1472,7 +1496,10 @@ export default function MapEditor(){
             canvas.removeEventListener("pointercancel", onUp)
             canvas.removeEventListener("pointerleave", onUp)
         }
-    }, [paintAt, applyCells, pickAt, cellFromEvent, applyZoom, applyPan, draw, refreshHistoryFlags, liftSelectionToClip, commitFloatingClip])
+    // Subscribe ONCE on mount: the canvas element is stable for the component's
+    // life and every callback is read through handlersRef, so the gesture closure
+    // survives a whole drag. (Re-subscribing per render was the freehand bug.)
+    }, [])
 
     // Native trackpad: a Mac pinch arrives as wheel + ctrlKey (so does Ctrl+wheel)
     // -> zoom around the cursor; a plain two-finger scroll -> pan. passive:false so
