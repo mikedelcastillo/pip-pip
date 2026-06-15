@@ -13,16 +13,31 @@ body, html
 
 *
     font-family: $font-family-game
+    // Disable text selection everywhere. iOS/iPadOS need the -webkit- prefix
+    // (and -webkit-touch-callout) or a long press still selects text / pops the
+    // callout menu. Text inputs opt back in below.
+    -webkit-touch-callout: none
+    -webkit-user-select: none
+    -moz-user-select: none
+    -ms-user-select: none
     user-select: none
     font-smooth: never
     position: relative
     box-sizing: border-box
-    
+
     -webkit-user-drag: none
     -khtml-user-drag: none
     -moz-user-drag: none
     -o-user-drag: none
     user-drag: none
+
+// Re-enable selection wherever the user actually types.
+input, textarea, [contenteditable], [contenteditable="true"]
+    -webkit-touch-callout: default
+    -webkit-user-select: text
+    -moz-user-select: text
+    -ms-user-select: text
+    user-select: text
 
     image-rendering: -moz-crisp-edges
     image-rendering: -webkit-crisp-edges
