@@ -2,6 +2,8 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { CACHE_NAME_KEY } from "@pip-pip/game/src/logic/utils"
 import { PipPipGameMode } from "@pip-pip/game/src/logic"
+import { MODE_MIN_KILLS, MODE_MAX_KILLS, MODE_MIN_MINUTES, MODE_MAX_MINUTES } from "@pip-pip/game/src/logic/constants"
+import { clamp } from "@pip-pip/core/src/lib/utils"
 import { GAME_CONTEXT } from "../game"
 import { useUiStore } from "../store/ui"
 import { showAlert } from "../store/alert"
@@ -18,21 +20,13 @@ interface Props {
 const MIN_PLAYERS = 2
 const MAX_PLAYERS = 16
 
-const clampPlayers = (value: number) =>
-    Math.max(MIN_PLAYERS, Math.min(MAX_PLAYERS, value))
+const clampPlayers = (value: number) => clamp(value, MIN_PLAYERS, MAX_PLAYERS)
 
-// DEATHMATCH kills-to-win bounds (uint8 on the wire, so the cap stays well under
-// 255) and the KILL_FRENZY match-length bounds in whole minutes.
-const MIN_KILLS = 5
-const MAX_KILLS = 50
-const MIN_MINUTES = 1
-const MAX_MINUTES = 10
+// Kills-to-win and match-length bounds come from the shared MODE_* source, so the
+// host UI, the in-lobby commands, and the server all clamp to the exact same range.
+const clampKills = (value: number) => clamp(value, MODE_MIN_KILLS, MODE_MAX_KILLS)
 
-const clampKills = (value: number) =>
-    Math.max(MIN_KILLS, Math.min(MAX_KILLS, value))
-
-const clampMinutes = (value: number) =>
-    Math.max(MIN_MINUTES, Math.min(MAX_MINUTES, value))
+const clampMinutes = (value: number) => clamp(value, MODE_MIN_MINUTES, MODE_MAX_MINUTES)
 
 const defaultLobbyName = () => {
     const name = localStorage.getItem(CACHE_NAME_KEY)

@@ -2,20 +2,20 @@ import { describe, expect, it } from "vitest"
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { Vector2 } from "@pip-pip/core/src/physics"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, RAPIDFIRE_MULTIPLIER, applyPowerupEffect } from "@pip-pip/game/src/logic/powerup"
-import { MAX_BUFF_TICKS } from "@pip-pip/game/src/logic/powerup-config"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, RAPIDFIRE_MULTIPLIER, applyBuffEffect } from "@pip-pip/game/src/logic/buff"
+import { MAX_BUFF_TICKS } from "@pip-pip/game/src/logic/buff-config"
 import { packetManager, encode } from "@pip-pip/game/src/networking/packets"
 
 // Ship index 3 ("Blu") uses pure default stats, so its numbers are predictable.
 const BLU = 3
 
 // Build a clean arena with no walls and huge bounds (so nothing is clamped),
-// powerup spawning + damage enabled, phase set to MATCH, one spawned player.
+// buff spawning + damage enabled, phase set to MATCH, one spawned player.
 function makeArena(options = {}){
     const game = new PipPipGame({
         shootPlayerBullets: true,
         triggerDamage: true,
-        spawnPowerups: true,
+        spawnBuffs: true,
         ...options,
     })
 
@@ -35,22 +35,22 @@ function makeArena(options = {}){
     return { game, player }
 }
 
-describe("map powerups", () => {
-    it("heals a spawned player that overlaps a health powerup, capped at max", () => {
+describe("map buffs", () => {
+    it("heals a spawned player that overlaps a health buff, capped at max", () => {
         const { game, player } = makeArena()
         // Damage the ship so a heal has room to act.
         player.ship.capacities.health = 10
         const before = player.ship.capacities.health
 
-        const powerup = game.powerups.new({
+        const buff = game.buffs.new({
             position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
             type: "health",
         })
 
         game.update()
 
-        expect(powerup.dead).toBe(true)
-        expect(game.powerups.getActive()).toHaveLength(0)
+        expect(buff.dead).toBe(true)
+        expect(game.buffs.getActive()).toHaveLength(0)
         expect(player.ship.capacities.health).toBeGreaterThan(before)
         expect(player.ship.capacities.health).toBeLessThanOrEqual(player.ship.maxHealth)
     })
@@ -59,7 +59,7 @@ describe("map powerups", () => {
         const { game, player } = makeArena()
         player.ship.capacities.health = player.ship.maxHealth - 1
 
-        game.powerups.new({
+        game.buffs.new({
             position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
             type: "health",
         })
@@ -69,74 +69,74 @@ describe("map powerups", () => {
         expect(player.ship.capacities.health).toBe(player.ship.maxHealth)
     })
 
-    it("refills weapon and tactical capacity on an ammo powerup", () => {
+    it("refills weapon and tactical capacity on an ammo buff", () => {
         const { game, player } = makeArena()
         player.ship.capacities.weapon = 0
         player.ship.capacities.tactical = 0
 
-        const powerup = game.powerups.new({
+        const buff = game.buffs.new({
             position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
             type: "ammo",
         })
 
         game.update()
 
-        expect(powerup.dead).toBe(true)
+        expect(buff.dead).toBe(true)
         expect(player.ship.capacities.weapon).toBe(player.ship.stats.weapon.capacity)
         expect(player.ship.capacities.tactical).toBe(player.ship.stats.tactical.capacity)
     })
 
-    it("emits a powerupPickup event naming the player and powerup", () => {
+    it("emits a buffPickup event naming the player and buff", () => {
         const { game, player } = makeArena()
         player.ship.capacities.health = 10
-        const picks: Array<{ playerId: string, powerupId: string }> = []
-        game.events.on("powerupPickup", ({ player, powerup }) => {
-            picks.push({ playerId: player.id, powerupId: powerup.id })
+        const picks: Array<{ playerId: string, buffId: string }> = []
+        game.events.on("buffPickup", ({ player, buff }) => {
+            picks.push({ playerId: player.id, buffId: buff.id })
         })
 
-        const powerup = game.powerups.new({
+        const buff = game.buffs.new({
             position: new Vector2(0, 0),
             type: "health",
         })
         game.update()
 
-        expect(picks).toEqual([{ playerId: player.id, powerupId: powerup.id }])
+        expect(picks).toEqual([{ playerId: player.id, buffId: buff.id }])
     })
 
-    it("does not pick up a powerup the player does not overlap", () => {
+    it("does not pick up a buff the player does not overlap", () => {
         const { game, player } = makeArena()
         player.ship.capacities.health = 10
 
-        game.powerups.new({
+        game.buffs.new({
             position: new Vector2(5000, 5000),
             type: "health",
         })
         game.update()
 
-        expect(game.powerups.getActive()).toHaveLength(1)
+        expect(game.buffs.getActive()).toHaveLength(1)
         expect(player.ship.capacities.health).toBe(10)
     })
 
-    it("does not pick up a powerup when the player is despawned", () => {
+    it("does not pick up a buff when the player is despawned", () => {
         const { game, player } = makeArena()
         player.ship.capacities.health = 10
         player.setSpawned(false)
 
-        game.powerups.new({
+        game.buffs.new({
             position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
             type: "health",
         })
         game.update()
 
-        expect(game.powerups.getActive()).toHaveLength(1)
+        expect(game.buffs.getActive()).toHaveLength(1)
         expect(player.ship.capacities.health).toBe(10)
     })
 
-    it("hastes a player that overlaps a haste powerup", () => {
+    it("hastes a player that overlaps a haste buff", () => {
         const { game, player } = makeArena()
         expect(player.ship.timings.haste).toBe(0)
 
-        game.powerups.new({
+        game.buffs.new({
             position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
             type: "haste",
         })
@@ -170,11 +170,11 @@ describe("map powerups", () => {
         expect(fast).toBeGreaterThan(plain)
     })
 
-    it("shields a player that overlaps a shield powerup", () => {
+    it("shields a player that overlaps a shield buff", () => {
         const { game, player } = makeArena()
         expect(player.ship.timings.shield).toBe(0)
 
-        game.powerups.new({
+        game.buffs.new({
             position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
             type: "shield",
         })
@@ -249,7 +249,7 @@ describe("map powerups", () => {
     it("buff timings tick down to 0 over their duration", () => {
         const { game, player } = makeArena()
         // Set both buffs directly: a single pickup loop only picks up one
-        // overlapping powerup per tick, so seed the timings to test tick-down.
+        // overlapping buff per tick, so seed the timings to test tick-down.
         player.ship.timings.haste = HASTE_TICKS
         player.ship.timings.shield = SHIELD_TICKS
 
@@ -264,40 +264,40 @@ describe("map powerups", () => {
         expect(player.ship.timings.shield).toBe(0)
     })
 
-    it("spawns powerups during MATCH when spawnPowerups is enabled", () => {
+    it("spawns buffs during MATCH when spawnBuffs is enabled", () => {
         const { game } = makeArena()
         // Drive enough ticks to cross several spawn intervals.
-        for(let i = 0; i < game.POWERUP_SPAWN_INTERVAL_TICKS * 5; i++) game.update()
-        const active = game.powerups.getActive().length
+        for(let i = 0; i < game.BUFF_SPAWN_INTERVAL_TICKS * 5; i++) game.update()
+        const active = game.buffs.getActive().length
         expect(active).toBeGreaterThan(0)
-        expect(active).toBeLessThanOrEqual(game.powerupDensityTarget())
+        expect(active).toBeLessThanOrEqual(game.buffDensityTarget())
     })
 
     it("never spawns more than the density target", () => {
         const { game } = makeArena()
-        for(let i = 0; i < game.POWERUP_SPAWN_INTERVAL_TICKS * 20; i++) game.update()
-        expect(game.powerups.getActive().length).toBeLessThanOrEqual(game.powerupDensityTarget())
+        for(let i = 0; i < game.BUFF_SPAWN_INTERVAL_TICKS * 20; i++) game.update()
+        expect(game.buffs.getActive().length).toBeLessThanOrEqual(game.buffDensityTarget())
     })
 
-    it("does not spawn powerups when spawnPowerups is disabled", () => {
-        const { game } = makeArena({ spawnPowerups: false })
-        for(let i = 0; i < game.POWERUP_SPAWN_INTERVAL_TICKS * 5; i++) game.update()
-        expect(game.powerups.getActive()).toHaveLength(0)
+    it("does not spawn buffs when spawnBuffs is disabled", () => {
+        const { game } = makeArena({ spawnBuffs: false })
+        for(let i = 0; i < game.BUFF_SPAWN_INTERVAL_TICKS * 5; i++) game.update()
+        expect(game.buffs.getActive()).toHaveLength(0)
     })
 
-    it("does not spawn powerups outside the MATCH phase", () => {
+    it("does not spawn buffs outside the MATCH phase", () => {
         const { game } = makeArena()
         game.setPhase(PipPipGamePhase.SETUP)
-        for(let i = 0; i < game.POWERUP_SPAWN_INTERVAL_TICKS * 5; i++) game.update()
-        expect(game.powerups.getActive()).toHaveLength(0)
+        for(let i = 0; i < game.BUFF_SPAWN_INTERVAL_TICKS * 5; i++) game.update()
+        expect(game.buffs.getActive()).toHaveLength(0)
     })
 
-    it("cloaks a player that overlaps an invis powerup", () => {
+    it("cloaks a player that overlaps an invis buff", () => {
         const { game, player } = makeArena()
         expect(player.ship.timings.invisibility).toBe(0)
         expect(player.ship.isInvisible).toBe(false)
 
-        game.powerups.new({
+        game.buffs.new({
             position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
             type: "invis",
         })
@@ -310,11 +310,11 @@ describe("map powerups", () => {
 })
 
 describe("invisibility (cloak) buff", () => {
-    it("applyPowerupEffect sets the invisibility timer to INVIS_TICKS", () => {
+    it("applyBuffEffect sets the invisibility timer to INVIS_TICKS", () => {
         const { player } = makeArena()
         expect(player.ship.timings.invisibility).toBe(0)
 
-        applyPowerupEffect("invis", player)
+        applyBuffEffect("invis", player)
 
         expect(player.ship.timings.invisibility).toBe(INVIS_TICKS)
     })
@@ -375,11 +375,11 @@ describe("invisibility (cloak) buff", () => {
 })
 
 describe("rapidfire buff", () => {
-    it("applyPowerupEffect sets the rapidfire timer to RAPIDFIRE_TICKS", () => {
+    it("applyBuffEffect sets the rapidfire timer to RAPIDFIRE_TICKS", () => {
         const { player } = makeArena()
         expect(player.ship.timings.rapidfire).toBe(0)
 
-        applyPowerupEffect("rapidfire", player)
+        applyBuffEffect("rapidfire", player)
 
         expect(player.ship.timings.rapidfire).toBe(RAPIDFIRE_TICKS)
         expect(player.ship.hasRapidfire).toBe(true)
@@ -424,11 +424,11 @@ describe("rapidfire buff", () => {
         expect(player.ship.hasRapidfire).toBe(false)
     })
 
-    it("rapidfires a player that overlaps a rapidfire powerup", () => {
+    it("rapidfires a player that overlaps a rapidfire buff", () => {
         const { game, player } = makeArena()
         expect(player.ship.timings.rapidfire).toBe(0)
 
-        game.powerups.new({
+        game.buffs.new({
             position: new Vector2(player.ship.physics.position.x, player.ship.physics.position.y),
             type: "rapidfire",
         })
@@ -513,10 +513,10 @@ describe("timed-buff stacking", () => {
         const { player } = makeArena()
         expect(player.ship.timings.haste).toBe(0)
 
-        applyPowerupEffect("haste", player)
+        applyBuffEffect("haste", player)
         expect(player.ship.timings.haste).toBe(HASTE_TICKS)
 
-        applyPowerupEffect("haste", player)
+        applyBuffEffect("haste", player)
         expect(player.ship.timings.haste).toBe(2 * HASTE_TICKS)
     })
 
@@ -525,7 +525,7 @@ describe("timed-buff stacking", () => {
 
         // Apply far more than enough to exceed the clamp (each adds HASTE_TICKS).
         const grabs = Math.ceil(MAX_BUFF_TICKS / HASTE_TICKS) + 5
-        for(let i = 0; i < grabs; i++) applyPowerupEffect("haste", player)
+        for(let i = 0; i < grabs; i++) applyBuffEffect("haste", player)
 
         expect(player.ship.timings.haste).toBe(MAX_BUFF_TICKS)
     })
@@ -533,12 +533,12 @@ describe("timed-buff stacking", () => {
     it("stacks each timed buff independently into its own timing slot", () => {
         const { player } = makeArena()
 
-        applyPowerupEffect("shield", player)
-        applyPowerupEffect("shield", player)
-        applyPowerupEffect("invis", player)
-        applyPowerupEffect("invis", player)
-        applyPowerupEffect("ricochet", player)
-        applyPowerupEffect("rapidfire", player)
+        applyBuffEffect("shield", player)
+        applyBuffEffect("shield", player)
+        applyBuffEffect("invis", player)
+        applyBuffEffect("invis", player)
+        applyBuffEffect("ricochet", player)
+        applyBuffEffect("rapidfire", player)
 
         expect(player.ship.timings.shield).toBe(2 * SHIELD_TICKS)
         expect(player.ship.timings.invisibility).toBe(2 * INVIS_TICKS)

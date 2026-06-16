@@ -3,7 +3,7 @@ import {
     ClientPlayerStats,
     activeBuffs,
 } from "../../packages/client/src/game/store"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS } from "@pip-pip/game/src/logic/buff"
 
 // A zeroed stats object; tests flip on only the buff fields they care about.
 function makeStats(overrides: Partial<ClientPlayerStats> = {}): ClientPlayerStats {

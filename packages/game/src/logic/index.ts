@@ -3,16 +3,16 @@ import { PointPhysicsWorld, Vector2, airResistanceMultiplier, limitSpeed, WALL_R
 import { distanceBetweenSegments, distanceSegmentToRect, nearestPointFromSegment, radianDifference } from "@pip-pip/core/src/math"
 
 import { Bullet, BulletPool, BulletType, MAX_BULLET_BOUNCES } from "./bullet"
-import { Powerup, PowerupPool, PowerupType, applyPowerupEffect, HASTE_MULTIPLIER } from "./powerup"
+import { Buff, BuffPool, BuffType, applyBuffEffect, HASTE_MULTIPLIER } from "./buff"
 import { PipPlayer, PlayerInputs, ASSIST_WINDOW_TICKS } from "./player"
-import { updateBotInputs, BotDifficulty, makeBotSkill, BotNavContext } from "./ai"
+import { updateBotInputs, BotDifficulty, makeBotSkill, BotNavContext } from "./bot"
 import { getNavGrid } from "./pathfinding"
 import { generateId } from "@pip-pip/core/src/lib/utils"
 import { PipShip } from "./ship"
 import { PipGameMap } from "./map"
 import { PipMapType, PIP_MAPS, CUSTOM_MAP_INDEX, makeCustomMapType } from "../maps"
 import { GridMapData, GridPipGameMap, loadGridMap, validateGridMapData } from "./grid-map"
-import { POWERUP_BLOCK_SIZE, POWERUP_SPAWN_INTERVAL_TICKS, POWERUP_SPAWN_PER_INTERVAL, POWERUP_SPAWN_WEIGHTS } from "./powerup-config"
+import { BUFF_BLOCK_SIZE, BUFF_SPAWN_INTERVAL_TICKS, BUFF_SPAWN_PER_INTERVAL, BUFF_SPAWN_WEIGHTS } from "./buff-config"
 import { tickDown } from "./utils"
 import { INTERP_DELAY_TICKS } from "./constants"
 
@@ -51,9 +51,9 @@ export type PipPipGameEventMap = {
     dealDamage: { dealer: PipPlayer, target: PipPlayer, damage: number },
     playerKill: { killer: PipPlayer, killed: PipPlayer },
 
-    powerupSpawn: { powerup: Powerup },
-    powerupDespawn: { powerup: Powerup },
-    powerupPickup: { player: PipPlayer, powerup: Powerup },
+    buffSpawn: { buff: Buff },
+    buffDespawn: { buff: Buff },
+    buffPickup: { player: PipPlayer, buff: Buff },
 }
 
 export type PipPipGameOptions = {
@@ -69,7 +69,7 @@ export type PipPipGameOptions = {
     triggerDamage: boolean,
     considerPlayerPing: boolean,
 
-    spawnPowerups: boolean,
+    spawnBuffs: boolean,
 }
 
 export enum PipPipGameMode {
@@ -136,6 +136,15 @@ export function teamIndices(numTeams: number): number[] {
     return out
 }
 
+// The team/friendly-fire pair implied by a mode: TEAM_DEATHMATCH runs teams on +
+// friendly-fire off; the free-for-all modes run with neither. One source of truth
+// so every ingress (createLobby, the gameMode packet, the /mode command) lands the
+// exact same consistent pair instead of re-deriving it three different ways.
+export function teamSettingsForMode(mode: PipPipGameMode): { useTeams: boolean, friendlyFire: boolean }{
+    const useTeams = mode === PipPipGameMode.TEAM_DEATHMATCH
+    return { useTeams, friendlyFire: !useTeams }
+}
+
 export enum PipPipGamePhase {
     SETUP,
     COUNTDOWN,
@@ -161,7 +170,6 @@ export type PipPipGameSettings = {
 export class PipPipGame{
     readonly tps = 20
     readonly deltaMs = 1000 / this.tps
-    readonly maxTeams = 4
 
     clientPlayerId = ""
 
@@ -175,7 +183,7 @@ export class PipPipGame{
         setScores: false,
         triggerDamage: false,
         considerPlayerPing: false,
-        spawnPowerups: false,
+        spawnBuffs: false,
     }
 
     events: EventEmitter<PipPipGameEventMap> = new EventEmitter()
@@ -183,25 +191,25 @@ export class PipPipGame{
 
     players: Record<string, PipPlayer> = {}
     bullets: BulletPool
-    powerups: PowerupPool
+    buffs: BuffPool
     ships: Record<string, PipShip> = {}
 
-    // Server-authoritative powerup spawning (gated on options.spawnPowerups):
-    // density-based, not a fixed cap. The target is one powerup per
-    // POWERUP_BLOCK_SIZE^2 EMPTY (walkable) tiles, so bigger open maps fill with
-    // proportionally more powerups. POWERUP_SPAWN_PER_INTERVAL are placed every
-    // POWERUP_SPAWN_INTERVAL_TICKS during MATCH (one at a time by default), so the
+    // Server-authoritative buff spawning (gated on options.spawnBuffs):
+    // density-based, not a fixed cap. The target is one buff per
+    // BUFF_BLOCK_SIZE^2 EMPTY (walkable) tiles, so bigger open maps fill with
+    // proportionally more buffs. BUFF_SPAWN_PER_INTERVAL are placed every
+    // BUFF_SPAWN_INTERVAL_TICKS during MATCH (one at a time by default), so the
     // field fills in gradually toward the density target; the same loop tops the
     // field back up after a pickup frees a slot.
-    readonly POWERUP_SPAWN_INTERVAL_TICKS = POWERUP_SPAWN_INTERVAL_TICKS
+    readonly BUFF_SPAWN_INTERVAL_TICKS = BUFF_SPAWN_INTERVAL_TICKS
     // Counts down to the next spawn attempt; starts at a full interval so the
     // field is not flooded the instant a match begins.
-    powerupSpawnTimer = POWERUP_SPAWN_INTERVAL_TICKS
+    buffSpawnTimer = BUFF_SPAWN_INTERVAL_TICKS
     // Lazily-built cache of world-space centres for every EMPTY (walkable) tile of
     // the current grid map; the candidate pool for density spawning. Built on first
     // use and invalidated (set undefined) whenever the map changes (setMap /
     // setCustomMap), so it always matches the live geometry.
-    private powerupTileCenters?: Vector2[]
+    private buffTileCenters?: Vector2[]
 
     host?: PipPlayer
 
@@ -255,7 +263,7 @@ export class PipPipGame{
         }
         this.physics.options.baseTps = this.tps
         this.bullets = new BulletPool(this)
-        this.powerups = new PowerupPool(this)
+        this.buffs = new BuffPool(this)
         this.setMap()
     }
 
@@ -293,7 +301,7 @@ export class PipPipGame{
         // data. setCustomMap is the only path that sets this back.
         this.customMapData = undefined
         // The walkable-tile cache is now stale (geometry changed); rebuild lazily.
-        this.powerupTileCenters = undefined
+        this.buffTileCenters = undefined
 
         this.events.emit("setMap", { mapIndex: index, mapType })
     }
@@ -338,7 +346,7 @@ export class PipPipGame{
         this.mapType = mapType
         this.customMapData = valid
         // The walkable-tile cache is now stale (geometry changed); rebuild lazily.
-        this.powerupTileCenters = undefined
+        this.buffTileCenters = undefined
 
         this.events.emit("setMap", { mapIndex: CUSTOM_MAP_INDEX, mapType })
     }
@@ -425,7 +433,7 @@ export class PipPipGame{
     // broadcast to every real client by the normal per-player broadcast, since
     // that iterates all players. During a live MATCH the bot is spawned
     // immediately so it joins the fight at once. The difficulty is reflected in
-    // the display name (e.g. "BOT-H-3"), so it rides the existing name broadcast.
+    // the display name (e.g. "BOT_H_3"), so it rides the existing name broadcast.
     // rng is injected so the skill variance is deterministic in tests.
     // Returns undefined (and adds nothing) once the match is already at the
     // MAX_BOTS hard cap, so every add path is bounded here at one authoritative
@@ -436,7 +444,7 @@ export class PipPipGame{
         bot.isBot = true
         bot.difficulty = difficulty
         bot.skill = makeBotSkill(difficulty, rng)
-        bot.setName("BOT-" + this.botDifficultyTag(difficulty) + "-" + bot.id.slice(1).toUpperCase())
+        bot.setName("BOT_" + this.botDifficultyTag(difficulty) + "_" + bot.id.slice(1).toUpperCase())
         this.addPlayerMidGame(bot)
         return bot
     }
@@ -502,7 +510,7 @@ export class PipPipGame{
         this.players = {}
         this.ships = {}
         this.bullets.destroy()
-        this.powerups.destroy()
+        this.buffs.destroy()
         this.events.destroy()
         this.physics.destroy()
     }
@@ -514,7 +522,7 @@ export class PipPipGame{
 
     startMatch(){
         this.countdown = this.tps * 6 // 6 second count down
-        this.powerupSpawnTimer = this.POWERUP_SPAWN_INTERVAL_TICKS
+        this.buffSpawnTimer = this.BUFF_SPAWN_INTERVAL_TICKS
         // Arm the KILL_FRENZY clock (whole minutes -> ticks). DEATHMATCH never
         // reads matchTimer, so leaving it set is harmless there; clamped to at
         // least one minute so a misconfigured 0 can never end the match instantly.
@@ -666,7 +674,7 @@ export class PipPipGame{
             // Build the per-tick player list ONCE here and thread it through the
             // two per-tick systems (and the helpers they call this tick). The
             // ~5 Object.values(this.players) calls inside updateSystems /
-            // updatePhysics / updateBulletPhysics / updatePowerupPickups each
+            // updatePhysics / updateBulletPhysics / updateBuffPickups each
             // rebuilt the SAME array per tick; this hoists that allocation to a
             // single call. It is byte-identical to the old code because the
             // player SET cannot change between here and the uses: players are
@@ -912,7 +920,7 @@ export class PipPipGame{
                 // shared across every bot this tick (chooseBotGoal only reads them).
                 // Built only when there is at least one spawned bot, so a bot-free
                 // match pays nothing.
-                let activePowerups: Powerup[] | undefined
+                let activeBuffs: Buff[] | undefined
                 for(const player of allPlayers){
                     if(player.isBot === true && player.spawned === true){
                         if(typeof nav === "undefined"){
@@ -923,10 +931,10 @@ export class PipPipGame{
                                 tick: this.tickNumber,
                             }
                         }
-                        if(typeof activePowerups === "undefined"){
-                            activePowerups = this.powerups.getActive()
+                        if(typeof activeBuffs === "undefined"){
+                            activeBuffs = this.buffs.getActive()
                         }
-                        updateBotInputs(player, allPlayers, Math.random, nav, activePowerups, this.settings.useTeams)
+                        updateBotInputs(player, allPlayers, Math.random, nav, activeBuffs, this.settings.useTeams)
                     }
                 }
             }
@@ -1042,40 +1050,40 @@ export class PipPipGame{
                 }
             }
 
-            // spawn map powerups (server-authoritative)
-            this.updatePowerupSpawns()
+            // spawn map buffs (server-authoritative)
+            this.updateBuffSpawns()
         } else{
             // destroy all bullets
             this.bullets.destroy()
-            // destroy all powerups (so a match that ends clears the field)
-            this.powerups.destroy()
+            // destroy all buffs (so a match that ends clears the field)
+            this.buffs.destroy()
         }
     }
 
-    // Server-authoritative powerup spawning. Gated on options.spawnPowerups so a
+    // Server-authoritative buff spawning. Gated on options.spawnBuffs so a
     // non-authoritative client never invents pickups (it only receives them via
     // packets). Only runs during MATCH (the single MATCH-branch caller already
-    // guarantees this). Every POWERUP_SPAWN_INTERVAL_TICKS it places up to
-    // POWERUP_SPAWN_PER_INTERVAL powerups, but never beyond the density target
-    // (one per POWERUP_BLOCK_SIZE^2 empty tiles); the same loop handles respawn
+    // guarantees this). Every BUFF_SPAWN_INTERVAL_TICKS it places up to
+    // BUFF_SPAWN_PER_INTERVAL buffs, but never beyond the density target
+    // (one per BUFF_BLOCK_SIZE^2 empty tiles); the same loop handles respawn
     // after a pickup drops the active count back below the target.
-    updatePowerupSpawns(){
-        if(this.options.spawnPowerups !== true) return
+    updateBuffSpawns(){
+        if(this.options.spawnBuffs !== true) return
 
-        if(this.powerupSpawnTimer > 0){
-            this.powerupSpawnTimer = tickDown(this.powerupSpawnTimer, 1)
+        if(this.buffSpawnTimer > 0){
+            this.buffSpawnTimer = tickDown(this.buffSpawnTimer, 1)
             return
         }
-        this.powerupSpawnTimer = this.POWERUP_SPAWN_INTERVAL_TICKS
+        this.buffSpawnTimer = this.BUFF_SPAWN_INTERVAL_TICKS
 
-        for(let i = 0; i < POWERUP_SPAWN_PER_INTERVAL; i++){
-            if(this.powerups.getActive().length >= this.powerupDensityTarget()) break
+        for(let i = 0; i < BUFF_SPAWN_PER_INTERVAL; i++){
+            if(this.buffs.getActive().length >= this.buffDensityTarget()) break
 
-            const position = this.randomFreePowerupTile()
+            const position = this.randomFreeBuffTile()
             if(typeof position === "undefined") break
 
-            const type = this.weightedRandomPowerupType()
-            this.powerups.new({ position, type })
+            const type = this.weightedRandomBuffType()
+            this.buffs.new({ position, type })
         }
     }
 
@@ -1084,10 +1092,10 @@ export class PipPipGame{
     // (solid OR deco) and is never a spawn target. Tile (col,row) centres at
     // ((col + originCol) * cellSize, (row + originRow) * cellSize) -- matching
     // grid-map.ts, where cell (c,r) is centred on (c*cellSize, r*cellSize) with NO
-    // half-cell offset, so a powerup sits exactly on the tile centre (and well
+    // half-cell offset, so a buff sits exactly on the tile centre (and well
     // clear of the walls in adjacent cells: radius 24 < half a 72-unit cell).
     // Returns [] when the live map is not a GridPipGameMap (no tile grid).
-    private buildPowerupTileCenters(): Vector2[] {
+    private buildBuffTileCenters(): Vector2[] {
         const centers: Vector2[] = []
         if(!(this.map instanceof GridPipGameMap)) return centers
 
@@ -1110,26 +1118,26 @@ export class PipPipGame{
     }
 
     // Cached accessor for the walkable-tile centres, building them on first use.
-    private getPowerupTileCenters(): Vector2[] {
-        if(typeof this.powerupTileCenters === "undefined"){
-            this.powerupTileCenters = this.buildPowerupTileCenters()
+    private getBuffTileCenters(): Vector2[] {
+        if(typeof this.buffTileCenters === "undefined"){
+            this.buffTileCenters = this.buildBuffTileCenters()
         }
-        return this.powerupTileCenters
+        return this.buffTileCenters
     }
 
-    // Density target: how many powerups the current map should hold, one per
-    // POWERUP_BLOCK_SIZE x POWERUP_BLOCK_SIZE block of empty tiles. Returns 0 on
+    // Density target: how many buffs the current map should hold, one per
+    // BUFF_BLOCK_SIZE x BUFF_BLOCK_SIZE block of empty tiles. Returns 0 on
     // maps with no walkable tiles (e.g. non-grid maps).
-    powerupDensityTarget(): number {
-        const tileCount = this.getPowerupTileCenters().length
-        return Math.floor(tileCount / (POWERUP_BLOCK_SIZE * POWERUP_BLOCK_SIZE))
+    buffDensityTarget(): number {
+        const tileCount = this.getBuffTileCenters().length
+        return Math.floor(tileCount / (BUFF_BLOCK_SIZE * BUFF_BLOCK_SIZE))
     }
 
-    // Weighted-random powerup type using POWERUP_SPAWN_WEIGHTS: sum the weights,
+    // Weighted-random buff type using BUFF_SPAWN_WEIGHTS: sum the weights,
     // roll within the total, then walk the entries subtracting each weight until
     // the roll is consumed. A type with double the weight is picked ~twice as often.
-    weightedRandomPowerupType(): PowerupType {
-        const entries = Object.entries(POWERUP_SPAWN_WEIGHTS) as [PowerupType, number][]
+    weightedRandomBuffType(): BuffType {
+        const entries = Object.entries(BUFF_SPAWN_WEIGHTS) as [BuffType, number][]
         let total = 0
         for(const [, weight] of entries) total += weight
 
@@ -1142,16 +1150,16 @@ export class PipPipGame{
         return entries[entries.length - 1][0]
     }
 
-    // Pick a uniformly-random EMPTY tile that no active powerup already occupies.
-    // Occupancy is determined by mapping each active powerup's world position back
-    // to its cell (the inverse of buildPowerupTileCenters' centre formula) and
-    // skipping any candidate whose cell is taken. Falls back to randomPowerupPosition
+    // Pick a uniformly-random EMPTY tile that no active buff already occupies.
+    // Occupancy is determined by mapping each active buff's world position back
+    // to its cell (the inverse of buildBuffTileCenters' centre formula) and
+    // skipping any candidate whose cell is taken. Falls back to randomBuffPosition
     // when the live map is not a GridPipGameMap; returns undefined when no free tile
     // exists.
-    randomFreePowerupTile(): Vector2 | undefined {
-        if(!(this.map instanceof GridPipGameMap)) return this.randomPowerupPosition()
+    randomFreeBuffTile(): Vector2 | undefined {
+        if(!(this.map instanceof GridPipGameMap)) return this.randomBuffPosition()
 
-        const centers = this.getPowerupTileCenters()
+        const centers = this.getBuffTileCenters()
         if(centers.length === 0) return undefined
 
         const src = this.map.source
@@ -1160,9 +1168,9 @@ export class PipPipGame{
         const originRow = src.originRow ?? 0
 
         const occupied = new Set<string>()
-        for(const powerup of this.powerups.getActive()){
-            const col = Math.round(powerup.position.x / cellSize - originCol)
-            const row = Math.round(powerup.position.y / cellSize - originRow)
+        for(const buff of this.buffs.getActive()){
+            const col = Math.round(buff.position.x / cellSize - originCol)
+            const row = Math.round(buff.position.y / cellSize - originRow)
             occupied.add(`${col},${row}`)
         }
 
@@ -1178,10 +1186,10 @@ export class PipPipGame{
         return free[Math.floor(Math.random() * free.length)]
     }
 
-    // Pick an open world position for a powerup. Reuses the map's spawn points
+    // Pick an open world position for a buff. Reuses the map's spawn points
     // (already guaranteed open, away from walls) like spawnPlayer does — simple
     // and collision-free. Returns undefined when the map has no spawn points.
-    randomPowerupPosition(){
+    randomBuffPosition(){
         if(this.map.spawns.length === 0) return undefined
         const index = Math.floor(Math.random() * this.map.spawns.length)
         const spawn = this.map.spawns[index]
@@ -1192,34 +1200,34 @@ export class PipPipGame{
         )
     }
 
-    // Resolve powerup pickups: a SPAWNED player whose ship overlaps an active
-    // powerup (circle-vs-circle, like bullet-vs-player) picks it up. The effect
-    // is applied server-side and gated like damage on spawnPowerups, the powerup
-    // is marked dead, and powerupPickup is emitted so the broadcast can tell
+    // Resolve buff pickups: a SPAWNED player whose ship overlaps an active
+    // buff (circle-vs-circle, like bullet-vs-player) picks it up. The effect
+    // is applied server-side and gated like damage on spawnBuffs, the buff
+    // is marked dead, and buffPickup is emitted so the broadcast can tell
     // clients to remove it. A non-authoritative client never runs this (the flag
-    // is off there); it removes powerups purely from the powerupPickup packet.
+    // is off there); it removes buffs purely from the buffPickup packet.
     // players is the per-tick snapshot threaded from updatePhysics (built once in
     // update()); defaulted so an out-of-tick caller still works unchanged.
-    updatePowerupPickups(players: PipPlayer[] = Object.values(this.players)){
-        if(this.options.spawnPowerups !== true) return
+    updateBuffPickups(players: PipPlayer[] = Object.values(this.players)){
+        if(this.options.spawnBuffs !== true) return
 
         for(const player of players){
             if(player.spawned === false) continue
-            for(const powerup of this.powerups.getActive()){
-                const dx = player.ship.physics.position.x - powerup.position.x
-                const dy = player.ship.physics.position.y - powerup.position.y
-                const r = player.ship.physics.radius + powerup.radius
+            for(const buff of this.buffs.getActive()){
+                const dx = player.ship.physics.position.x - buff.position.x
+                const dy = player.ship.physics.position.y - buff.position.y
+                const r = player.ship.physics.radius + buff.radius
                 if(dx * dx + dy * dy > r * r) continue
-                this.pickupPowerup(player, powerup)
+                this.pickupBuff(player, buff)
                 break
             }
         }
     }
 
-    pickupPowerup(player: PipPlayer, powerup: Powerup){
-        applyPowerupEffect(powerup.type, player)
-        this.events.emit("powerupPickup", { player, powerup })
-        this.powerups.unset(powerup)
+    pickupBuff(player: PipPlayer, buff: Buff){
+        applyBuffEffect(buff.type, player)
+        this.events.emit("buffPickup", { player, buff })
+        this.buffs.unset(buff)
     }
 
     // Emit `count` bullets for one shot, fanned evenly across a cone of total
@@ -1823,8 +1831,8 @@ export class PipPipGame{
             this.applyMapBounds(player)
         }
 
-        // Resolve powerup pickups against final ship positions this tick.
-        this.updatePowerupPickups(players)
+        // Resolve buff pickups against final ship positions this tick.
+        this.updateBuffPickups(players)
 
         for(const player of players){
             player.trackPositionState()

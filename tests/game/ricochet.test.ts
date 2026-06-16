@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest"
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { PointPhysicsSegmentWall, Vector2 } from "@pip-pip/core/src/physics"
-import { applyPowerupEffect, RICOCHET_TICKS } from "@pip-pip/game/src/logic/powerup"
+import { applyBuffEffect, RICOCHET_TICKS } from "@pip-pip/game/src/logic/buff"
 import { MAX_BULLET_BOUNCES } from "@pip-pip/game/src/logic/bullet"
 
 // Ship index 3 ("Blu") uses pure default stats, so its numbers are predictable.
 const BLU = 3
 
-// Build a clean arena with NO walls and huge bounds, damage + powerups enabled,
+// Build a clean arena with NO walls and huge bounds, damage + buffs enabled,
 // phase MATCH, one spawned player who OWNS the bullets we fire. A single
 // horizontal wall is added by the tests that need one (so other tests stay in an
 // empty arena). The owning player is what carries the ricochet buff.
@@ -16,7 +16,7 @@ function makeArena(){
     const game = new PipPipGame({
         shootPlayerBullets: true,
         triggerDamage: true,
-        spawnPowerups: true,
+        spawnBuffs: true,
     })
 
     for(const seg of game.map.segWalls) game.physics.removeSegWall(seg)
@@ -45,12 +45,12 @@ function addHorizontalWall(game: PipPipGame){
     return wall
 }
 
-describe("ricochet powerup", () => {
-    it("applyPowerupEffect sets the ricochet timer to RICOCHET_TICKS", () => {
+describe("ricochet buff", () => {
+    it("applyBuffEffect sets the ricochet timer to RICOCHET_TICKS", () => {
         const { player } = makeArena()
         expect(player.ship.timings.ricochet).toBe(0)
 
-        applyPowerupEffect("ricochet", player)
+        applyBuffEffect("ricochet", player)
 
         expect(player.ship.timings.ricochet).toBe(RICOCHET_TICKS)
         expect(player.ship.hasRicochet).toBe(true)
@@ -81,15 +81,15 @@ describe("ricochet powerup", () => {
         expect(player.ship.hasRicochet).toBe(false)
     })
 
-    it("hastes-style spawn: picks up a ricochet powerup it overlaps", () => {
+    it("hastes-style spawn: picks up a ricochet buff it overlaps", () => {
         const { game, player } = makeArena()
-        // Move the owner onto a powerup so the pickup loop applies it.
+        // Move the owner onto a buff so the pickup loop applies it.
         player.ship.physics.position.x = 0
         player.ship.physics.position.y = 0
         player.trackPositionState()
         expect(player.ship.timings.ricochet).toBe(0)
 
-        game.powerups.new({
+        game.buffs.new({
             position: new Vector2(0, 0),
             type: "ricochet",
         })

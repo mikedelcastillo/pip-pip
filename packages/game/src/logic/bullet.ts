@@ -7,6 +7,21 @@ import { tickDown } from "./utils"
 
 export type BulletType = "primary" | "tactical" | "grenade"
 
+// Wire mapping for BulletType on the playerBullet packet (a uint8), mirroring the
+// buff/team wire enums: one named table both sides share so neither hand-rolls the
+// 0/1/2 mapping. Append new types here; codes stay <= 255 to fit the $uint8 field.
+export const BULLET_TYPE_TO_CODE: Record<BulletType, number> = {
+    primary: 0,
+    tactical: 1,
+    grenade: 2,
+}
+
+export const BULLET_CODE_TO_TYPE: Record<number, BulletType> = {
+    0: "primary",
+    1: "tactical",
+    2: "grenade",
+}
+
 export type BulletParams = {
     position: Vector2,
     velocity?: Vector2,
@@ -142,10 +157,6 @@ export class BulletPool {
         return Object.values(this.bullets).filter(bullet => bullet.dead === false)
     }
 
-    log(){
-        //
-    }
-
     new(params: BulletParams){
         let outputBullet: Bullet
         const reusableBullet = this.getAll().find(bullet => bullet.dead === true)
@@ -159,7 +170,6 @@ export class BulletPool {
         }
         
         outputBullet.set(params)
-        this.log()
         return outputBullet
     }
 
@@ -167,7 +177,6 @@ export class BulletPool {
         if(!(bullet.id in this.bullets)) return
         if(bullet.dead === false){
             bullet.unset()
-            this.log()
         }
     }
 

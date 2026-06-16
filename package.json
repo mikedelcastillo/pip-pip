@@ -23,7 +23,6 @@
     "client": "yarn workspace @pip-pip/client",
     "game": "yarn workspace @pip-pip/game",
     "core": "yarn workspace @pip-pip/core",
-    "map": "yarn workspace @pip-pip/map-maker",
     "dev": "bash ./scripts/dev.sh",
     "build": "bash ./scripts/build.sh",
     "deploy": "bash ./scripts/deploy.sh",

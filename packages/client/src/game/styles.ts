@@ -1,4 +1,4 @@
-import { SHIP_DAIMETER } from "@pip-pip/game/src/logic/constants"
+import { SHIP_DIAMETER } from "@pip-pip/game/src/logic/constants"
 
 export const COLORS = {
     MAIN: 0xE6AE10,
@@ -15,7 +15,7 @@ export const COLORS = {
 
 export const DIMS = {
     HEALTH_BAR_BORDER: 2,
-    HEALTH_BAR_WIDTH: SHIP_DAIMETER,
+    HEALTH_BAR_WIDTH: SHIP_DIAMETER,
     HEALTH_BAR_HEIGHT: 2,
-    HEALTH_BAR_OFFSET: - SHIP_DAIMETER / 2
+    HEALTH_BAR_OFFSET: - SHIP_DIAMETER / 2
 }

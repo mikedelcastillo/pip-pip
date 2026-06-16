@@ -10,7 +10,7 @@ import {
     HOST_BOTS_ACTION_FILL,
     HOST_BOTS_DIFFICULTY_MIXED,
 } from "@pip-pip/game/src/networking/packets"
-import { POWERUP_TYPE_TO_CODE, POWERUP_CODE_TO_TYPE } from "@pip-pip/game/src/logic/powerup"
+import { BUFF_TYPE_TO_CODE, BUFF_CODE_TO_TYPE } from "@pip-pip/game/src/logic/buff"
 
 // These guard the wire format shared by client and server. A change to a packet's
 // field set or serializer that breaks compatibility shows up here as a round-trip
@@ -176,10 +176,10 @@ describe("game packetManager wire format", () => {
         expect(out).toEqual(scores)
     })
 
-    it("round-trips powerupSpawn (string id + uint8 type + quantized position)", () => {
+    it("round-trips buffSpawn (string id + uint8 type + quantized position)", () => {
         const decoded = packetManager.decode(
-            packetManager.encode("powerupSpawn", { id: "ab12", type: 1, x: 320, y: -480 }),
-        ).powerupSpawn?.[0]
+            packetManager.encode("buffSpawn", { id: "ab12", type: 1, x: 320, y: -480 }),
+        ).buffSpawn?.[0]
         expect(decoded?.id).toBe("ab12")
         expect(decoded?.type).toBe(1)
         // $worldPos is fixed-point, so positions come back within quantization noise.
@@ -187,11 +187,11 @@ describe("game packetManager wire format", () => {
         expect(decoded?.y).toBeCloseTo(-480, 0)
     })
 
-    it("round-trips powerupPickup exactly (powerup id + player id)", () => {
+    it("round-trips buffPickup exactly (buff id + player id)", () => {
         const decoded = packetManager.decode(
-            packetManager.encode("powerupPickup", { id: "wxyz", playerId: "ab" }),
+            packetManager.encode("buffPickup", { id: "wxyz", playerId: "ab" }),
         )
-        expect(decoded.powerupPickup?.[0]).toEqual({ id: "wxyz", playerId: "ab" })
+        expect(decoded.buffPickup?.[0]).toEqual({ id: "wxyz", playerId: "ab" })
     })
 
     it("round-trips playerShipTimings including haste/shield/invisibility/ricochet/rapidfire (uint8)", () => {
@@ -226,14 +226,14 @@ describe("game packetManager wire format", () => {
         expect(out?.rapidfire).toBe(200)
     })
 
-    it("round-trips the invis powerup wire code through powerupSpawn", () => {
-        const code = POWERUP_TYPE_TO_CODE.invis
+    it("round-trips the invis buff wire code through buffSpawn", () => {
+        const code = BUFF_TYPE_TO_CODE.invis
         const decoded = packetManager.decode(
-            packetManager.encode("powerupSpawn", { id: "inv1", type: code, x: 0, y: 0 }),
-        ).powerupSpawn?.[0]
+            packetManager.encode("buffSpawn", { id: "inv1", type: code, x: 0, y: 0 }),
+        ).buffSpawn?.[0]
         expect(decoded?.type).toBe(code)
-        // The client reverses the code back to "invis" via POWERUP_CODE_TO_TYPE.
-        expect(POWERUP_CODE_TO_TYPE[decoded?.type ?? -1]).toBe("invis")
+        // The client reverses the code back to "invis" via BUFF_CODE_TO_TYPE.
+        expect(BUFF_CODE_TO_TYPE[decoded?.type ?? -1]).toBe("invis")
     })
 
     it("round-trips playerInputs within float16 precision", () => {

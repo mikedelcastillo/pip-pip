@@ -2,10 +2,10 @@ import { RecursivePartial } from "@pip-pip/core/src/lib/types"
 import { radianDifference } from "@pip-pip/core/src/math"
 import { PointPhysicsObject } from "@pip-pip/core/src/physics"
 import { PipPipGame } from "."
-import { SHIP_DAIMETER } from "./constants"
+import { SHIP_DIAMETER } from "./constants"
 import { MOVEMENT_CONFIG, MOVEMENT_ACCEL_RANGE, MOVEMENT_SPEED_RANGE } from "./physics-config"
 import { PipPlayer } from "./player"
-import { RAPIDFIRE_MULTIPLIER } from "./powerup"
+import { RAPIDFIRE_MULTIPLIER } from "./buff"
 import { tickDown } from "./utils"
 
 export type StatRange = {
@@ -187,12 +187,12 @@ export type ShipTimings = {
     healthRegenerationRest: number,
     healthRegenerationHeal: number,
     invincibility: number,
-    // Timed buffs from powerups. While > 0 the ship is hasted (faster
+    // Timed buffs from buffs. While > 0 the ship is hasted (faster
     // acceleration) / shielded (takes no damage) / invisible (cloaked, hard for
     // enemies to see) / ricochet (its bullets bounce off walls) / rapidfire (its
     // weapon-rate cooldown is shortened so it fires faster). `invisibility` is a
     // DISTINCT timer from the `invincibility` no-damage timer above - they are
-    // unrelated. Set by applyPowerupEffect, ticked down each tick in update().
+    // unrelated. Set by applyBuffEffect, ticked down each tick in update().
     // haste/shield/invisibility/ricochet/rapidfire are all networked via
     // playerShipTimings so remote ships and the tactical feed see the windows.
     haste: number,
@@ -291,7 +291,7 @@ export class PipShip{
 
     setupPhysics(){
         this.physics.mass = MOVEMENT_CONFIG.mass
-        this.physics.radius = SHIP_DAIMETER / 2
+        this.physics.radius = SHIP_DIAMETER / 2
         this.physics.airResistance = MOVEMENT_CONFIG.friction
         // Ships collide with each other AND with walls. The client simulates
         // every ship, so it predicts the push too; the brief residual on

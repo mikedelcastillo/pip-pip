@@ -8,20 +8,20 @@ import { assetLoader } from "./assets"
 import { CRTFilter, GlitchFilter, PixelateFilter, BulgePinchFilter } from "pixi-filters"
 import { DisplacementFilter } from "@pixi/filter-displacement"
 import { Point } from "pixi.js"
-import { SHIP_DAIMETER } from "@pip-pip/game/src/logic/constants"
+import { SHIP_DIAMETER } from "@pip-pip/game/src/logic/constants"
 import { PipGameTile } from "@pip-pip/game/src/logic/map"
-import { blockStyleFor, tilePolygon, polygonToFlat } from "./mapGraphics"
+import { materialStyleFor, tilePolygon, polygonToFlat } from "./mapGraphics"
 import { COLORS, DIMS } from "./styles"
 import { Bullet } from "@pip-pip/game/src/logic/bullet"
-import { Powerup, POWERUP_RADIUS } from "@pip-pip/game/src/logic/powerup"
+import { Buff, BUFF_RADIUS } from "@pip-pip/game/src/logic/buff"
 import { tickDown } from "@pip-pip/game/src/logic/utils"
 import { exceedsSnapDistance } from "./interpolation"
 import { Vector2 } from "@pip-pip/core/src/physics"
 import { EventCallback, EventMapOf } from "@pip-pip/core/src/common/events"
 import { healthBarColor, isTeamMode } from "./teams"
-import { useGameStore } from "./store"
+import { useGameStore, BUFF_COLORS_NUMERIC } from "./store"
 import { findPath, getNavGrid } from "@pip-pip/game/src/logic/pathfinding"
-import { findNearestEnemy } from "@pip-pip/game/src/logic/ai"
+import { findNearestEnemy } from "@pip-pip/game/src/logic/bot"
 import {
     ParticleSystem,
     emitExplosion,
@@ -248,22 +248,17 @@ export class DamageGraphic extends PoolableGraphic {
     }
 }
 
-// On-brand procedural powerup pickup: a small glowing diamond (rotated square)
+// On-brand procedural buff pickup: a small glowing diamond (rotated square)
 // with a soft outer halo, colour per type (green = health, amber = ammo, cyan =
 // haste, purple = shield, pale ghost-white = invis cloak, pink = ricochet). No
 // art assets - drawn with Pixi Graphics and pulsed/spun in render().
-export class PowerupGraphic extends PoolableGraphic {
-    static COLORS: Record<string, number> = {
-        health: 0x33DD55,
-        ammo: 0xFFAA33,
-        haste: 0x33CCFF,
-        shield: 0xAA66FF,
-        invis: 0xCCE6FF,
-        ricochet: 0xFF66AA,
-        rapidfire: 0xFFE14D,
-    }
+export class BuffGraphic extends PoolableGraphic {
+    // Single-sourced from store BUFF_COLORS_NUMERIC via a lazy getter (read at draw
+    // time, after modules load, so it stays safe against the store<->renderer import
+    // cycle). A palette tweak in the store can no longer desync the world buff from the HUD.
+    static get COLORS(): Record<string, number> { return BUFF_COLORS_NUMERIC }
 
-    powerup?: Powerup
+    buff?: Buff
     graphic = new PIXI.Graphics()
     spin = 0
 
@@ -272,17 +267,17 @@ export class PowerupGraphic extends PoolableGraphic {
         this.container.addChild(this.graphic)
     }
 
-    setup(powerup: Powerup){
-        this.powerup = powerup
-        this.container.position.x = powerup.position.x
-        this.container.position.y = powerup.position.y
+    setup(buff: Buff){
+        this.buff = buff
+        this.container.position.x = buff.position.x
+        this.container.position.y = buff.position.y
         this.spin = 0
     }
 
     draw(pulse: number){
-        const type = this.powerup?.type ?? "health"
-        const color = PowerupGraphic.COLORS[type] ?? 0xFFFFFF
-        const r = POWERUP_RADIUS * (0.85 + 0.15 * pulse)
+        const type = this.buff?.type ?? "health"
+        const color = BuffGraphic.COLORS[type] ?? 0xFFFFFF
+        const r = BUFF_RADIUS * (0.85 + 0.15 * pulse)
 
         this.graphic.clear()
         // Soft outer halo.
@@ -301,7 +296,7 @@ export class PowerupGraphic extends PoolableGraphic {
     }
 
     cleanUp(){
-        this.powerup = undefined
+        this.buff = undefined
         this.graphic.clear()
     }
 }
@@ -373,7 +368,7 @@ export class MapLayerGraphic {
         let maxY = -Infinity
 
         for(const tile of tiles){
-            const style = blockStyleFor(tile)
+            const style = materialStyleFor(tile)
             const points = tilePolygon(tile)
             const flat = polygonToFlat(points)
 
@@ -524,8 +519,8 @@ export class PlayerGraphic {
         this.shipSprite.anchor.set(0.5)
         this.shipSprite.position.set(0)
         this.shipSprite.rotation = Math.PI / 2
-        this.shipSprite.width = SHIP_DAIMETER
-        this.shipSprite.height = SHIP_DAIMETER
+        this.shipSprite.width = SHIP_DIAMETER
+        this.shipSprite.height = SHIP_DIAMETER
         this.shipContainer.addChild(this.shipSprite)
     }
 }
@@ -540,7 +535,7 @@ export class PipPipRenderer{
     viewportContainer = new PIXI.Container()
     playersContainer = new PIXI.Container()
     bulletsContainer = new PIXI.Container()
-    powerupsContainer = new PIXI.Container()
+    buffsContainer = new PIXI.Container()
     damagesContainer = new PIXI.Container()
     particlesContainer = new PIXI.Container()
 
@@ -555,7 +550,7 @@ export class PipPipRenderer{
 
     damages: GraphicPool<DamageGraphic>
     bullets: GraphicPool<BulletGraphic>
-    powerups: GraphicPool<PowerupGraphic>
+    buffs: GraphicPool<BuffGraphic>
     particles: GraphicPool<ParticleGraphic>
     players: Record<string, PlayerGraphic> = {}
 
@@ -615,7 +610,7 @@ export class PipPipRenderer{
         this.viewportContainer.addChild(this.bulletsContainer)
         this.viewportContainer.addChild(this.mapBackgroundContainer)
         this.viewportContainer.addChild(this.debugContainer)
-        this.viewportContainer.addChild(this.powerupsContainer)
+        this.viewportContainer.addChild(this.buffsContainer)
         this.viewportContainer.addChild(this.playersContainer)
         this.viewportContainer.addChild(this.mapForegroundContainer)
         this.viewportContainer.addChild(this.particlesContainer)
@@ -631,7 +626,7 @@ export class PipPipRenderer{
         this.debugContainer.addChild(this.botPathsGraphic)
 
         this.bullets = new GraphicPool(this.bulletsContainer, BulletGraphic)
-        this.powerups = new GraphicPool(this.powerupsContainer, PowerupGraphic)
+        this.buffs = new GraphicPool(this.buffsContainer, BuffGraphic)
         this.damages = new GraphicPool(this.damagesContainer, DamageGraphic)
         this.particles = new GraphicPool(this.particlesContainer, ParticleGraphic)
 
@@ -751,19 +746,19 @@ export class PipPipRenderer{
             )
         })
 
-        this.onGameEvent("powerupSpawn", ({ powerup }) => {
-            this.powerups.use(graphic => graphic.setup(powerup))
+        this.onGameEvent("buffSpawn", ({ buff }) => {
+            this.buffs.use(graphic => graphic.setup(buff))
         })
 
-        // A powerup despawning is (in practice) a pickup, so fire a small
+        // A buff despawning is (in practice) a pickup, so fire a small
         // celebratory burst at its position, reusing the shared particle system.
-        this.onGameEvent("powerupDespawn", ({ powerup }) => {
-            const graphic = this.powerups.active.find(g => g.powerup === powerup)
-            if(typeof graphic !== "undefined") this.powerups.free(graphic)
+        this.onGameEvent("buffDespawn", ({ buff }) => {
+            const graphic = this.buffs.active.find(g => g.buff === buff)
+            if(typeof graphic !== "undefined") this.buffs.free(graphic)
             emitExplosion(
                 this.particleSystem,
-                powerup.position.x,
-                powerup.position.y,
+                buff.position.x,
+                buff.position.y,
                 10,
             )
         })
@@ -919,7 +914,7 @@ export class PipPipRenderer{
 
             // A ring marker on the bot's CURRENT target.
             g.lineStyle({ width: 2, color: COLORS.MAIN, alpha: 0.9 })
-            g.drawCircle(toX, toY, SHIP_DAIMETER * 0.75)
+            g.drawCircle(toX, toY, SHIP_DIAMETER * 0.75)
         }
     }
 
@@ -1071,18 +1066,18 @@ export class PipPipRenderer{
             if(showShield || showHaste || showCloak){
                 graphic.buffGraphic.clear()
                 if(showShield){
-                    const ringRadius = SHIP_DAIMETER * 0.7 + buffPulse * 4
+                    const ringRadius = SHIP_DIAMETER * 0.7 + buffPulse * 4
                     graphic.buffGraphic.lineStyle({
                         width: 3,
-                        color: PowerupGraphic.COLORS.shield,
+                        color: BuffGraphic.COLORS.shield,
                         alpha: 0.5 + buffPulse * 0.35,
                     })
                     graphic.buffGraphic.drawCircle(0, 0, ringRadius)
                 }
                 if(showHaste){
                     graphic.buffGraphic.lineStyle(0)
-                    graphic.buffGraphic.beginFill(PowerupGraphic.COLORS.haste, 0.12 + buffPulse * 0.08)
-                    graphic.buffGraphic.drawCircle(0, 0, SHIP_DAIMETER * 0.55)
+                    graphic.buffGraphic.beginFill(BuffGraphic.COLORS.haste, 0.12 + buffPulse * 0.08)
+                    graphic.buffGraphic.drawCircle(0, 0, SHIP_DIAMETER * 0.55)
                     graphic.buffGraphic.endFill()
                 }
                 // CLOAK cue: a faint ghost-white shimmer ring. Only drawn for the
@@ -1092,10 +1087,10 @@ export class PipPipRenderer{
                 if(showCloak){
                     graphic.buffGraphic.lineStyle({
                         width: 2,
-                        color: PowerupGraphic.COLORS.invis,
+                        color: BuffGraphic.COLORS.invis,
                         alpha: 0.25 + buffPulse * 0.25,
                     })
-                    graphic.buffGraphic.drawCircle(0, 0, SHIP_DAIMETER * 0.6 + buffPulse * 3)
+                    graphic.buffGraphic.drawCircle(0, 0, SHIP_DIAMETER * 0.6 + buffPulse * 3)
                 }
                 graphic.buffGraphicDrawn = true
             } else if(graphic.buffGraphicDrawn){
@@ -1187,16 +1182,16 @@ export class PipPipRenderer{
             }
         }
 
-        // update powerups: gentle spin + pulse so the pickups read as "alive".
-        const powerupPulse = (Math.sin(Date.now() / 250) + 1) / 2
-        for(const graphic of this.powerups.active){
-            if(typeof graphic.powerup !== "undefined"){
-                graphic.container.position.x = graphic.powerup.position.x
-                graphic.container.position.y = graphic.powerup.position.y
+        // update buffs: gentle spin + pulse so the world buffs read as "alive".
+        const buffOrbPulse = (Math.sin(Date.now() / 250) + 1) / 2
+        for(const graphic of this.buffs.active){
+            if(typeof graphic.buff !== "undefined"){
+                graphic.container.position.x = graphic.buff.position.x
+                graphic.container.position.y = graphic.buff.position.y
             }
             graphic.spin += deltaTime * 0.05
             graphic.graphic.rotation = graphic.spin
-            graphic.draw(powerupPulse)
+            graphic.draw(buffOrbPulse)
         }
 
         // update damage graphics
@@ -1318,7 +1313,7 @@ export class PipPipRenderer{
 
         // Release pooled graphics (each pool removes its children + destroys).
         this.bullets.destroy()
-        this.powerups.destroy()
+        this.buffs.destroy()
         this.damages.destroy()
         this.particles.destroy()
 

@@ -62,7 +62,7 @@ import {
 } from "../../packages/client/src/game/mapEditor"
 import { TileShape } from "../../packages/game/src/logic/grid-map"
 import { loadGridMap } from "../../packages/game/src/logic/grid-map"
-import { TILE_BLOCK_STYLES, blockFaceCss } from "../../packages/client/src/game/mapGraphics"
+import { TILE_MATERIAL_STYLES, materialFaceCss } from "../../packages/client/src/game/mapGraphics"
 
 // A tiny in-memory EditorStorage so the autosave round-trip is exercised without
 // a real DOM/localStorage. Matches the getItem/setItem/removeItem surface the
@@ -1503,9 +1503,9 @@ describe("EDITOR_MATERIALS (selectable block colours)", () => {
         expect(DEFAULT_MATERIAL_KEY).toBe("tile_default")
     })
 
-    it("only lists keys that exist in the shared TILE_BLOCK_STYLES", () => {
+    it("only lists keys that exist in the shared TILE_MATERIAL_STYLES", () => {
         for(const m of EDITOR_MATERIALS){
-            expect(TILE_BLOCK_STYLES[m.key]).toBeDefined()
+            expect(TILE_MATERIAL_STYLES[m.key]).toBeDefined()
         }
     })
 
@@ -1538,11 +1538,11 @@ describe("materialKeyForBrush (colour half of a tile)", () => {
     })
 })
 
-describe("blockFaceCss (editor preview matches in-game colour)", () => {
-    it("maps a named material to its TILE_BLOCK_STYLES face colour as #rrggbb", () => {
+describe("materialFaceCss (editor preview matches in-game colour)", () => {
+    it("maps a named material to its TILE_MATERIAL_STYLES face colour as #rrggbb", () => {
         for(const m of EDITOR_MATERIALS){
-            const expected = `#${TILE_BLOCK_STYLES[m.key].face.toString(16).padStart(6, "0")}`
-            expect(blockFaceCss(m.key)).toBe(expected)
+            const expected = `#${TILE_MATERIAL_STYLES[m.key].face.toString(16).padStart(6, "0")}`
+            expect(materialFaceCss(m.key)).toBe(expected)
         }
     })
 
@@ -1646,7 +1646,7 @@ describe("material round-trips through GridMapData and undo/redo", () => {
 
         // It loads into the real game loader, and the render tiles carry the keys.
         const playable = loadGridMap("colourful", data)
-        const blocks = playable.tiles.map((t) => t.block)
+        const blocks = playable.tiles.map((t) => t.material)
         expect(blocks).toContain("rust")
         expect(blocks).toContain("teal")
         expect(blocks).toContain("tile_default")

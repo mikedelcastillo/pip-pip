@@ -1,7 +1,8 @@
 import { zlib, unzlib } from "fflate"
 
-// eslint-disable-next-line prefer-const
-let USE_COMPRESSION = false
+// Flip to true to enable fflate compression on every ws payload. Off by default
+// because the wire sizes here are small enough that compression is net-negative.
+const USE_COMPRESSION = false
 
 export const compress = (arr: number[] | Uint8Array | ArrayBuffer) => new Promise<Uint8Array>(resolve => {
     const input = new Uint8Array(arr)

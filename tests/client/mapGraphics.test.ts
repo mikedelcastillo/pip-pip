@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
     tilePolygon,
-    blockStyleFor,
+    materialStyleFor,
     isDiagonalTile,
     polygonToFlat,
-    hashBlockKey,
-    TILE_BLOCK_STYLES,
+    hashMaterialKey,
+    TILE_MATERIAL_STYLES,
 } from "@pip-pip/client/src/game/mapGraphics"
 import { PipGameTile } from "@pip-pip/game/src/logic/map"
 import { TILE_SIZE } from "@pip-pip/game/src/logic/constants"
@@ -96,24 +96,24 @@ describe("polygonToFlat", () => {
     })
 })
 
-describe("blockStyleFor variety", () => {
+describe("materialStyleFor variety", () => {
     it("maps the legacy keys to the original dark styles", () => {
-        expect(blockStyleFor(tile({ block: "tile_default" }))).toEqual(TILE_BLOCK_STYLES.tile_default)
-        expect(blockStyleFor(tile({ block: "tile_hidden" }))).toEqual(TILE_BLOCK_STYLES.tile_hidden)
+        expect(materialStyleFor(tile({ material: "tile_default" }))).toEqual(TILE_MATERIAL_STYLES.tile_default)
+        expect(materialStyleFor(tile({ material: "tile_hidden" }))).toEqual(TILE_MATERIAL_STYLES.tile_hidden)
     })
 
     it("falls back to the texture when no block key is present", () => {
-        expect(blockStyleFor(tile({ texture: "tile_hidden", block: undefined }))).toEqual(TILE_BLOCK_STYLES.tile_hidden)
+        expect(materialStyleFor(tile({ texture: "tile_hidden", material: undefined }))).toEqual(TILE_MATERIAL_STYLES.tile_hidden)
     })
 
     it("resolves a named block style directly", () => {
-        expect(blockStyleFor(tile({ block: "slate" }))).toEqual(TILE_BLOCK_STYLES.slate)
-        expect(blockStyleFor(tile({ block: "rust" }))).toEqual(TILE_BLOCK_STYLES.rust)
+        expect(materialStyleFor(tile({ material: "slate" }))).toEqual(TILE_MATERIAL_STYLES.slate)
+        expect(materialStyleFor(tile({ material: "rust" }))).toEqual(TILE_MATERIAL_STYLES.rust)
     })
 
     it("is deterministic for unknown keys (same key -> same style)", () => {
-        const a = blockStyleFor(tile({ block: "some_custom_block" }))
-        const b = blockStyleFor(tile({ block: "some_custom_block" }))
+        const a = materialStyleFor(tile({ material: "some_custom_block" }))
+        const b = materialStyleFor(tile({ material: "some_custom_block" }))
         expect(a).toEqual(b)
         // It must be one of the defined styles, never undefined.
         expect(a).toBeDefined()
@@ -121,9 +121,9 @@ describe("blockStyleFor variety", () => {
         expect(typeof a.edge).toBe("number")
     })
 
-    it("hashBlockKey is stable and non-negative", () => {
-        expect(hashBlockKey("abc")).toBe(hashBlockKey("abc"))
-        expect(hashBlockKey("abc")).toBeGreaterThanOrEqual(0)
-        expect(hashBlockKey("")).toBeGreaterThanOrEqual(0)
+    it("hashMaterialKey is stable and non-negative", () => {
+        expect(hashMaterialKey("abc")).toBe(hashMaterialKey("abc"))
+        expect(hashMaterialKey("abc")).toBeGreaterThanOrEqual(0)
+        expect(hashMaterialKey("")).toBeGreaterThanOrEqual(0)
     })
 })

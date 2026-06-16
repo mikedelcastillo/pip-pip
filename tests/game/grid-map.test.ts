@@ -175,14 +175,14 @@ describe("loader: full tiles -> merged rect walls", () => {
         const map = loadGridMap("shapes", data)
         expect(map.tiles.length).toBe(2)
 
-        // The renderer reads tile.shape + tile.block to draw slopes vs squares
+        // The renderer reads tile.shape + tile.material to draw slopes vs squares
         // and to vary block styling, so the loader must emit both from the palette.
         const full = map.tiles.find(t => t.shape === "full")
         const slope = map.tiles.find(t => t.shape === "diag_tr")
         expect(full).toBeDefined()
         expect(slope).toBeDefined()
-        expect(full?.block).toBe("wall")
-        expect(slope?.block).toBe("slope")
+        expect(full?.material).toBe("wall")
+        expect(slope?.material).toBe("slope")
         // texture stays the palette key (legacy sprite path is unaffected).
         expect(full?.texture).toBe("wall")
         expect(slope?.texture).toBe("slope")
@@ -365,7 +365,7 @@ describe("half tiles", () => {
         const map = loadGridMap("ht", halfMap("half_top"))
         expect(map.tiles.length).toBe(1)
         expect(map.tiles[0].shape).toBe("half_top")
-        expect(map.tiles[0].block).toBe("wall")
+        expect(map.tiles[0].material).toBe("wall")
         expect(map.tiles[0].texture).toBe("wall")
     })
 

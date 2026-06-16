@@ -22,20 +22,19 @@ describe("clampPlayerName", () => {
         expect(result).toBe("a".repeat(MAX_PLAYER_NAME_LENGTH))
     })
 
-    it("does not split an emoji at the boundary into a lone surrogate", () => {
-        // 15 ASCII + a 2-code-unit emoji lands the emoji at slot 16: keep it whole.
-        const name = "a".repeat(MAX_PLAYER_NAME_LENGTH - 1) + "\u{1F600}" + "tail"
-        const result = clampPlayerName(name)
-        expect([...result].length).toBe(MAX_PLAYER_NAME_LENGTH)
-        expect(result.endsWith("\u{1F600}")).toBe(true)
-        // A split surrogate would round-trip through UTF-8 as U+FFFD; a whole one does not.
-        expect(result).not.toContain("�")
-        expect(new TextDecoder().decode(new TextEncoder().encode(result))).toBe(result)
+    it("strips characters outside the alphanumeric + underscore policy", () => {
+        // The single name policy keeps [0-9a-z_] only, so spaces, punctuation, and
+        // emoji are removed rather than preserved.
+        expect(clampPlayerName("Cool Name")).toBe("CoolName")
+        expect(clampPlayerName("a-b.c")).toBe("abc")
+        expect(clampPlayerName("hi\u{1F600}there")).toBe("hithere")
+        expect(clampPlayerName("under_score_ok")).toBe("under_score_ok")
     })
 
     it("keeps the cap comfortably above the longest bot name", () => {
-        // Bot names are "BOT-" + difficulty letter + "-" + 3-char id = 9 chars.
-        const botName = "BOT-H-ABC"
+        // Bot names are "BOT_" + difficulty letter + "_" + 3-char id = 9 chars, all
+        // alphanumeric + underscore so they pass the name policy unchanged.
+        const botName = "BOT_H_ABC"
         expect(botName.length).toBeLessThanOrEqual(MAX_PLAYER_NAME_LENGTH)
         expect(clampPlayerName(botName)).toBe(botName)
     })

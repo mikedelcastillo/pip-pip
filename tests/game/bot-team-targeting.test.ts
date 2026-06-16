@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
-import { findNearestEnemy } from "@pip-pip/game/src/logic/ai"
+import { findNearestEnemy } from "@pip-pip/game/src/logic/bot"
 
 const BLU = 3
 

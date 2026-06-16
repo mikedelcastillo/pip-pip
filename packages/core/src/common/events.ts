@@ -5,7 +5,7 @@ export type EventKey<T extends EventMap> = string & keyof T
 export type EventCallback<T> = (params: T) => void
 export type EventUndefinedParam<T> = undefined extends T ? [param?: T] : [param: T]
 
-export type EventNameParmeter<T extends EventMap> = {
+export type EventNameParameter<T extends EventMap> = {
     [K in keyof T]?: T[K] extends undefined ? EmptyEventParams : T[K]
 }
 
@@ -15,7 +15,7 @@ export type EventMapOf<T> = T extends EventEmitter<infer R> ? R : never
 
 export type EventCallbackOf<T extends EventMap, K extends keyof T> = EventCallback<T[K]>
 
-export type EventEmitterSubscriptionCallback<T extends EventMap> = (event: EventNameParmeter<T>) => void
+export type EventEmitterSubscriptionCallback<T extends EventMap> = (event: EventNameParameter<T>) => void
 
 export class EventEmitter<T extends EventMap  = Record<string, never>>{
     name: string
@@ -62,7 +62,7 @@ export class EventEmitter<T extends EventMap  = Record<string, never>>{
         
         const event = {
             [eventName]: typeof params[0] === "undefined" ? new EmptyEventParams() : params[0],
-        } as EventNameParmeter<T>
+        } as EventNameParameter<T>
 
         for(const subscriberCallback of this.subscribers){
             subscriberCallback(event)
@@ -84,12 +84,12 @@ export class EventEmitter<T extends EventMap  = Record<string, never>>{
 
 export type EventCollectorEventMap<T extends EventMap> = {
     collect: {
-        event: EventNameParmeter<T>,
+        event: EventNameParameter<T>,
     },
 }
 
 export class EventCollector<T extends EventMap> extends EventEmitter<EventCollectorEventMap<T>>{
-    pool: EventNameParmeter<T>[] = []
+    pool: EventNameParameter<T>[] = []
     emitter: EventEmitter<T>
     limit: Array<keyof T>
 
@@ -103,7 +103,7 @@ export class EventCollector<T extends EventMap> extends EventEmitter<EventCollec
     filter<K extends keyof T>(eventName: K){
         const pool = (this.limit.length === 1 && this.limit[0] === eventName) ? this.pool : 
             this.pool.filter(event => typeof event[eventName] !== "undefined")
-        return pool as Concrete<EventNameParmeter<{ [O in K]: T[O] }>>[]
+        return pool as Concrete<EventNameParameter<{ [O in K]: T[O] }>>[]
     }
 
     flush(){
@@ -112,12 +112,12 @@ export class EventCollector<T extends EventMap> extends EventEmitter<EventCollec
 }
 
 export interface EventCollector<T extends EventMap> extends EventEmitter<EventCollectorEventMap<T>>{
-    collect: (event: EventNameParmeter<T>) => void
+    collect: (event: EventNameParameter<T>) => void
     destroy: () => void
 }
 
 function buildEventCollector<T extends EventMap>(collector: EventCollector<T>){
-    collector.collect = (event: EventNameParmeter<T>) => {
+    collector.collect = (event: EventNameParameter<T>) => {
         const callback = () => {
             collector.pool.push(event)
             collector.emit("collect", { event })

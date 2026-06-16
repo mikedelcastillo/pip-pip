@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react"
 import { GridMapData } from "@pip-pip/game/src/logic/grid-map"
-import { blockFaceCss } from "../game/mapGraphics"
+import { materialFaceCss } from "../game/mapGraphics"
 import {
     gridMapCellBounds,
     gridMapThumbnailCells,
@@ -11,7 +11,7 @@ import styles from "./MapThumbnail.module.sass"
 
 // A static, top-down THUMBNAIL of a stored library map, drawn once per mount into a
 // <canvas> (a fixed layout, so no rAF loop). It reuses the EXACT block-face colours
-// the editor canvas + in-game renderer use (blockFaceCss) and the same uniform-fit
+// the editor canvas + in-game renderer use (materialFaceCss) and the same uniform-fit
 // math as the map-selector preview (mapPreviewTransform over the painted CELL box),
 // so a card preview reads as a shrunk-down version of the real map. Pure cell
 // geometry lives in game/mapThumbnail.ts; this component only rasterises it. The
@@ -99,7 +99,7 @@ export default function MapThumbnail({ data }: { data: GridMapData }){
         // diagonals + halves as their true silhouette) so the preview matches the map.
         for(const cell of cells){
             const poly = cellPolygon(cell)
-            ctx.fillStyle = blockFaceCss(cell.key)
+            ctx.fillStyle = materialFaceCss(cell.key)
             ctx.beginPath()
             poly.forEach((p, i) => {
                 const sp = worldToPreview(p.x, p.y, transform)

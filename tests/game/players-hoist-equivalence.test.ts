@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { PipPipGame, PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
-import { BotDifficulty } from "@pip-pip/game/src/logic/ai"
+import { BotDifficulty } from "@pip-pip/game/src/logic/bot"
 
 // Equivalence guard for the "hoist Object.values(this.players) once per tick"
 // optimization. update() now builds the per-tick player array ONCE and threads
 // it through updateSystems / updatePhysics / updateBulletPhysics /
-// updatePowerupPickups instead of each rebuilding Object.values(this.players).
+// updateBuffPickups instead of each rebuilding Object.values(this.players).
 // The change is meant to be STRICTLY behavior-preserving and DETERMINISTIC on
 // both server and client, so the sim output must be byte-identical to before.
 //
 // The shared sim draws on Math.random in several hot paths (spawn placement,
-// bot AI jitter, powerup spawns) AND on crypto.getRandomValues via generateId
+// bot AI jitter, buff spawns) AND on crypto.getRandomValues via generateId
 // (bullet / physics-object ids). Object ids drive the physics-world iteration
 // order, so the sim is only bit-reproducible once BOTH sources are pinned. This
 // suite pins Math.random to a seeded mulberry32 PRNG and crypto.getRandomValues
@@ -79,7 +79,7 @@ afterEach(() => {
 })
 
 // A server-flavored game: the authoritative flags the real server passes, so the
-// per-tick player loops (spawns, scoring, shooting, AI, powerups) all run.
+// per-tick player loops (spawns, scoring, shooting, AI, buffs) all run.
 function makeServerGame(){
     const game = new PipPipGame({
         shootAiBullets: true,
@@ -91,7 +91,7 @@ function makeServerGame(){
         setScores: true,
         triggerDamage: true,
         considerPlayerPing: true,
-        spawnPowerups: true,
+        spawnBuffs: true,
     })
     return game
 }
@@ -152,8 +152,8 @@ function snapshotState(game: PipPipGame){
         tickNumber: game.tickNumber,
         phase: game.phase,
         matchTimer: game.matchTimer,
-        powerupSpawnTimer: game.powerupSpawnTimer,
-        activePowerups: game.powerups.getActive().length,
+        buffSpawnTimer: game.buffSpawnTimer,
+        activeBuffs: game.buffs.getActive().length,
         players,
         bullets,
     }

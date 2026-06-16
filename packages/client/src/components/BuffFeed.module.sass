@@ -1,6 +1,6 @@
 @import "../styles/variables"
 
-// The powerup feed is the SAME feed system as the kill feed: same top-right
+// The buff feed is the SAME feed system as the kill feed: same top-right
 // corner, same right-aligned column, same row chrome. It sits directly BELOW the
 // kill feed (which anchors at margin + 4em under the control cluster), so the two
 // read as one continuous stack down the right edge. They are distinguished only
@@ -10,7 +10,7 @@
 // transient (entries fade within ~5s), so in practice they rarely fill enough to
 // meet, and each row is short. max-height caps the feed so it can never run off
 // the bottom of a phone.
-.powerupFeed
+.buffFeed
     position: absolute
     top: calc(#{$screen-margin-dynamic} + 12em)
     right: $screen-margin-dynamic
@@ -45,20 +45,20 @@
             color: $color-main
 
         // The "+" pickup glyph stands in for the kill feed's skull; per-type
-        // color is set inline, so it reads the powerup at a glance.
+        // color is set inline, so it reads the buff at a glance.
         .icon
             font-weight: bold
 
-        // The powerup word: bold + per-type color (set inline) + a soft glow in
+        // The buff word: bold + per-type color (set inline) + a soft glow in
         // its own color via text-shadow on currentColor.
-        .powerup
+        .buff
             font-weight: bold
             text-transform: uppercase
             letter-spacing: 0.04em
             text-shadow: 0 0 0.5em currentColor
 
         // Live remaining-time countdown for a timed buff (e.g. "9s" / "1:05").
-        // Quieter than the powerup word so the type reads first, the window
+        // Quieter than the buff word so the type reads first, the window
         // second; tabular figures keep it from jittering as it counts down.
         .timer
             color: $color-text
@@ -67,7 +67,7 @@
 
 // Phone layout: tuck under the corner controls without overflowing the width.
 @media (max-width: 480px)
-    .powerupFeed
+    .buffFeed
         max-width: calc(100% - #{$screen-margin-dynamic} * 2)
 
         .entry

@@ -9,6 +9,9 @@ import {
 } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { PIP_MAPS } from "@pip-pip/game/src/maps"
+import { MODE_MIN_KILLS, MODE_MAX_KILLS, MODE_MIN_MINUTES, MODE_MAX_MINUTES } from "@pip-pip/game/src/logic/constants"
+import { teamSettingsForMode } from "@pip-pip/game/src/logic"
+import { clamp } from "@pip-pip/core/src/lib/utils"
 
 // Extensible chat-command system. The whole game is configurable from chat even
 // before a GUI exists: config (mode/kills/teams), team management, moderation and
@@ -18,21 +21,9 @@ import { PIP_MAPS } from "@pip-pip/game/src/maps"
 // (parsing, mention resolution, the registry, /help text) live here so they are
 // unit-testable without standing up a websocket Connection.
 
-// In-lobby mode-target bounds, mirrored from the host UI (HostSettingsModal / the
-// lobby Match panel). The client clamps too, but the server never trusts the
-// wire, so config commands re-clamp here. These match the existing gameMode
-// handler in connection-in so a /kills (etc.) command and the GUI agree exactly.
-export const MODE_MIN_KILLS = 5
-export const MODE_MAX_KILLS = 50
-export const MODE_MIN_MINUTES = 1
-export const MODE_MAX_MINUTES = 10
-
 // Max bots a single command may add, to bound server work (mirrors the original
 // connection-in constant the bot commands used).
 export const MAX_BOTS_PER_COMMAND = 16
-
-const clamp = (value: number, min: number, max: number) =>
-    Math.max(min, Math.min(max, value))
 
 // Parse a raw chat string into a leading command word (lower-cased, includes the
 // leading "/") plus the remaining whitespace-split argument tokens. Returns
@@ -179,11 +170,9 @@ export const COMMANDS: Command[] = [
                 ctx.reply("Usage: /mode <deathmatch|frenzy|tdm>")
                 return
             }
-            // TEAM_DEATHMATCH turns teams on + friendly-fire off; the free-for-all
-            // modes turn them back off, mirroring the lobby gameMode handler so a
-            // mode switch always lands a consistent settings pair.
-            const isTeam = mode === PipPipGameMode.TEAM_DEATHMATCH
-            ctx.game.setSettings({ mode, useTeams: isTeam, friendlyFire: !isTeam })
+            // teamSettingsForMode lands the consistent teams/friendly-fire pair so a
+            // mode switch always agrees with the lobby gameMode handler.
+            ctx.game.setSettings({ mode, ...teamSettingsForMode(mode) })
         },
     },
     {

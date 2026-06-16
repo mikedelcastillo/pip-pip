@@ -44,6 +44,9 @@ export function getStateChanges<T extends StateSchema>(to: T, from: T){
             let changeValue: undefined | typeof toValue
             let deletionValue: undefined | typeof deletions
 
+            // isObject excludes arrays, so an array field falls into the else branch
+            // and is compared by reference, NOT deep-diffed. Callers must reuse the
+            // same array reference for an unchanged field or it broadcasts every diff.
             const objType = isObject(toValue)
             if(objType){
                 const objectChanges = loop(toValue as Record<string, unknown>, fromValue as Record<string, unknown>)
@@ -154,8 +157,8 @@ export class State<T extends StateSchema>{
         type Key = keyof T
         type Value = T[Key]
 
-        const currentvalue = this.state[key as Key][prop]
-        const newValue = valueOrFactory instanceof Function ? valueOrFactory(currentvalue) : valueOrFactory
+        const currentValue = this.state[key as Key][prop]
+        const newValue = valueOrFactory instanceof Function ? valueOrFactory(currentValue) : valueOrFactory
 
         const factory = ((obj: Value) => {
             return {
@@ -182,39 +185,5 @@ export class State<T extends StateSchema>{
                 this.set(key as Key, modified)
             }
         }
-    }
-}
-
-export class StateRecordSubscriber<
-    SubSchema extends StateSchema = StateSchema, 
-    KeyOfSubSchema extends keyof PickRecord<SubSchema> = keyof PickRecord<SubSchema>, 
-    SubProp extends SubSchema[KeyOfSubSchema] = SubSchema[KeyOfSubSchema],
-    KeyOfSubProp extends keyof SubProp = keyof SubProp,
-    SubPropType extends SubProp[KeyOfSubProp] = SubProp[KeyOfSubProp]
->{
-    subKey: string
-    subProp: KeyOfSubSchema
-    subState: State<SubSchema>
-    subInitialState: SubPropType
-
-    constructor(state: State<SubSchema>, prop: KeyOfSubSchema, key: string, initialState: SubPropType){
-        this.subKey = key
-        this.subProp = prop
-        this.subState = state
-        this.subInitialState = initialState
-
-        this.subState.setRecord(prop, this.subKey, initialState)
-    }
-
-    getState(): SubPropType{
-        return this.subState.get(this.subProp)[this.subKey]
-    }
-
-    setState(valueOrFactory: TypeOrFactoryType<SubPropType>){
-        this.subState.setRecord(this.subProp, this.subKey, valueOrFactory)
-    }
-    
-    delete(){
-        this.subState.deleteRecord(this.subProp, this.subKey)
     }
 }

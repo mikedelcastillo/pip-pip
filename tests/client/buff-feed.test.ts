@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import {
-    PowerupEntry,
+    BuffEntry,
     BuffRemaining,
-    POWERUP_FEED_DURATION_MS,
-    visiblePowerups,
-    visibleTacticalPowerups,
+    BUFF_FEED_DURATION_MS,
+    visibleBuffs,
+    visibleTacticalBuffs,
     buffRemainingKey,
     isTimedBuff,
     formatBuffTime,
-    powerupLabel,
-    powerupColor,
+    buffLabel,
+    buffColor,
     useGameStore,
 } from "../../packages/client/src/game/store"
 
-function makeEntry(overrides: Partial<PowerupEntry> = {}): PowerupEntry {
+function makeEntry(overrides: Partial<BuffEntry> = {}): BuffEntry {
     return {
         id: 1,
         playerId: "AA",
@@ -24,26 +24,26 @@ function makeEntry(overrides: Partial<PowerupEntry> = {}): PowerupEntry {
     }
 }
 
-describe("visiblePowerups", () => {
+describe("visibleBuffs", () => {
     it("excludes entries older than the duration", () => {
         const now = 10_000
-        const stale = makeEntry({ id: 1, time: now - POWERUP_FEED_DURATION_MS - 1 })
-        const result = visiblePowerups([stale], now)
+        const stale = makeEntry({ id: 1, time: now - BUFF_FEED_DURATION_MS - 1 })
+        const result = visibleBuffs([stale], now)
         expect(result).toHaveLength(0)
     })
 
     it("includes entries younger than the duration", () => {
         const now = 10_000
         const fresh = makeEntry({ id: 1, time: now - 1 })
-        const result = visiblePowerups([fresh], now)
+        const result = visibleBuffs([fresh], now)
         expect(result).toHaveLength(1)
         expect(result[0].id).toBe(1)
     })
 
     it("treats an entry exactly at the duration boundary as expired", () => {
         const now = 10_000
-        const boundary = makeEntry({ id: 1, time: now - POWERUP_FEED_DURATION_MS })
-        expect(visiblePowerups([boundary], now)).toHaveLength(0)
+        const boundary = makeEntry({ id: 1, time: now - BUFF_FEED_DURATION_MS })
+        expect(visibleBuffs([boundary], now)).toHaveLength(0)
     })
 
     it("returns visible entries newest first", () => {
@@ -51,57 +51,57 @@ describe("visiblePowerups", () => {
         const older = makeEntry({ id: 1, time: now - 3000 })
         const newer = makeEntry({ id: 2, time: now - 1000 })
         // Feed is appended oldest-to-newest; the selector reverses to newest-first.
-        const result = visiblePowerups([older, newer], now)
+        const result = visibleBuffs([older, newer], now)
         expect(result.map((e) => e.id)).toEqual([2, 1])
     })
 
     it("drops only the stale entries from a mixed feed", () => {
         const now = 10_000
-        const stale = makeEntry({ id: 1, time: now - POWERUP_FEED_DURATION_MS - 100 })
+        const stale = makeEntry({ id: 1, time: now - BUFF_FEED_DURATION_MS - 100 })
         const fresh = makeEntry({ id: 2, time: now - 500 })
-        const result = visiblePowerups([stale, fresh], now)
+        const result = visibleBuffs([stale, fresh], now)
         expect(result.map((e) => e.id)).toEqual([2])
     })
 
     it("honors a custom durationMs override", () => {
         const now = 10_000
         const entry = makeEntry({ id: 1, time: now - 2000 })
-        expect(visiblePowerups([entry], now, 1000)).toHaveLength(0)
-        expect(visiblePowerups([entry], now, 3000)).toHaveLength(1)
+        expect(visibleBuffs([entry], now, 1000)).toHaveLength(0)
+        expect(visibleBuffs([entry], now, 3000)).toHaveLength(1)
     })
 
     it("returns an empty array for an empty feed", () => {
-        expect(visiblePowerups([], 10_000)).toEqual([])
+        expect(visibleBuffs([], 10_000)).toEqual([])
     })
 })
 
-describe("powerupLabel", () => {
-    it("maps every powerup type to a friendly, shout-y label", () => {
-        expect(powerupLabel("health")).toBe("HEALTH")
-        expect(powerupLabel("ammo")).toBe("AMMO")
-        expect(powerupLabel("haste")).toBe("HASTE")
-        expect(powerupLabel("shield")).toBe("SHIELD")
+describe("buffLabel", () => {
+    it("maps every buff type to a friendly, shout-y label", () => {
+        expect(buffLabel("health")).toBe("HEALTH")
+        expect(buffLabel("ammo")).toBe("AMMO")
+        expect(buffLabel("haste")).toBe("HASTE")
+        expect(buffLabel("shield")).toBe("SHIELD")
         // "invis" reads better as "CLOAK" on screen.
-        expect(powerupLabel("invis")).toBe("CLOAK")
-        expect(powerupLabel("ricochet")).toBe("RICOCHET")
-        expect(powerupLabel("rapidfire")).toBe("RAPIDFIRE")
+        expect(buffLabel("invis")).toBe("CLOAK")
+        expect(buffLabel("ricochet")).toBe("RICOCHET")
+        expect(buffLabel("rapidfire")).toBe("RAPIDFIRE")
     })
 })
 
-describe("powerupColor", () => {
-    it("maps every powerup type to its HUD/pickup color", () => {
-        expect(powerupColor("health")).toBe("#33DD55")
-        expect(powerupColor("ammo")).toBe("#FFAA33")
-        expect(powerupColor("haste")).toBe("#33CCFF")
-        expect(powerupColor("shield")).toBe("#AA66FF")
-        expect(powerupColor("invis")).toBe("#CCE6FF")
-        expect(powerupColor("ricochet")).toBe("#FF66AA")
-        expect(powerupColor("rapidfire")).toBe("#FFE14D")
+describe("buffColor", () => {
+    it("maps every buff type to its HUD/pickup color", () => {
+        expect(buffColor("health")).toBe("#33DD55")
+        expect(buffColor("ammo")).toBe("#FFAA33")
+        expect(buffColor("haste")).toBe("#33CCFF")
+        expect(buffColor("shield")).toBe("#AA66FF")
+        expect(buffColor("invis")).toBe("#CCE6FF")
+        expect(buffColor("ricochet")).toBe("#FF66AA")
+        expect(buffColor("rapidfire")).toBe("#FFE14D")
     })
 })
 
 describe("isTimedBuff", () => {
-    it("treats the timed buff powerups as timed", () => {
+    it("treats the timed buff buffs as timed", () => {
         expect(isTimedBuff("haste")).toBe(true)
         expect(isTimedBuff("shield")).toBe(true)
         expect(isTimedBuff("invis")).toBe(true)
@@ -140,7 +140,7 @@ describe("formatBuffTime", () => {
     })
 })
 
-describe("visibleTacticalPowerups", () => {
+describe("visibleTacticalBuffs", () => {
     const remaining: BuffRemaining = {
         [buffRemainingKey("AA", "haste")]: 120,
     }
@@ -148,8 +148,8 @@ describe("visibleTacticalPowerups", () => {
     it("keeps a timed-buff entry while the picker still holds the buff", () => {
         const now = 10_000
         // Older than the fixed transient window, but the buff is still active.
-        const entry = makeEntry({ id: 1, playerId: "AA", type: "haste", time: now - POWERUP_FEED_DURATION_MS - 1000 })
-        const result = visibleTacticalPowerups([entry], remaining, now)
+        const entry = makeEntry({ id: 1, playerId: "AA", type: "haste", time: now - BUFF_FEED_DURATION_MS - 1000 })
+        const result = visibleTacticalBuffs([entry], remaining, now)
         expect(result).toHaveLength(1)
         expect(result[0].remainingTicks).toBe(120)
     })
@@ -158,14 +158,14 @@ describe("visibleTacticalPowerups", () => {
         const now = 10_000
         const entry = makeEntry({ id: 1, playerId: "AA", type: "shield", time: now - 100 })
         // shield is not present in `remaining`, so it reads as 0 ticks left.
-        expect(visibleTacticalPowerups([entry], remaining, now)).toHaveLength(0)
+        expect(visibleTacticalBuffs([entry], remaining, now)).toHaveLength(0)
     })
 
     it("keeps an instant pickup on the brief fixed window and annotates 0 ticks", () => {
         const now = 10_000
         const fresh = makeEntry({ id: 1, type: "health", time: now - 500 })
-        const stale = makeEntry({ id: 2, type: "ammo", time: now - POWERUP_FEED_DURATION_MS - 1 })
-        const result = visibleTacticalPowerups([fresh, stale], remaining, now)
+        const stale = makeEntry({ id: 2, type: "ammo", time: now - BUFF_FEED_DURATION_MS - 1 })
+        const result = visibleTacticalBuffs([fresh, stale], remaining, now)
         expect(result.map((e) => e.id)).toEqual([1])
         expect(result[0].remainingTicks).toBe(0)
     })
@@ -178,43 +178,43 @@ describe("visibleTacticalPowerups", () => {
         }
         const older = makeEntry({ id: 1, playerId: "AA", type: "haste", time: now - 3000 })
         const newer = makeEntry({ id: 2, playerId: "BB", type: "shield", time: now - 1000 })
-        const result = visibleTacticalPowerups([older, newer], map, now)
+        const result = visibleTacticalBuffs([older, newer], map, now)
         expect(result.map((e) => e.id)).toEqual([2, 1])
     })
 
     it("returns an empty array for an empty feed", () => {
-        expect(visibleTacticalPowerups([], remaining, 10_000)).toEqual([])
+        expect(visibleTacticalBuffs([], remaining, 10_000)).toEqual([])
     })
 })
 
-describe("addPowerupPickup feed identity", () => {
+describe("addBuffPickup feed identity", () => {
     beforeEach(() => {
-        useGameStore.setState({ powerupFeed: [] })
+        useGameStore.setState({ buffFeed: [] })
     })
 
     it("keeps only the latest entry for a player's repeated timed buff (no zombie row)", () => {
-        const { addPowerupPickup } = useGameStore.getState()
-        addPowerupPickup("AA", "Alice", "haste")
-        addPowerupPickup("AA", "Alice", "haste") // re-pickup / refresh
+        const { addBuffPickup } = useGameStore.getState()
+        addBuffPickup("AA", "Alice", "haste")
+        addBuffPickup("AA", "Alice", "haste") // re-pickup / refresh
 
-        const aaHaste = useGameStore.getState().powerupFeed
+        const aaHaste = useGameStore.getState().buffFeed
             .filter((e) => e.playerId === "AA" && e.type === "haste")
         expect(aaHaste).toHaveLength(1)
     })
 
     it("keeps separate entries for different players and buff types", () => {
-        const { addPowerupPickup } = useGameStore.getState()
-        addPowerupPickup("AA", "Alice", "haste")
-        addPowerupPickup("BB", "Bob", "haste")
-        addPowerupPickup("AA", "Alice", "shield")
-        expect(useGameStore.getState().powerupFeed).toHaveLength(3)
+        const { addBuffPickup } = useGameStore.getState()
+        addBuffPickup("AA", "Alice", "haste")
+        addBuffPickup("BB", "Bob", "haste")
+        addBuffPickup("AA", "Alice", "shield")
+        expect(useGameStore.getState().buffFeed).toHaveLength(3)
     })
 
     it("gives every entry a unique id, even at the feed cap", () => {
-        const { addPowerupPickup } = useGameStore.getState()
+        const { addBuffPickup } = useGameStore.getState()
         // Instant pickups are NOT deduped, so 12 distinct ones exercise the cap.
-        for(let i = 0; i < 12; i++) addPowerupPickup("p" + i, "n", "health")
-        const ids = useGameStore.getState().powerupFeed.map((e) => e.id)
+        for(let i = 0; i < 12; i++) addBuffPickup("p" + i, "n", "health")
+        const ids = useGameStore.getState().buffFeed.map((e) => e.id)
         expect(new Set(ids).size).toBe(ids.length)
     })
 })

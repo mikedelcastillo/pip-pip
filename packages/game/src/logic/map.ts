@@ -37,13 +37,13 @@ export type PipGameTileShape = "full" | "diag_tl" | "diag_tr" | "diag_bl" | "dia
 export type PipGameTile = {
     x: number, y: number,
     texture: string,
-    // The tile's render shape and its palette block key. Both are OPTIONAL and
+    // The tile's render shape and its palette material key. Both are OPTIONAL and
     // additive: the legacy JSONPipGameMap loader (below) omits them, so an
-    // undefined shape reads as a plain square and an undefined block falls back
+    // undefined shape reads as a plain square and an undefined material falls back
     // to the texture. The grid loader fills them in from the palette so new maps
-    // can render slopes and varied block styles.
+    // can render slopes and varied material styles.
     shape?: PipGameTileShape,
-    block?: string,
+    material?: string,
 }
 
 export class PipGameMap{
@@ -53,6 +53,11 @@ export class PipGameMap{
     checkpoints: PointRadius[] = []
     spawns: PointRadius[] = []
     tiles: PipGameTile[] = []
+
+    // World units per grid tile. Defaults to TILE_SIZE for legacy maps; the grid
+    // loader overwrites it with the map's actual size so the nav grid aligns to
+    // the real tiles (a non-72 map otherwise puts every nav cell off the grid).
+    cellSize: number = TILE_SIZE
 
     bounds: PipGameMapBounds = {
         min: {

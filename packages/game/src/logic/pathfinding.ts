@@ -1,6 +1,6 @@
 import { PointPhysicsRectWall, PointPhysicsSegmentWall } from "@pip-pip/core/src/physics"
 import { distancePointToSegment, segmentsIntersect } from "@pip-pip/core/src/math"
-import { SHIP_DAIMETER, TILE_SIZE } from "./constants"
+import { SHIP_DIAMETER, TILE_SIZE } from "./constants"
 import { PipGameMap, PipGameMapBounds } from "./map"
 
 // Coarse navigation grid + line-of-sight + A* used by the bot brain to route
@@ -69,7 +69,7 @@ export function defaultNavCellSize(){
 // The default clearance margin (ship radius + wall margin) used when marking a
 // cell blocked, so routed paths keep a ship's width away from walls.
 export function defaultNavMargin(){
-    return (SHIP_DAIMETER / 2) * (1 + NAV_WALL_MARGIN_FACTOR)
+    return (SHIP_DIAMETER / 2) * (1 + NAV_WALL_MARGIN_FACTOR)
 }
 
 // Build a coarse occupancy grid over the map bounds. A cell is blocked when any
@@ -185,7 +185,7 @@ export function hasLineOfSight(
     bx: number, by: number,
     rectWalls: PointPhysicsRectWall[],
     segWalls: PointPhysicsSegmentWall[],
-    margin = SHIP_DAIMETER / 2,
+    margin = SHIP_DIAMETER / 2,
 ){
     for(const seg of segWalls){
         // Treat the capsule's spine as a segment; a hit is the two segments
@@ -348,7 +348,7 @@ export function smoothPath(
     points: NavPoint[],
     rectWalls: PointPhysicsRectWall[],
     segWalls: PointPhysicsSegmentWall[],
-    margin = SHIP_DAIMETER / 2,
+    margin = SHIP_DIAMETER / 2,
 ): NavPoint[]{
     if(points.length <= 2) return points.slice()
 
@@ -380,7 +380,7 @@ export function findPath(
     toX: number, toY: number,
     rectWalls: PointPhysicsRectWall[],
     segWalls: PointPhysicsSegmentWall[],
-    margin = SHIP_DAIMETER / 2,
+    margin = SHIP_DIAMETER / 2,
 ): NavPoint[]{
     const start = worldToCell(grid, fromX, fromY)
     const goal = worldToCell(grid, toX, toY)
@@ -401,7 +401,7 @@ export function findPath(
 // is built once and reused across ticks (and bots), only rebuilt on map change.
 export function navGridKey(map: PipGameMap){
     const b = map.bounds
-    return map.id + ":" + b.min.x + ":" + b.min.y + ":" + b.max.x + ":" + b.max.y
+    return map.id + ":" + b.min.x + ":" + b.min.y + ":" + b.max.x + ":" + b.max.y + ":" + map.cellSize
 }
 
 // Process-wide nav-grid cache keyed by navGridKey. A grid is a pure function of
@@ -417,7 +417,9 @@ export function getNavGrid(map: PipGameMap): NavGrid{
     const key = navGridKey(map)
     const cached = NAV_GRID_CACHE.get(key)
     if(typeof cached !== "undefined") return cached
-    const grid = buildNavGrid(map.bounds, map.rectWalls, map.segWalls)
+    // Use the map's actual tile size so the nav grid aligns to the real tiles even
+    // for a non-default (non-72) cellSize, instead of always coarsening to TILE_SIZE.
+    const grid = buildNavGrid(map.bounds, map.rectWalls, map.segWalls, map.cellSize)
     NAV_GRID_CACHE.set(key, grid)
     return grid
 }
@@ -464,7 +466,7 @@ export const ESCAPE_BURST_TICKS = 10
 // genuinely wedged ship moves far less than its own body over the window, while a
 // freely chasing one moves several diameters.) Pure.
 export function stuckProgressThresholdSq(grid: NavGrid): number{
-    const unit = Math.min(grid.cellSize, SHIP_DAIMETER)
+    const unit = Math.min(grid.cellSize, SHIP_DIAMETER)
     const d = unit * STUCK_PROGRESS_FACTOR
     return d * d
 }

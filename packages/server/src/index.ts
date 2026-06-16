@@ -8,11 +8,12 @@ import { ConnectionOf, LobbyOf, Server } from "@pip-pip/core/src/networking/serv
 import { Ticker } from "@pip-pip/core/src/common/ticker"
 
 import { CONNECTION_ID_LENGTH, LOBBY_ID_LENGTH, packetManager } from "@pip-pip/game/src/networking/packets"
-import { PipPipGame, PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
+import { PipPipGame, PipPipGameMode, PipPipGamePhase, teamSettingsForMode } from "@pip-pip/game/src/logic"
 import { buildSharedTickCache, sendPacketToConnection } from "./connection-out"
 import { processLobbyPackets } from "./connection-in"
 
-import { PING_REFRESH } from "@pip-pip/game/src/logic/constants"
+import { PING_REFRESH, MODE_MIN_KILLS, MODE_MAX_KILLS, MODE_MIN_MINUTES, MODE_MAX_MINUTES } from "@pip-pip/game/src/logic/constants"
+import { clamp } from "@pip-pip/core/src/lib/utils"
 import { getServerPort } from "@pip-pip/core/src/lib/server-env"
 import { getPublicLobbies } from "./public-lobbies"
 import {
@@ -213,7 +214,7 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
         triggerDamage: true,
         considerPlayerPing: true,
         setScores: true,
-        spawnPowerups: true,
+        spawnBuffs: true,
     })
 
     // Register this lobby's game so the Telegram snapshot can count bots/players.
@@ -236,8 +237,8 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
     // settings. setSettings only takes effect in SETUP (which a fresh lobby is)
     // and ignores unknown/undefined keys, so partial/absent options keep the
     // game defaults. mode is sanitised to a known enum value; the numeric targets
-    // are clamped to the same bounds the host UI enforces (and to uint8 range, so
-    // the gameState packet never overflows).
+    // are clamped to the same MODE_* bounds the host UI and the in-lobby commands
+    // enforce, so a seeded lobby can never hold a config no command can reproduce.
     const requestedMode = lobby.locals.mode
     const mode = requestedMode === PipPipGameMode.KILL_FRENZY
         ? PipPipGameMode.KILL_FRENZY
@@ -245,15 +246,13 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
             ? PipPipGameMode.TEAM_DEATHMATCH
             : PipPipGameMode.DEATHMATCH
     const maxKills = typeof lobby.locals.maxKills === "number"
-        ? Math.max(1, Math.min(255, Math.floor(lobby.locals.maxKills)))
+        ? clamp(Math.floor(lobby.locals.maxKills), MODE_MIN_KILLS, MODE_MAX_KILLS)
         : game.settings.maxKills
     const matchMinutes = typeof lobby.locals.matchMinutes === "number"
-        ? Math.max(1, Math.min(60, Math.floor(lobby.locals.matchMinutes)))
+        ? clamp(Math.floor(lobby.locals.matchMinutes), MODE_MIN_MINUTES, MODE_MAX_MINUTES)
         : game.settings.matchMinutes
-    // TEAM_DEATHMATCH runs with teams on and friendly fire off; the free-for-all
-    // modes run with neither, so a freshly hosted lobby lands a consistent pair.
-    const isTeam = mode === PipPipGameMode.TEAM_DEATHMATCH
-    game.setSettings({ mode, maxKills, matchMinutes, useTeams: isTeam, friendlyFire: !isTeam })
+    // teamSettingsForMode lands the consistent teams/friendly-fire pair for the mode.
+    game.setSettings({ mode, maxKills, matchMinutes, ...teamSettingsForMode(mode) })
     // Reflect the resolved values back onto locals so any later read is accurate.
     lobby.locals.mode = mode
     lobby.locals.maxKills = maxKills
@@ -278,7 +277,6 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
     const lobbyEvents = new EventCollector(lobby.events)
     const gameEvents = new EventCollector(game.events)
 
-    const debugTick = new Ticker(2, false, "Debug")
     const pingTick = new Ticker(PING_REFRESH, false, "Ping")
     const updateTick = new Ticker(20, false, "Game")
 
@@ -334,14 +332,8 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
         }
     })
 
-    debugTick.on("tick", () => {
-        // const players = Object.keys(game.players)
-        // if(players.length) console.log(players)
-    })
-    
     lobby.events.on("destroy", () => {
         gamesByLobby.delete(lobby.id)
-        debugTick.destroy()
         pingTick.destroy()
         updateTick.destroy()
         lobbyEvents.destroy()
@@ -350,7 +342,6 @@ server.registerLobby("default", defaultLobbyOptions, ({lobby}) => {
     })
 
     pingTick.startTick()
-    debugTick.startTick()
     updateTick.startTick()
 })
 

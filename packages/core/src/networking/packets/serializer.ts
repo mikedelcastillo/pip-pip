@@ -139,7 +139,16 @@ export const $json = <T extends Record<string, any>>(): PacketSerializer<T> => (
         return $varstring.encode(JSON.stringify(value))
     },
     decode(value){
-        return JSON.parse($varstring.decode(value))
+        // Guard the parse locally: wire bytes are untrusted, and an outer batch
+        // catch would abort EVERY other packet in the message on one corrupt field.
+        // Sentinel-return (an empty object) + warn keeps the rest of the batch alive.
+        const text = $varstring.decode(value)
+        try{
+            return JSON.parse(text)
+        } catch{
+            console.warn("[packets] $json decode failed; dropping field")
+            return {} as T
+        }
     },
 })
 
@@ -204,7 +213,15 @@ export const $largejson = <T extends Record<string, any>>(): PacketSerializer<T>
         return $largevarstring.encode(JSON.stringify(value))
     },
     decode(value){
-        return JSON.parse($largevarstring.decode(value))
+        // Same local guard as $json: a corrupt custom-map field must not abort the
+        // rest of the message's packets. Sentinel-return + warn over throwing.
+        const text = $largevarstring.decode(value)
+        try{
+            return JSON.parse(text)
+        } catch{
+            console.warn("[packets] $largejson decode failed; dropping field")
+            return {} as T
+        }
     },
 })
 
@@ -217,7 +234,7 @@ export const $string = (length: number): PacketSerializer<string> => ({
         // fixed slot - desyncing every following field in the packet (the same
         // class of bug as the C1 $varstring fix). Space-padding (0x20) and the
         // output bytes are identical to before for ASCII inputs (1 char = 1
-        // byte), so this is wire-compatible for the connection/powerup ids that
+        // byte), so this is wire-compatible for the connection/buff ids that
         // actually use $string; only the multi-byte overflow path changes.
         const out = new Uint8Array(length).fill(0x20)
         out.set(internalTextEncoder.encode(String(value)).subarray(0, length))

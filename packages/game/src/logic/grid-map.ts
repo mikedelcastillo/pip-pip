@@ -253,6 +253,7 @@ export class GridPipGameMap extends PipGameMap{
     constructor(id: string, source: GridMapData){
         super(id)
         this.source = source
+        this.cellSize = source.cellSize
 
         const cellSize = source.cellSize
 
@@ -315,16 +316,16 @@ export class GridPipGameMap extends PipGameMap{
 
                 const x = col * cellSize + ox
                 const y = row * cellSize + oy
-                // Carry the palette SHAPE and block key onto the render tile so
+                // Carry the palette SHAPE and material key onto the render tile so
                 // the renderer can draw a slope as a triangle (matching its
-                // segWall) and vary block styling. texture stays the key for the
-                // legacy sprite path; block is the same key, kept separate so a
+                // segWall) and vary material styling. texture stays the key for the
+                // legacy sprite path; material is the same key, kept separate so a
                 // later phase can split material from texture without churn.
                 const tile: PipGameTile = {
                     x, y,
                     texture: entry.key,
                     shape: entry.shape,
-                    block: entry.key,
+                    material: entry.key,
                 }
                 this.tiles.push(tile)
                 compare(x, y)
