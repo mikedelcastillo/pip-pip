@@ -10,8 +10,6 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@pixi/assets": "^7.4.3",
-    "@pixi/basis": "^7.4.3",
     "pixi-filters": "^6.1.5",
     "pixi.js": "^8.19.0",
     "react": "^19.2.7",
