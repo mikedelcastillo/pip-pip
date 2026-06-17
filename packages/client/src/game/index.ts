@@ -569,6 +569,14 @@ export class GameContext {
 
 export const GAME_CONTEXT = new GameContext()
 
+// DEV-only debug handle: exposes the live GameContext (game, renderer, ticks) on
+// window for console inspection and ad-hoc performance benchmarking. Gated on the
+// Vite DEV flag (stripped from production) AND a window check, so importing this
+// module under the Node-based test runner (no window) stays side-effect free.
+if(import.meta.env.DEV && typeof window !== "undefined"){
+    (window as unknown as { __PIP?: GameContext }).__PIP = GAME_CONTEXT
+}
+
 export const getClientPlayer = (game: PipPipGame) => {
     if (typeof GAME_CONTEXT.client.connectionId !== "undefined") {
         if (GAME_CONTEXT.client.connectionId in game.players) {
