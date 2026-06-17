@@ -632,6 +632,17 @@ export class PipPipRenderer{
     private gameEventSubscriptions: Array<() => void> = []
     destroyed = false
 
+    // GPU-resource mutations (destroying display objects, reallocating filter
+    // targets, recaching the map layer) MUST run on the render tick, immediately
+    // before app.render(), NOT from the game-event handlers below. Those handlers
+    // fire on the separate setInterval update tick; freeing a buffer there races
+    // the rAF render tick's in-flight WebGPU submit, which still references it,
+    // producing "[Buffer] used in submit while destroyed" and a black canvas
+    // (WebGL tolerated this; WebGPU validates it). The handlers queue intent here
+    // and render() drains it (drainGpuMutations) so all GPU lifecycle sits
+    // adjacent to the submit, where Pixi can order it safely.
+    private pendingGpuMutations: Array<() => void> = []
+
     // Pixi 8's Application.init() is async, so the stage/renderer/canvas do not
     // exist until init() resolves. `ready` gates render() and the renderer-backed
     // parts of updateMapGraphics until then.
@@ -722,13 +733,23 @@ export class PipPipRenderer{
             if(player.id in this.players){
                 const graphic = this.players[player.id]
                 delete this.players[player.id]
+                // Detach now (cheap, frees no GPU memory, so the next frame stops
+                // drawing it), but defer the actual GPU-resource destroy to the
+                // render tick - calling it here, on the update tick, would free
+                // buffers an in-flight submit still references. See
+                // pendingGpuMutations.
                 this.playersContainer.removeChild(graphic.container)
-                graphic.destroy()
+                this.queueGpuMutation(() => graphic.destroy())
             }
         })
 
         this.onGameEvent("setMap", () => {
-            this.updateMapGraphics()
+            // mapLayer.rebuild toggles cacheAsTexture, which destroys + recreates
+            // a RenderTexture (a GPU-resource mutation), so defer it to the render
+            // tick rather than running it from this update-tick handler. The map
+            // data is already committed to game state, so reading it at drain time
+            // is still correct. See pendingGpuMutations.
+            this.queueGpuMutation(() => this.updateMapGraphics())
         })
 
         this.onGameEvent("addBullet", ({ bullet }) => {
@@ -836,10 +857,16 @@ export class PipPipRenderer{
         await this.app.init({
             resizeTo: window,
             background: 0x150E12,
-            // Prefer Pixi 8's WebGPU renderer; it transparently falls back to
-            // WebGL when WebGPU is unavailable. Every filter we use ships a GPU
-            // program, so the post-processing stack works on both backends.
-            preference: "webgpu",
+            // Force Pixi 8's WebGL renderer. WebGPU validates buffer lifetimes
+            // strictly and crashes ("[Buffer] used in submit while destroyed" ->
+            // black screen) when a GPU resource is freed while an in-flight submit
+            // still references it. Our display-object destroys and filter-target
+            // reallocations used to run from the setInterval update tick, racing
+            // the rAF render tick's submit; they are now deferred to the render
+            // tick (see pendingGpuMutations) so WebGPU CAN be re-enabled, but WebGL
+            // stays the safe default. Every filter we use ships a program that runs
+            // on WebGL, and the v8 batching perf wins are backend-independent.
+            preference: "webgl",
             // The pixelate/CRT aesthetic does not want MSAA.
             antialias: false,
             // Render crisply on HiDPI / mobile screens. Capped at 2 so a 3x phone
@@ -892,6 +919,24 @@ export class PipPipRenderer{
     ){
         this.game.events.on(eventName, handler)
         this.gameEventSubscriptions.push(() => this.game.events.off(eventName, handler))
+    }
+
+    // Queue a GPU-resource mutation to run on the next render tick instead of
+    // immediately. Called from update-tick game-event handlers (see
+    // pendingGpuMutations for why).
+    private queueGpuMutation(mutation: () => void){
+        this.pendingGpuMutations.push(mutation)
+    }
+
+    // Drain the queued GPU mutations. Called once at the top of render(), so they
+    // run on the render tick right before app.render().
+    private drainGpuMutations(){
+        if(this.pendingGpuMutations.length === 0) return
+        const mutations = this.pendingGpuMutations
+        this.pendingGpuMutations = []
+        for(const mutation of mutations){
+            mutation()
+        }
     }
 
     updateMapGraphics(){
@@ -1016,6 +1061,13 @@ export class PipPipRenderer{
         // The render loop starts as soon as the game view mounts, but Pixi 8 boots
         // asynchronously (init()); skip frames until the renderer/canvas exist.
         if(!this.ready) return
+
+        // Apply GPU-resource mutations queued from the update tick (player
+        // destroys, shockwave filter-target reallocation, map-layer recache) here,
+        // on the render tick and immediately before we submit, so we never free a
+        // buffer the previous in-flight submit still references. See
+        // pendingGpuMutations.
+        this.drainGpuMutations()
 
         const deltaTime = deltaMs / this.game.deltaMs
         const timeDiff = Date.now() - this.game.lastTick
@@ -1461,7 +1513,13 @@ export class PipPipRenderer{
         this.shockwaveElapsed = 0
         if(!this.shockwaveActive){
             this.shockwaveActive = true
-            this.rebuildStageFilters()
+            // rebuildStageFilters reassigns app.stage.filters, which reallocates
+            // the stage filter-target buffers (a GPU-resource mutation). This runs
+            // from removeBullet on the update tick, so defer it to the render tick.
+            // shockwaveActive is already set, so the deferred rebuild includes the
+            // filter. See pendingGpuMutations. (updateShockwave's deactivating
+            // rebuild already runs on the render tick, so it needs no deferral.)
+            this.queueGpuMutation(() => this.rebuildStageFilters())
         }
     }
 
@@ -1506,6 +1564,12 @@ export class PipPipRenderer{
     destroy(){
         if(this.destroyed) return
         this.destroyed = true
+
+        // Drop any GPU mutations still queued from the update tick. app.destroy
+        // below tears down the whole renderer (and its GPU context), freeing all
+        // GPU memory at once, so running these deferred closures would only poke
+        // half-destroyed state (or app.stage) for no benefit.
+        this.pendingGpuMutations = []
 
         // Detach every game-event subscription this renderer added.
         for(const off of this.gameEventSubscriptions){
