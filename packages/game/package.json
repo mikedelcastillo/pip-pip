@@ -6,16 +6,14 @@
   "scripts": {
     "build": "tsc",
     "maps": "go run ./scripts/generate-maps.go",
-    "lint": "eslint . --ext .ts"
+    "lint": "eslint ."
   },
   "peerDependencies": {
     "@pip-pip/core": "*"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^8.31.0",
-    "@typescript-eslint/parser": "^8.31.0",
-    "eslint": "^8.57.1",
+    "eslint": "^10.5.0",
     "tsc": "^2.0.4",
-    "typescript": "^5.8.3"
+    "typescript": "^6.0.3"
   }
 }

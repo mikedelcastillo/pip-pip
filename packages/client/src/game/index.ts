@@ -128,11 +128,18 @@ export class GameContext {
         this.keyboard.setTarget(document.body)
         this.mouse.setTarget(document.body)
 
-        this.renderer.mount(container)
-
-        // Apply the persisted opt-in CRT graphics setting to the freshly-created
-        // renderer (the ui store seeds it from localStorage). Default is OFF.
-        this.renderer.setCrtEnabled(useUiStore.getState().crtEnabled)
+        // Pixi 8 boots asynchronously, so mount the canvas and apply the persisted
+        // graphics setting only once the renderer has initialized. Guard the unmount
+        // race: if the view was torn down before init resolved, the renderer is
+        // already destroyed and must not be mounted.
+        const renderer = this.renderer
+        void renderer.init().then(() => {
+            if (renderer.destroyed) return
+            renderer.mount(container)
+            // Apply the persisted opt-in CRT graphics setting to the freshly-created
+            // renderer (the ui store seeds it from localStorage). Default is OFF.
+            renderer.setCrtEnabled(useUiStore.getState().crtEnabled)
+        })
 
         // Procedural SFX driven by game events. The AudioManager stays silent
         // until its context is resumed by a user gesture.

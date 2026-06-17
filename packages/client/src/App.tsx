@@ -3,7 +3,7 @@ import { RouterProvider } from "react-router-dom"
 import GameLoading from "./components/GameLoading"
 import AssetLoadError from "./components/AssetLoadError"
 import AlertModal from "./components/AlertModal"
-import { assetLoader } from "./game/assets"
+import { assetLoader, initAssets } from "./game/assets"
 import { GAME_CONTEXT } from "./game"
 import { shouldPlayClickFor } from "./game/audio"
 import { createGamepadNav } from "./game/gamepadNav"
@@ -52,6 +52,7 @@ export default function App() {
             setLoadError(false)
             setLoading(true, "Starting download of assets...")
             try {
+                await initAssets()
                 await assetLoader.loadBundle([
                     "ui",
                     "ships",
@@ -93,7 +94,7 @@ export default function App() {
     const retry = useCallback(() => setRetryToken((n) => n + 1), [])
 
     return <>
-        {loadedAssets && <RouterProvider router={router} future={{ v7_startTransition: true }} />}
+        {loadedAssets && <RouterProvider router={router} />}
         {loadError && <AssetLoadError onRetry={retry} />}
         <GameLoading />
         <AlertModal />
