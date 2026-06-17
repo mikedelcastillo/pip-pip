@@ -108,10 +108,6 @@ export default function GameChat({ initialValue = "", autoFocus = false, onClose
         onClose?.()
     }
 
-    const restoreLastMessage = () => {
-        //
-    }
-
     const handleChange = (value: string) => {
         setChatMessage(value)
         setDismissed(false)
@@ -177,7 +173,6 @@ export default function GameChat({ initialValue = "", autoFocus = false, onClose
                 value={chatMessage}
                 onChange={handleChange}
                 onEnter={sendMessage}
-                onUp={restoreLastMessage}
                 placeholder="Chat or use /command"
                 className={styles.gameChatInput}
             />

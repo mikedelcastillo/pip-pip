@@ -2,7 +2,7 @@ import { PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { CUSTOM_MAP_INDEX } from "@pip-pip/game/src/maps"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer, PlayerScores } from "@pip-pip/game/src/logic/player"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, PowerupType } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, BuffType } from "@pip-pip/game/src/logic/buff"
 import { PIP_SHIPS, ShipType } from "@pip-pip/game/src/ships"
 import { create } from "zustand"
 import { GAME_CONTEXT, getClientPlayer } from "."
@@ -202,28 +202,28 @@ export function visibleKills(feed: KillEntry[], now: number, durationMs = KILL_F
         .sort((a, b) => b.time - a.time)
 }
 
-// One transient line in the in-match POWERUP feed. Mirrors KillEntry: `time` is
+// One transient line in the in-match BUFF feed. Mirrors KillEntry: `time` is
 // the Date.now() the pickup was recorded at, used to fade and expire the entry
-// (see visiblePowerups). `playerId` is the picker (used to read that ship's live
+// (see visibleBuffs). `playerId` is the picker (used to read that ship's live
 // remaining buff time off the networked timings for the tactical countdown);
 // `playerName` is shown; `type` drives the label.
-export interface PowerupEntry {
+export interface BuffEntry {
     id: number
     playerId: string
     playerName: string
-    type: PowerupType
+    type: BuffType
     time: number
 }
 
-// The timed (buff) powerup types: these set a ship timing that ticks down, so
+// The timed (buff) buff types: these set a ship timing that ticks down, so
 // the buff HUD and the tactical feed can show a live countdown. "health"/"ammo"
 // are instant (no timer) and are deliberately absent. Kept as a const set + a
 // pure predicate so callers (and tests) share one source of truth.
-const TIMED_BUFF_TYPES: ReadonlySet<PowerupType> = new Set<PowerupType>([
+const TIMED_BUFF_TYPES: ReadonlySet<BuffType> = new Set<BuffType>([
     "haste", "shield", "invis", "ricochet", "rapidfire",
 ])
 
-export function isTimedBuff(type: PowerupType): boolean {
+export function isTimedBuff(type: BuffType): boolean {
     return TIMED_BUFF_TYPES.has(type)
 }
 
@@ -239,10 +239,10 @@ export function formatBuffTime(ticks: number, tps: number): string {
     return `${minutes}:${rest.toString().padStart(2, "0")}`
 }
 
-// Friendly, shout-y label for each powerup type. "Cloak" reads better than
+// Friendly, shout-y label for each buff type. "Cloak" reads better than
 // "Invis" on screen, and "ammo" gets a punchier name to match the kill feed's
 // energy. Kept pure (no store/DOM) so it is trivially unit-testable.
-const POWERUP_LABELS: Record<PowerupType, string> = {
+const BUFF_LABELS: Record<BuffType, string> = {
     health: "HEALTH",
     ammo: "AMMO",
     haste: "HASTE",
@@ -252,13 +252,13 @@ const POWERUP_LABELS: Record<PowerupType, string> = {
     rapidfire: "RAPIDFIRE",
 }
 
-export function powerupLabel(type: PowerupType): string {
-    return POWERUP_LABELS[type]
+export function buffLabel(type: BuffType): string {
+    return BUFF_LABELS[type]
 }
 
 // Per-type colors, matching the HUD/pickup palette so a buff reads the same
 // color in the feed as it does on the buff bars and the world pickup.
-export const POWERUP_COLORS: Record<PowerupType, string> = {
+export const BUFF_COLORS: Record<BuffType, string> = {
     health: "#33DD55",
     ammo: "#FFAA33",
     haste: "#33CCFF",
@@ -268,51 +268,57 @@ export const POWERUP_COLORS: Record<PowerupType, string> = {
     rapidfire: "#FFE14D",
 }
 
-export function powerupColor(type: PowerupType): string {
-    return POWERUP_COLORS[type]
+// The same palette as Pixi numeric colors, derived here (the single source) so the
+// world renderer's buff colors cannot drift from the HUD/feed CSS colors.
+export const BUFF_COLORS_NUMERIC: Record<BuffType, number> = Object.fromEntries(
+    Object.entries(BUFF_COLORS).map(([type, css]) => [type, parseInt(css.slice(1), 16)]),
+) as Record<BuffType, number>
+
+export function buffColor(type: BuffType): string {
+    return BUFF_COLORS[type]
 }
 
-// How many entries the powerup feed retains and how long (ms) each one lives.
+// How many entries the buff feed retains and how long (ms) each one lives.
 // Mirrors the kill feed's cap + duration so the two feeds feel identical.
-export const POWERUP_FEED_MAX = 6
-export const POWERUP_FEED_DURATION_MS = 5000
+export const BUFF_FEED_MAX = 6
+export const BUFF_FEED_DURATION_MS = 5000
 
-// Pure selector: powerup pickups still young enough to show, NEWEST FIRST.
+// Pure selector: buff pickups still young enough to show, NEWEST FIRST.
 // Mirrors visibleKills exactly. Kept pure (no store/Date access) so it is
 // trivially unit-testable.
-export function visiblePowerups(feed: PowerupEntry[], now: number, durationMs = POWERUP_FEED_DURATION_MS): PowerupEntry[] {
+export function visibleBuffs(feed: BuffEntry[], now: number, durationMs = BUFF_FEED_DURATION_MS): BuffEntry[] {
     return feed
         .filter((entry) => now - entry.time < durationMs)
         .sort((a, b) => b.time - a.time)
 }
 
 // Live remaining buff ticks for EVERY player, keyed "<playerId>:<type>", mirrored
-// each sync from that player's networked ship.timings. The tactical powerup feed
+// each sync from that player's networked ship.timings. The tactical buff feed
 // reads it so a buff line counts down (and persists) for as long as the picker
 // still actually holds the buff, instead of fading on a blind 5s timer.
 export type BuffRemaining = Record<string, number>
 
-export function buffRemainingKey(playerId: string, type: PowerupType): string {
+export function buffRemainingKey(playerId: string, type: BuffType): string {
     return `${playerId}:${type}`
 }
 
-// Pure selector backing the TACTICAL powerup feed. An entry stays visible while:
+// Pure selector backing the TACTICAL buff feed. An entry stays visible while:
 //   - it is a timed buff (haste/shield/invis/ricochet) AND the picker still holds
 //     that buff (its live remaining ticks are > 0), OR
 //   - it is an instant pickup (health/ammo) still inside the brief fixed window.
 // Each surviving timed entry is annotated with its live remainingTicks so the
 // feed can render a countdown; instant entries carry remainingTicks 0. Returned
 // NEWEST FIRST. Kept pure (no store/Date access) so it is trivially testable.
-export interface TacticalPowerupEntry extends PowerupEntry {
+export interface TacticalBuffEntry extends BuffEntry {
     remainingTicks: number
 }
 
-export function visibleTacticalPowerups(
-    feed: PowerupEntry[],
+export function visibleTacticalBuffs(
+    feed: BuffEntry[],
     remaining: BuffRemaining,
     now: number,
-    durationMs = POWERUP_FEED_DURATION_MS,
-): TacticalPowerupEntry[] {
+    durationMs = BUFF_FEED_DURATION_MS,
+): TacticalBuffEntry[] {
     return feed
         .map((entry) => {
             if (isTimedBuff(entry.type)) {
@@ -332,9 +338,9 @@ export function visibleTacticalPowerups(
 
 // One active buff on the LOCAL player, for the Minecraft-style status HUD.
 // `ticks`/`maxTicks` drive the depleting bar; `label`/`color` come from the
-// shared powerup helpers so the HUD reads the same as the feed + world pickup.
+// shared buff helpers so the HUD reads the same as the feed + world pickup.
 export interface ActiveBuff {
-    type: PowerupType
+    type: BuffType
     label: string
     color: string
     ticks: number
@@ -347,11 +353,11 @@ export interface ActiveBuff {
 // it stays pure (no store/DOM) and is trivially unit-testable.
 export function activeBuffs(stats: ClientPlayerStats): ActiveBuff[] {
     const all: ActiveBuff[] = [
-        { type: "haste", label: powerupLabel("haste"), color: powerupColor("haste"), ticks: stats.hasteTicks, maxTicks: stats.hasteMaxTicks },
-        { type: "shield", label: powerupLabel("shield"), color: powerupColor("shield"), ticks: stats.shieldTicks, maxTicks: stats.shieldMaxTicks },
-        { type: "invis", label: powerupLabel("invis"), color: powerupColor("invis"), ticks: stats.invisTicks, maxTicks: stats.invisMaxTicks },
-        { type: "ricochet", label: powerupLabel("ricochet"), color: powerupColor("ricochet"), ticks: stats.ricochetTicks, maxTicks: stats.ricochetMaxTicks },
-        { type: "rapidfire", label: powerupLabel("rapidfire"), color: powerupColor("rapidfire"), ticks: stats.rapidfireTicks, maxTicks: stats.rapidfireMaxTicks },
+        { type: "haste", label: buffLabel("haste"), color: buffColor("haste"), ticks: stats.hasteTicks, maxTicks: stats.hasteMaxTicks },
+        { type: "shield", label: buffLabel("shield"), color: buffColor("shield"), ticks: stats.shieldTicks, maxTicks: stats.shieldMaxTicks },
+        { type: "invis", label: buffLabel("invis"), color: buffColor("invis"), ticks: stats.invisTicks, maxTicks: stats.invisMaxTicks },
+        { type: "ricochet", label: buffLabel("ricochet"), color: buffColor("ricochet"), ticks: stats.ricochetTicks, maxTicks: stats.ricochetMaxTicks },
+        { type: "rapidfire", label: buffLabel("rapidfire"), color: buffColor("rapidfire"), ticks: stats.rapidfireTicks, maxTicks: stats.rapidfireMaxTicks },
     ]
     return all
         .filter((buff) => buff.ticks > 0)
@@ -365,14 +371,14 @@ export function activeBuffs(stats: ClientPlayerStats): ActiveBuff[] {
 // tiny chip needs: the buff type (for a stable React key), its shared label
 // (tooltip) and color (the dot fill).
 export interface PlayerBuffBadge {
-    type: PowerupType
+    type: BuffType
     label: string
     color: string
 }
 
 // The fixed badge order, longest-window buffs first, so a player's chips always
 // read in the same order no matter the insertion order of the BuffRemaining map.
-const BUFF_BADGE_ORDER: readonly PowerupType[] = [
+const BUFF_BADGE_ORDER: readonly BuffType[] = [
     "haste", "ricochet", "rapidfire", "invis", "shield",
 ]
 
@@ -384,7 +390,7 @@ const BUFF_BADGE_ORDER: readonly PowerupType[] = [
 export function playerActiveBuffs(remaining: BuffRemaining, playerId: string): PlayerBuffBadge[] {
     return BUFF_BADGE_ORDER
         .filter((type) => (remaining[buffRemainingKey(playerId, type)] ?? 0) > 0)
-        .map((type) => ({ type, label: powerupLabel(type), color: powerupColor(type) }))
+        .map((type) => ({ type, label: buffLabel(type), color: buffColor(type) }))
 }
 
 export interface GameStoreState {
@@ -454,7 +460,7 @@ export interface GameStoreState {
     outgoingMessages: string[]
 
     killFeed: KillEntry[]
-    powerupFeed: PowerupEntry[]
+    buffFeed: BuffEntry[]
 
     // Live remaining buff ticks for every player (see BuffRemaining), refreshed
     // each sync so the tactical feed can count down a picker's buff window. tps is
@@ -465,14 +471,14 @@ export interface GameStoreState {
     addChatMessage: (msg: ChatMessage) => void
     clearChatMessages: () => void
     addKill: (killerName: string, killedName: string, killerShipIndex?: number) => void
-    addPowerupPickup: (playerId: string, playerName: string, type: PowerupType) => void
+    addBuffPickup: (playerId: string, playerName: string, type: BuffType) => void
     addOutgoingMessage: (text: string) => void
     consumeOutgoingMessages: () => string[]
     setDebug: (debug: boolean) => void
     sync: () => void
 }
 
-// Monotonic id for kill/powerup feed entries, used PURELY as the React list key.
+// Monotonic id for kill/buff feed entries, used PURELY as the React list key.
 // The old `Date.now() + feed.length` scheme collided once a feed hit its cap: the
 // slice pins length at MAX, so a same-millisecond batch (a multi-kill, or several
 // pickups in one tick) produced duplicate keys. A plain counter is always unique.
@@ -531,15 +537,15 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     outgoingMessages: [],
 
     killFeed: [],
-    powerupFeed: [],
+    buffFeed: [],
 
     buffRemaining: {},
     tps: 20,
 
     addChatMessage: (msg) => set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
-    // Clearing chat also clears the kill + powerup feeds: they share the same
+    // Clearing chat also clears the kill + buff feeds: they share the same
     // lifecycle (e.g. the local player (re)joining) and the /clear command.
-    clearChatMessages: () => set({ chatMessages: [], killFeed: [], powerupFeed: [] }),
+    clearChatMessages: () => set({ chatMessages: [], killFeed: [], buffFeed: [] }),
     addKill: (killerName, killedName, killerShipIndex) => set((s) => {
         const entry: KillEntry = {
             id: feedEntrySeq++,
@@ -550,8 +556,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         }
         return { killFeed: [...s.killFeed, entry].slice(-KILL_FEED_MAX) }
     }),
-    addPowerupPickup: (playerId, playerName, type) => set((s) => {
-        const entry: PowerupEntry = {
+    addBuffPickup: (playerId, playerName, type) => set((s) => {
+        const entry: BuffEntry = {
             id: feedEntrySeq++,
             playerId,
             playerName,
@@ -560,14 +566,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         }
         // A timed buff has at most ONE live feed row per player: drop any prior
         // entry for the same player+buff (an expired-but-not-yet-evicted one, or a
-        // refresh) before appending, so visibleTacticalPowerups - which keys the
+        // refresh) before appending, so visibleTacticalBuffs - which keys the
         // live remaining ticks on player+type - can never resurrect a stale row or
         // show two identical countdowns. Instant pickups (health/ammo) are not
         // deduped; each is its own transient line.
         const base = isTimedBuff(type)
-            ? s.powerupFeed.filter((e) => !(e.playerId === playerId && e.type === type))
-            : s.powerupFeed
-        return { powerupFeed: [...base, entry].slice(-POWERUP_FEED_MAX) }
+            ? s.buffFeed.filter((e) => !(e.playerId === playerId && e.type === type))
+            : s.buffFeed
+        return { buffFeed: [...base, entry].slice(-BUFF_FEED_MAX) }
     }),
     addOutgoingMessage: (text) => set((s) => ({
         outgoingMessages: [...s.outgoingMessages, text.trim().substring(0, CHAT_MAX_MESSAGE_LENGTH)],

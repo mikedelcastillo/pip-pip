@@ -9,7 +9,7 @@ import {
     findNearestEnemy,
     makeBotSkill,
     updateBotInputs,
-} from "@pip-pip/game/src/logic/ai"
+} from "@pip-pip/game/src/logic/bot"
 import { buildNavGrid, clearNavGridCache, STUCK_TICKS_THRESHOLD } from "@pip-pip/game/src/logic/pathfinding"
 import { PointPhysicsSegmentWall } from "@pip-pip/core/src/physics"
 import { radianDifference } from "@pip-pip/core/src/math"

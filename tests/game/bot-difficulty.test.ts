@@ -13,7 +13,7 @@ import {
     computeBotInputs,
     BOT_FIRE_RANGE,
     BOT_FIRE_AIM_TOLERANCE,
-} from "@pip-pip/game/src/logic/ai"
+} from "@pip-pip/game/src/logic/bot"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { radianDifference } from "@pip-pip/core/src/math"
 
@@ -150,9 +150,10 @@ describe("addBots / removeBots / fillBots", () => {
         const game = new PipPipGame()
         const [hard] = game.addBots(1, BotDifficulty.HARD)
         const [easy] = game.addBots(1, BotDifficulty.EASY)
-        // The tag is short so the full name stays within the name limits.
-        expect(hard.name).toContain("-H-")
-        expect(easy.name).toContain("-E-")
+        // The tag is short so the full name stays within the name limits. Names use
+        // underscores (not hyphens) so they survive the alphanumeric name policy.
+        expect(hard.name).toContain("_H_")
+        expect(easy.name).toContain("_E_")
         expect(hard.name.length).toBeLessThanOrEqual(16)
     })
 

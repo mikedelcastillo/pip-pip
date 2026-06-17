@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { PointPhysicsRectWall, Vector2 } from "@pip-pip/core/src/physics"
-import { RICOCHET_TICKS } from "@pip-pip/game/src/logic/powerup"
+import { RICOCHET_TICKS } from "@pip-pip/game/src/logic/buff"
 
 // Ship index 3 ("Blu") uses pure default stats, so its numbers are predictable.
 const BLU = 3
@@ -14,7 +14,7 @@ function makeArena(){
     const game = new PipPipGame({
         shootPlayerBullets: true,
         triggerDamage: true,
-        spawnPowerups: true,
+        spawnBuffs: true,
     })
 
     for(const seg of game.map.segWalls) game.physics.removeSegWall(seg)

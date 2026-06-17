@@ -15,17 +15,17 @@ export type TilePoint = { x: number, y: number }
 // aesthetic while letting maps look varied. Colours are intentionally on-brand
 // dark space hues (the same family as styles.COLORS DARK_*/ACCENT). Each entry
 // is { face, edge } as 0xRRGGBB.
-export type TileBlockStyle = {
+export type TileMaterialStyle = {
     face: number,
     edge: number,
 }
 
 // A small named palette of block styles. A tile's block key (or texture) selects
-// one of these deterministically via blockStyleFor, so a map authored with a
+// one of these deterministically via materialStyleFor, so a map authored with a
 // handful of distinct palette keys looks varied without any art assets. The
 // legacy migrated maps only ever use "tile_default" / "tile_hidden", which map
 // to the first two styles, so they keep today's look.
-export const TILE_BLOCK_STYLES: Record<string, TileBlockStyle> = {
+export const TILE_MATERIAL_STYLES: Record<string, TileMaterialStyle> = {
     // The original default wall: dark plum face with a faintly lighter bevel.
     tile_default: { face: 0x362631, edge: 0x4A3343 },
     // The original "hidden" wall: nearly black, barely-there bevel.
@@ -49,17 +49,17 @@ export const TILE_BLOCK_STYLES: Record<string, TileBlockStyle> = {
 // Ordered fallback styles, used when a block key is not a named style. A stable
 // string hash picks one so the SAME key always renders the SAME way (a map's
 // look is deterministic) while different keys spread across the palette.
-const FALLBACK_STYLES: TileBlockStyle[] = [
-    TILE_BLOCK_STYLES.tile_default,
-    TILE_BLOCK_STYLES.slate,
-    TILE_BLOCK_STYLES.rust,
-    TILE_BLOCK_STYLES.accent,
-    TILE_BLOCK_STYLES.teal,
+const FALLBACK_STYLES: TileMaterialStyle[] = [
+    TILE_MATERIAL_STYLES.tile_default,
+    TILE_MATERIAL_STYLES.slate,
+    TILE_MATERIAL_STYLES.rust,
+    TILE_MATERIAL_STYLES.accent,
+    TILE_MATERIAL_STYLES.teal,
 ]
 
 // A tiny deterministic string hash (djb2-ish, kept in 32-bit range). Pure and
 // stable across runs so a given block key always lands on the same style.
-export function hashBlockKey(key: string): number{
+export function hashMaterialKey(key: string): number{
     let hash = 5381
     for(let i = 0; i < key.length; i++){
         hash = ((hash << 5) + hash + key.charCodeAt(i)) | 0
@@ -70,30 +70,30 @@ export function hashBlockKey(key: string): number{
 // The { face, edge } style for a raw block KEY (not a whole tile). A named style
 // wins outright; anything else is spread deterministically across the fallback
 // palette so the editor preview and the in-game renderer agree on any key. Kept
-// separate from blockStyleFor (which takes a tile) so the editor can colour a
+// separate from materialStyleFor (which takes a tile) so the editor can colour a
 // material swatch straight from its key without fabricating a tile.
-export function blockStyleForKey(key: string): TileBlockStyle{
-    const named = TILE_BLOCK_STYLES[key]
+export function materialStyleForKey(key: string): TileMaterialStyle{
+    const named = TILE_MATERIAL_STYLES[key]
     if(typeof named !== "undefined") return named
-    const index = hashBlockKey(key) % FALLBACK_STYLES.length
+    const index = hashMaterialKey(key) % FALLBACK_STYLES.length
     return FALLBACK_STYLES[index]
 }
 
 // A material key's FACE colour as a CSS "#rrggbb" string, so the 2D editor canvas
 // (which paints with CSS colours, not Pixi's 0xRRGGBB numbers) can render a tile
 // in the EXACT face colour the in-game Pixi renderer uses. Routed through
-// blockStyleForKey so a named material, a legacy key, or an unknown key all map
+// materialStyleForKey so a named material, a legacy key, or an unknown key all map
 // the same way in the editor as they will in the match.
-export function blockFaceCss(key: string): string{
-    const face = blockStyleForKey(key).face
+export function materialFaceCss(key: string): string{
+    const face = materialStyleForKey(key).face
     return `#${face.toString(16).padStart(6, "0")}`
 }
 
-// Resolve a tile's block key (falling back to its texture) to a concrete
+// Resolve a tile's material key (falling back to its texture) to a concrete
 // { face, edge } style. A named style wins outright; anything else is spread
 // deterministically across the fallback palette so varied keys look varied.
-export function blockStyleFor(tile: PipGameTile): TileBlockStyle{
-    return blockStyleForKey(tile.block ?? tile.texture)
+export function materialStyleFor(tile: PipGameTile): TileMaterialStyle{
+    return materialStyleForKey(tile.material ?? tile.texture)
 }
 
 // The polygon (in world space) that fills a tile of the given shape, centred on

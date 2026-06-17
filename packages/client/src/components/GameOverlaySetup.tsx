@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react"
 import { PipPipGameMode } from "@pip-pip/game/src/logic"
+import { MODE_MIN_KILLS, MODE_MAX_KILLS, MODE_MIN_MINUTES, MODE_MAX_MINUTES } from "@pip-pip/game/src/logic/constants"
+import { clamp } from "@pip-pip/core/src/lib/utils"
 import { GAME_CONTEXT } from "../game"
 import { useGameStore } from "../game/store"
 import { readyTally } from "../game/ready"
@@ -12,17 +14,11 @@ import LobbyMenu from "./LobbyMenu"
 import BotsControls from "./BotsControls"
 import styles from "./GameOverlaySetup.module.sass"
 
-// Mode-target bounds + steps, mirrored from HostSettingsModal so the lobby and
-// the host dialog agree (the server re-clamps to the same range).
-const MIN_KILLS = 5
-const MAX_KILLS = 50
+// Step + default UI values; the kill/minute bounds come from the shared MODE_*
+// source so the lobby, the host dialog, and the server all agree.
 const KILLS_STEP = 5
-const MIN_MINUTES = 1
-const MAX_MINUTES = 10
 const DEFAULT_KILLS = 25
 const DEFAULT_MINUTES = 3
-
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
 // Read-only summary of the lobby's mode for the header badge. DEATHMATCH shows
 // its kill target; KILL_FRENZY shows its match length.
@@ -75,9 +71,9 @@ export default function GameOverlaySetup() {
     const stepTarget = (delta: number) => {
         if (!isHost) return
         if (isFrenzy) {
-            GAME_CONTEXT.setGameMode(mode, safeKills, clamp(safeMinutes + delta, MIN_MINUTES, MAX_MINUTES))
+            GAME_CONTEXT.setGameMode(mode, safeKills, clamp(safeMinutes + delta, MODE_MIN_MINUTES, MODE_MAX_MINUTES))
         } else {
-            GAME_CONTEXT.setGameMode(mode, clamp(safeKills + delta * KILLS_STEP, MIN_KILLS, MAX_KILLS), safeMinutes)
+            GAME_CONTEXT.setGameMode(mode, clamp(safeKills + delta * KILLS_STEP, MODE_MIN_KILLS, MODE_MAX_KILLS), safeMinutes)
         }
     }
 

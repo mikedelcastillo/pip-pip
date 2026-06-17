@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { PipPipGameMode, BotDifficultyChoice } from "@pip-pip/game/src/logic"
-import { BotDifficulty } from "@pip-pip/game/src/logic/ai"
+import { BotDifficulty } from "@pip-pip/game/src/logic/bot"
 import { GAME_CONTEXT } from "../game"
 import { useGameStore } from "../game/store"
 import GameButton from "./GameButton"

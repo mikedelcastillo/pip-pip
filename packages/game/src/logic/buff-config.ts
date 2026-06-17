@@ -1,12 +1,12 @@
 // Single source of truth for power-up tuning: how often they spawn, how densely
 // they fill the map, how likely each type is, and how long the timed buffs last.
-// Imported by powerup.ts (durations + stack clamp), index.ts (spawn cadence,
-// density, weighted type pool) and re-exported from powerup.ts so existing
-// duration importers (client store/feed) keep their `.../logic/powerup` path.
+// Imported by buff.ts (durations + stack clamp), index.ts (spawn cadence,
+// density, weighted type pool) and re-exported from buff.ts so existing
+// duration importers (client store/feed) keep their `.../logic/buff` path.
 //
 // `import type` (erased at runtime) so this file has no runtime dependency on
-// powerup.ts, even though powerup.ts imports values from here -- no import cycle.
-import type { PowerupType } from "./powerup"
+// buff.ts, even though buff.ts imports values from here -- no import cycle.
+import type { BuffType } from "./buff"
 
 // The game runs at a fixed 20 ticks per second; all timers are in ticks.
 const TICKS_PER_SECOND = 20
@@ -15,21 +15,21 @@ const TICKS_PER_SECOND = 20
 // one per 64 tiles. The match keeps spawning (one at a time, see below) until the
 // number of active power-ups reaches floor(emptyTiles / BLOCK_SIZE^2), so bigger
 // open maps fill with proportionally more power-ups.
-export const POWERUP_BLOCK_SIZE = 8
+export const BUFF_BLOCK_SIZE = 8
 
 // Spawn cadence: a spawn is attempted once every this many ticks during MATCH.
 // 120 ticks = 6 seconds.
-export const POWERUP_SPAWN_INTERVAL_TICKS = TICKS_PER_SECOND * 6
+export const BUFF_SPAWN_INTERVAL_TICKS = TICKS_PER_SECOND * 6
 
 // How many power-ups to place on each interval. One at a time, so the map fills
 // in gradually toward the density target rather than all at once.
-export const POWERUP_SPAWN_PER_INTERVAL = 1
+export const BUFF_SPAWN_PER_INTERVAL = 1
 
 // Relative spawn frequency per type, as weighted-random tickets (a type with
 // double the weight appears roughly twice as often). health + shield are the most
 // common; the strong cloak (invis) and ricochet are the rarest. Instant types
 // (health/ammo) and timed buffs share one pool.
-export const POWERUP_SPAWN_WEIGHTS: Record<PowerupType, number> = {
+export const BUFF_SPAWN_WEIGHTS: Record<BuffType, number> = {
     health: 5,
     shield: 5,
     ammo: 3,
@@ -40,7 +40,7 @@ export const POWERUP_SPAWN_WEIGHTS: Record<PowerupType, number> = {
 }
 
 // Upper bound for any single timed-buff timer, in ticks. Buffs STACK (re-grabbing
-// adds to the remaining time, see applyPowerupEffect) so the running total is
+// adds to the remaining time, see applyBuffEffect) so the running total is
 // clamped here to stay within the uint16 the playerShipTimings packet uses
 // (65535 ticks ~= 54 minutes -- effectively unreachable, just wire-safety).
 export const MAX_BUFF_TICKS = 65535

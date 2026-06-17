@@ -4,8 +4,8 @@ import { Packet } from "@pip-pip/core/src/networking/packets/packet"
 
 import { PipPlayer } from "../logic/player"
 import { PipPipGame, PipPipGamePhase, PipPipGameMode } from "../logic"
-import { Bullet } from "../logic/bullet"
-import { Powerup, POWERUP_ID_LENGTH, POWERUP_TYPE_TO_CODE } from "../logic/powerup"
+import { Bullet, BULLET_TYPE_TO_CODE } from "../logic/bullet"
+import { Buff, BUFF_ID_LENGTH, BUFF_TYPE_TO_CODE } from "../logic/buff"
 import { WORLD_QUANT_RANGE } from "../logic/constants"
 import { GridMapData } from "../logic/grid-map"
 
@@ -168,7 +168,7 @@ export const packetManager = new PacketManager({
         // Timed-buff timers (HASTE_TICKS / SHIELD_TICKS / INVIS_TICKS /
         // RICOCHET_TICKS / RAPIDFIRE_TICKS). uint16 (max 65535 ticks) because buff
         // durations exceed 255 and buffs stack. Networked so remote ships' buffs
-        // are known (for the visual + the tactical powerup feed countdown) and the
+        // are known (for the visual + the tactical buff feed countdown) and the
         // local player's prediction uses
         // the same haste. `invisibility` drives the cloak fade and is DISTINCT from
         // the `invincibility` no-damage timer above. `ricochet` is the bouncing-
@@ -300,20 +300,20 @@ export const packetManager = new PacketManager({
     // is torn down server-side right after this goes out.
     lobbyClosed: new Packet({}),
 
-    // A powerup that became active (full state on join + on spawn). type is the
-    // PowerupType wire code (see POWERUP_TYPE_TO_CODE); the id is a fixed-length
-    // string so the matching powerupPickup can remove it by id.
-    powerupSpawn: new Packet({
-        id: $string(POWERUP_ID_LENGTH),
+    // A buff that became active (full state on join + on spawn). type is the
+    // BuffType wire code (see BUFF_TYPE_TO_CODE); the id is a fixed-length
+    // string so the matching buffPickup can remove it by id.
+    buffSpawn: new Packet({
+        id: $string(BUFF_ID_LENGTH),
         type: $uint8,
         x: $worldPos,
         y: $worldPos,
     }),
-    // A powerup that was picked up: clients remove it by id. playerId names the
+    // A buff that was picked up: clients remove it by id. playerId names the
     // picker (so the client can play a pickup cue) and is left empty-padded when
     // there is no relevant player.
-    powerupPickup: new Packet({
-        id: $string(POWERUP_ID_LENGTH),
+    buffPickup: new Packet({
+        id: $string(BUFF_ID_LENGTH),
         playerId: $string(CONNECTION_ID_LENGTH),
     }),
 })
@@ -507,20 +507,20 @@ export const encode = {
         velocityX: bullet.physics.velocity.x,
         velocityY: bullet.physics.velocity.y,
         radius: bullet.physics.radius,
-        // Bullet type wire mapping: 0 = primary, 1 = tactical, 2 = grenade.
-        // The client reverses this same mapping in processPackets (client.ts).
-        bulletType: bullet.type === "grenade" ? 2 : bullet.type === "tactical" ? 1 : 0,
+        // Bullet type wire mapping via the shared named table; the client reverses
+        // it with BULLET_CODE_TO_TYPE in processPackets (client.ts).
+        bulletType: BULLET_TYPE_TO_CODE[bullet.type],
         explosionRadius: bullet.explosionRadius,
     }),
 
-    powerupSpawn: (powerup: Powerup) => packetManager.serializers.powerupSpawn.encode({
-        id: powerup.id,
-        type: POWERUP_TYPE_TO_CODE[powerup.type],
-        x: powerup.position.x,
-        y: powerup.position.y,
+    buffSpawn: (buff: Buff) => packetManager.serializers.buffSpawn.encode({
+        id: buff.id,
+        type: BUFF_TYPE_TO_CODE[buff.type],
+        x: buff.position.x,
+        y: buff.position.y,
     }),
-    powerupPickup: (powerup: Powerup, player?: PipPlayer) => packetManager.serializers.powerupPickup.encode({
-        id: powerup.id,
+    buffPickup: (buff: Buff, player?: PipPlayer) => packetManager.serializers.buffPickup.encode({
+        id: buff.id,
         playerId: player?.id ?? "",
     }),
 

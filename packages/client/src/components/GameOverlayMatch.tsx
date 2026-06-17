@@ -8,7 +8,7 @@ import GamePlayerList from "./GamePlayerList"
 import PauseMenu from "./PauseMenu"
 import KillFeed from "./KillFeed"
 import KillStreakBanner from "./KillStreakBanner"
-import PowerupFeed from "./PowerupFeed"
+import BuffFeed from "./BuffFeed"
 import ObjectiveMeter from "./ObjectiveMeter"
 import Minimap from "./Minimap"
 import GameBuffBars from "./GameBuffBars"
@@ -105,7 +105,7 @@ function SpectateTargetHud({ stats }: { stats: ClientPlayerStats }) {
 // Apex-Legends-style in-match HUD. Layout, by corner:
 //   top-left ...... minimap, then the collapsible chat under it
 //   top-center .... objective meter (DEATHMATCH king + progress, or frenzy clock)
-//   top-right ..... the menu button, with the kill + powerup feeds beneath it
+//   top-right ..... the menu button, with the kill + buff feeds beneath it
 //   bottom-left ... health + segmented shield stack, buff chips above it
 //   bottom-right .. the weapon card (big ammo number + tactical ability pip + ping)
 //   center ........ the respawn countdown while dead
@@ -225,7 +225,7 @@ export default function GameOverlayMatch() {
             </button>
 
             <KillFeed />
-            <PowerupFeed />
+            <BuffFeed />
 
             {showPlayerList && (
                 <div className={styles.scoreboard}>

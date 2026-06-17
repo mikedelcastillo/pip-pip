@@ -34,31 +34,6 @@ export function generateId(length = 4, reference?: string[]){
     return output
 }
 
-export function getKeyDuplicates(...args: Record<string, unknown>[]){
-    const keys = args.map(obj => Object.keys(obj))
-    const keysUnion = keys.flat()
-    const keysSet: string[] = []
-    const duplicates: string[] = []
-
-    for(const key of keysUnion){
-        if(duplicates.includes(key)){
-            continue
-        }
-        if(keysSet.includes(key)){
-            duplicates.push(key)
-            continue
-        }
-        keysSet.push(key)
-    }
-
-    return {
-        union: keysUnion,
-        set: keysSet,
-        duplicates: duplicates,
-        hasDuplicates: duplicates.length > 0,
-    }
-}
-
 export function getLocalStorage(): Storage | undefined{
     if(typeof window === "undefined") return
     if(typeof window.localStorage === "undefined") return
@@ -69,4 +44,10 @@ export function isObject(variable: any){
     return typeof variable === "object" &&
         variable !== null &&
         !Array.isArray(variable)
+}
+
+// Constrain a scalar to [min, max]. The one generic clamp for the whole repo;
+// domain-specific clamps (player name, team count) live with their domain.
+export function clamp(value: number, min: number, max: number){
+    return Math.max(min, Math.min(max, value))
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { playerStats, activeBuffs } from "../../packages/client/src/game/store"
 import { PipPipGame } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
-import { HASTE_TICKS, SHIELD_TICKS } from "@pip-pip/game/src/logic/powerup"
+import { HASTE_TICKS, SHIELD_TICKS } from "@pip-pip/game/src/logic/buff"
 
 // playerStats is the single mapper that turns a networked player's live ship into
 // the flat ClientPlayerStats the HUD reads. The spectate mini-HUD reuses it to

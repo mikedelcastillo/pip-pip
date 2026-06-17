@@ -1,8 +1,9 @@
-import { PipPipGame, PipPipGamePhase, PipPipGameMode, BotDifficultyChoice } from "@pip-pip/game/src/logic"
-import { BotDifficulty } from "@pip-pip/game/src/logic/ai"
+import { PipPipGame, PipPipGamePhase, PipPipGameMode, BotDifficultyChoice, teamSettingsForMode } from "@pip-pip/game/src/logic"
+import { BotDifficulty } from "@pip-pip/game/src/logic/bot"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
-import { sanitize } from "@pip-pip/game/src/logic/utils"
-import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
+import { sanitize, sanitizeChatMessage } from "@pip-pip/game/src/logic/utils"
+import { MODE_MIN_KILLS, MODE_MAX_KILLS, MODE_MIN_MINUTES, MODE_MAX_MINUTES } from "@pip-pip/game/src/logic/constants"
+import { clamp } from "@pip-pip/core/src/lib/utils"
 import {
     encode,
     HOST_BOTS_ACTION_ADD,
@@ -16,17 +17,6 @@ import { validateGridMapData } from "@pip-pip/game/src/logic/grid-map"
 import type { GameTickContext } from "."
 import { sanitizePlayerInputs } from "./input-sanitize"
 import { dispatchCommand, isCommandMessage, parseCommand, type CommandContext } from "./commands"
-
-// In-lobby mode-target bounds, mirrored from the host UI (HostSettingsModal /
-// the lobby Match panel). The client clamps too, but the server never trusts
-// the wire, so it re-clamps every incoming gameMode here.
-const MODE_MIN_KILLS = 5
-const MODE_MAX_KILLS = 50
-const MODE_MIN_MINUTES = 1
-const MODE_MAX_MINUTES = 10
-
-const clamp = (value: number, min: number, max: number) =>
-    Math.max(min, Math.min(max, value))
 
 // Chat rate limit: a token bucket per connection. Capacity is the burst a peer
 // may send back-to-back; tokens refill at CHAT_RATE_PER_SECOND/sec. ~3 msg/sec
@@ -65,16 +55,9 @@ function takeChatToken(connectionId: string, now: number){
     return true
 }
 
-// Validate one raw chat message. Returns the broadcast-ready text, or undefined
-// to drop it. Empty/whitespace-only messages are dropped; the rest is clamped
-// to CHAT_MAX_MESSAGE_LENGTH so a single message can never be oversized even if
-// the client ignores its own limit.
-export function sanitizeChatMessage(message: string){
-    if(typeof message !== "string") return undefined
-    const trimmed = message.trim()
-    if(trimmed.length === 0) return undefined
-    return trimmed.slice(0, CHAT_MAX_MESSAGE_LENGTH)
-}
+// Re-exported from game so existing importers (the chat-hardening tests) keep
+// working; the implementation now lives in game/logic/utils so the client shares it.
+export { sanitizeChatMessage }
 
 // Every (senderId, messages) pair approved for broadcast THIS tick. Returns one
 // entry per sender (already de-duplicated across that sender's ws messages), so
@@ -299,14 +282,11 @@ export function processLobbyPackets(context: GameTickContext){
                     mode === PipPipGameMode.KILL_FRENZY ||
                     mode === PipPipGameMode.TEAM_DEATHMATCH
                 ){
-                    // TEAM_DEATHMATCH turns on teams + friendly-fire-off; the
-                    // free-for-all modes turn them back off, so switching modes
-                    // in the lobby always lands a consistent settings pair.
-                    const isTeam = mode === PipPipGameMode.TEAM_DEATHMATCH
+                    // teamSettingsForMode lands the consistent teams/friendly-fire
+                    // pair so switching modes always agrees across every ingress.
                     game.setSettings({
                         mode,
-                        useTeams: isTeam,
-                        friendlyFire: !isTeam,
+                        ...teamSettingsForMode(mode),
                         maxKills: clamp(maxKills, MODE_MIN_KILLS, MODE_MAX_KILLS),
                         matchMinutes: clamp(matchMinutes, MODE_MIN_MINUTES, MODE_MAX_MINUTES),
                     })

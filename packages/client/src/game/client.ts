@@ -1,7 +1,8 @@
 import { Vector2 } from "@pip-pip/core/src/physics"
 import { PipPipGamePhase } from "@pip-pip/game/src/logic"
-import { POWERUP_CODE_TO_TYPE } from "@pip-pip/game/src/logic/powerup"
-import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
+import { BUFF_CODE_TO_TYPE } from "@pip-pip/game/src/logic/buff"
+import { BULLET_CODE_TO_TYPE } from "@pip-pip/game/src/logic/bullet"
+import { sanitizeChatMessage } from "@pip-pip/game/src/logic/utils"
 import { encode, decodeTeam } from "@pip-pip/game/src/networking/packets"
 import { GameContext, getClientPlayer } from "."
 import { useGameStore } from "./store"
@@ -9,7 +10,7 @@ import { showAlert } from "../store/alert"
 
 export const processPackets = (gameContext: GameContext) => {
     const { game } = gameContext
-    const { addChatMessage, addPowerupPickup } = useGameStore.getState()
+    const { addChatMessage, addBuffPickup } = useGameStore.getState()
 
     for (const events of gameContext.clientEvents.filter("packetMessage")) {
         const { packets } = events.packetMessage
@@ -67,14 +68,10 @@ export const processPackets = (gameContext: GameContext) => {
         for (const packet of packets.playerShootBullet || []) {
             const player = game.players[packet.playerId]
             if (typeof player !== "undefined") {
-                // Reverse the wire mapping from packets.ts: 0 = primary,
-                // 1 = tactical, 2 = grenade. Grenades also carry their blast
-                // radius so the client renders a matching explosion on death.
-                const type = packet.bulletType === 2
-                    ? "grenade"
-                    : packet.bulletType === 1
-                        ? "tactical"
-                        : "primary"
+                // Reverse the wire mapping from packets.ts via the shared table.
+                // Grenades also carry their blast radius so the client renders a
+                // matching explosion on death.
+                const type = BULLET_CODE_TO_TYPE[packet.bulletType] ?? "primary"
                 game.bullets.new({
                     position: new Vector2(packet.positionX, packet.positionY),
                     velocity: new Vector2(packet.velocityX, packet.velocityY),
@@ -107,27 +104,27 @@ export const processPackets = (gameContext: GameContext) => {
             game.players[playerId]?.setReady(ready === 1)
         }
 
-        // Powerup spawned: create it locally (server-authoritative; the client
-        // never spawns powerups itself). Re-keys onto the server's id so the
-        // matching powerupPickup removes the right one.
-        for (const { id, type, x, y } of packets.powerupSpawn || []) {
-            const powerupType = POWERUP_CODE_TO_TYPE[type]
-            if (typeof powerupType === "undefined") continue
-            game.powerups.new({ id, type: powerupType, position: new Vector2(x, y) })
+        // Buff spawned: create it locally (server-authoritative; the client
+        // never spawns buffs itself). Re-keys onto the server's id so the
+        // matching buffPickup removes the right one.
+        for (const { id, type, x, y } of packets.buffSpawn || []) {
+            const buffType = BUFF_CODE_TO_TYPE[type]
+            if (typeof buffType === "undefined") continue
+            game.buffs.new({ id, type: buffType, position: new Vector2(x, y) })
         }
 
-        // Powerup picked up: announce it in the shared powerup feed (local AND
-        // remote pickups), then remove it locally by id. The powerup's `type`
+        // Buff picked up: announce it in the shared buff feed (local AND
+        // remote pickups), then remove it locally by id. The buff's `type`
         // and the picker's name MUST be read BEFORE unsetById, which clears the
-        // powerup. Both lookups are best-effort: a missing powerup/player just
-        // skips the announcement (still removing the powerup).
-        for (const { id, playerId } of packets.powerupPickup || []) {
-            const powerup = game.powerups.powerups[id]
+        // buff. Both lookups are best-effort: a missing buff/player just
+        // skips the announcement (still removing the buff).
+        for (const { id, playerId } of packets.buffPickup || []) {
+            const buff = game.buffs.buffs[id]
             const player = game.players[playerId]
-            if (typeof powerup !== "undefined" && typeof player !== "undefined") {
-                addPowerupPickup(player.id, player.name, powerup.type)
+            if (typeof buff !== "undefined" && typeof player !== "undefined") {
+                addBuffPickup(player.id, player.name, buff.type)
             }
-            game.powerups.unsetById(id)
+            game.buffs.unsetById(id)
         }
 
         // Set game state
@@ -317,8 +314,8 @@ export const processPackets = (gameContext: GameContext) => {
         for (const { playerId, message } of packets.receiveChat || []) {
             const player = game.players[playerId]
             if (typeof player !== "undefined") {
-                const sanitizedMessage = message.trim().substring(0, CHAT_MAX_MESSAGE_LENGTH)
-                if (sanitizedMessage.length > 0) {
+                const sanitizedMessage = sanitizeChatMessage(message)
+                if (typeof sanitizedMessage !== "undefined") {
                     addChatMessage({
                         text: [{
                             style: "player",
@@ -337,7 +334,7 @@ export const processPackets = (gameContext: GameContext) => {
             "ownPlayerState",
             "gameCountdown", "matchTimer",
             "playerSpectate",
-            "powerupSpawn", "powerupPickup",
+            "buffSpawn", "buffPickup",
             "ping", "playerPing"]
         // Per-tick packet trace - dev only. In production this logged every
         // non-ignored packet (timings/capacities/scores/damage/kills...) at the

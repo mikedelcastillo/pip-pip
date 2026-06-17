@@ -3,6 +3,7 @@
 // Units: age/lifespan in ms, vx/vy in px/ms.
 
 import { nearestPointFromSegment } from "@pip-pip/core/src/math"
+import { clamp } from "@pip-pip/core/src/lib/utils"
 
 export type Particle = {
     x: number,
@@ -103,10 +104,6 @@ export class ParticleSystem {
 
 function rand(min: number, max: number){
     return min + Math.random() * (max - min)
-}
-
-function clamp(n: number, min: number, max: number){
-    return Math.min(max, Math.max(min, n))
 }
 
 export function emitExplosion(system: ParticleSystem, x: number, y: number, count: number){

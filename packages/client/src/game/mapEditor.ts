@@ -206,7 +206,7 @@ export const EDITOR_PALETTE: { brush: EditorBrush, shape: TileShape, key: string
 ]
 
 // A MATERIAL is the COLOUR half of a tile (the other half is its shape). Each is
-// one of the named block styles in mapGraphics.TILE_BLOCK_STYLES, so the editor
+// one of the named block styles in mapGraphics.TILE_MATERIAL_STYLES, so the editor
 // swatch and the in-game block render the SAME face colour. The active material
 // applies to the block brush AND every slope (explicit + auto), so a slope always
 // matches the block colour the author chose. Deco is NOT a material: it is
@@ -222,7 +222,7 @@ export type EditorMaterial = {
 }
 
 // The ORDERED, colourable materials, in the order the picker renders them. Keys
-// are a subset of TILE_BLOCK_STYLES (the colourable ones; tile_hidden/deco is
+// are a subset of TILE_MATERIAL_STYLES (the colourable ones; tile_hidden/deco is
 // excluded). "tile_default" is first so it stays the default look and a map that
 // only ever uses it is byte-identical to today. Adding a key here is purely a
 // client concern: any string key is valid map data.

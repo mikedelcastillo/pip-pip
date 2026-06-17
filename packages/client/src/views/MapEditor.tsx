@@ -61,7 +61,7 @@ import {
 } from "../game/mapLibrary"
 import { archivePut } from "../game/mapArchive"
 import { repairGridMapData } from "../game/mapRecovery"
-import { blockFaceCss } from "../game/mapGraphics"
+import { materialFaceCss } from "../game/mapGraphics"
 import { trackEvent, trackPageView } from "../analytics"
 import styles from "./MapEditor.module.sass"
 
@@ -276,7 +276,7 @@ const PREVIEW_ALPHA = 0.42
 
 // Parse a "#rrggbb" CSS colour into an "rgba(r, g, b, a)" string at the given
 // alpha. Used to tint the shape preview in the active material's face colour
-// (which arrives as a hex string from blockFaceCss) at PREVIEW_ALPHA. Falls back
+// (which arrives as a hex string from materialFaceCss) at PREVIEW_ALPHA. Falls back
 // to the raw colour when the input is not a 6-digit hex.
 function hexToRgba(hex: string, alpha: number): string{
     const m = /^#([0-9a-fA-F]{6})$/.exec(hex)
@@ -297,7 +297,7 @@ function hexToRgba(hex: string, alpha: number): string{
 function previewFillStyle(brush: PaintBrush, materialKey: string): string{
     if(brush === "empty") return COLOR_PREVIEW_ERASE
     if(brush === "deco") return hexToRgba(rgbHexFromCss(COLOR_DECO), PREVIEW_ALPHA)
-    return hexToRgba(blockFaceCss(materialKey), PREVIEW_ALPHA)
+    return hexToRgba(materialFaceCss(materialKey), PREVIEW_ALPHA)
 }
 
 // Normalise a CSS colour that is already a 6-digit hex (our COLOR_* constants
@@ -669,9 +669,9 @@ export default function MapEditor(){
             const entry = map.palette[value - 1]
             if(typeof entry === "undefined") continue
             // Colour each tile by its palette entry's material KEY through the same
-            // TILE_BLOCK_STYLES the in-game renderer uses, so the editor preview is
+            // TILE_MATERIAL_STYLES the in-game renderer uses, so the editor preview is
             // the in-game look (deco ignores it inside drawTile).
-            drawTile(ctx, entry.shape, blockFaceCss(entry.key), ox + col * cell, oy + row * cell, cell)
+            drawTile(ctx, entry.shape, materialFaceCss(entry.key), ox + col * cell, oy + row * cell, cell)
         }
 
         // Grid lines on top of fills so cell edges stay legible while painting.
@@ -755,7 +755,7 @@ export default function MapEditor(){
                 const col = at.col + tile.col
                 const row = at.row + tile.row
                 if(col < startCol || col >= endCol || row < startRow || row >= endRow) continue
-                drawTile(ctx, tile.shape, blockFaceCss(tile.key), ox + col * cell, oy + row * cell, cell)
+                drawTile(ctx, tile.shape, materialFaceCss(tile.key), ox + col * cell, oy + row * cell, cell)
             }
             ctx.restore()
             // Clip spawns: draw the same green ring as a placed spawn so a clip with
@@ -2206,9 +2206,9 @@ export default function MapEditor(){
     }, [confirmLeave, confirmDeleteName, onExport, fitNow, undo, redo, onCopy, onCut, onPaste, onDeselect, onDeleteSelection])
 
     // The active material's face colour as a CSS hex, derived from the shared
-    // TILE_BLOCK_STYLES so the rail's block/slope icons (and the material picker
+    // TILE_MATERIAL_STYLES so the rail's block/slope icons (and the material picker
     // swatches) read as the EXACT in-game colour the author is about to paint.
-    const materialFace = blockFaceCss(material)
+    const materialFace = materialFaceCss(material)
 
     // The rail-icon colour for a tool: block + slope tools (auto and the four
     // explicit directions) and the half tools all show the ACTIVE material colour
@@ -2435,7 +2435,7 @@ export default function MapEditor(){
                             aria-label={`${m.label} block colour`}
                             title={`${m.label} block colour`}
                         >
-                            <span className={styles.swatchChip} style={{ backgroundColor: blockFaceCss(m.key) }} />
+                            <span className={styles.swatchChip} style={{ backgroundColor: materialFaceCss(m.key) }} />
                         </button>
                     </Tooltip>
                 ))}
@@ -2908,7 +2908,7 @@ function drawCheckerboard(ctx: CanvasRenderingContext2D, ox: number, oy: number,
 // fill a half-cell rectangle (matching their axis-aligned half-cell rect wall);
 // deco fills a faded box so it reads as non-colliding decoration. `faceColor` is
 // the tile's MATERIAL face colour (a CSS "#rrggbb" derived from the same
-// TILE_BLOCK_STYLES the in-game Pixi renderer uses), so the editor preview
+// TILE_MATERIAL_STYLES the in-game Pixi renderer uses), so the editor preview
 // matches what the author will see in a match. Deco is non-colliding decoration
 // and ignores the material, painting a fixed faded box so it always reads as deco.
 function drawTile(ctx: CanvasRenderingContext2D, shape: string, faceColor: string, x: number, y: number, size: number){

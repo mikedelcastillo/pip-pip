@@ -4,9 +4,9 @@ import { PipPipGame } from "."
 import { PIP_SHIPS, ShipType } from "../ships"
 
 import { PipShip } from "./ship"
-import { tickDown } from "./utils"
+import { tickDown, sanitize } from "./utils"
 import { SERVER_INPUT_QUEUE_MAX } from "./constants"
-import { BotDifficulty, BotSkill } from "./ai"
+import { BotDifficulty, BotSkill } from "./bot"
 import { NavPoint } from "./pathfinding"
 
 export type PlayerInputs = {
@@ -40,10 +40,12 @@ export function cloneInputs(inputs: PlayerInputs): PlayerInputs{
 // which every name path (own client, server-applied, broadcast) routes through.
 export const MAX_PLAYER_NAME_LENGTH = 16
 
-// Slice by code point (not UTF-16 unit) so an emoji on the boundary is never cut
-// into a lone surrogate.
+// The single player-name chokepoint, called from setName on every side. Delegates
+// to the one shared name policy (sanitize: alphanumeric + underscore, capped to
+// MAX_PLAYER_NAME_LENGTH) so client input, server ingest, and bot names are all
+// cleaned identically. Bot names use underscores so they survive it unchanged.
 export function clampPlayerName(name: string){
-    return [...name].slice(0, MAX_PLAYER_NAME_LENGTH).join("")
+    return sanitize(name)
 }
 
 // Server: one buffered input awaiting consumption (one consumed per tick).
@@ -172,7 +174,7 @@ export class PipPlayer{
     escapeTicks = 0
 
     // Bot-only: did THIS tick's brain intend to TRAVEL toward a destination
-    // (closing on the enemy/powerup, or following the A* path around a wall) as
+    // (closing on the enemy/buff, or following the A* path around a wall) as
     // opposed to merely holding station (orbiting/strafing at its desired range)?
     // Stuck detection only runs while travelling: an orbiting bot legitimately
     // makes little net headway, so flagging it stuck false-positived and made the

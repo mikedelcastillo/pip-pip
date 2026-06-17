@@ -136,9 +136,9 @@ export function getFullGameState(context: ConnectionContext): number[][] {
         }
     }
 
-    // send all active powerups (full field state on join)
-    for(const powerup of game.powerups.getActive()){
-        messages.push(encode.powerupSpawn(powerup))
+    // send all active buffs (full field state on join)
+    for(const buff of game.buffs.getActive()){
+        messages.push(encode.buffSpawn(buff))
     }
 
     if(typeof game.host !== "undefined"){
@@ -315,23 +315,23 @@ export function getPartialGameState(context: ConnectionContext, sharedCache?: Sh
         }
     }
 
-    // Powerup spawned: tell every client to create it.
-    for(const event of gameEvents.filter("powerupSpawn")){
-        messages.push(encode.powerupSpawn(event.powerupSpawn.powerup))
+    // Buff spawned: tell every client to create it.
+    for(const event of gameEvents.filter("buffSpawn")){
+        messages.push(encode.buffSpawn(event.buffSpawn.buff))
     }
 
-    // Powerup picked up: tell every client to remove it. The effect on the
+    // Buff picked up: tell every client to remove it. The effect on the
     // picker's ship is networked separately via that player's capacity update.
-    for(const event of gameEvents.filter("powerupPickup")){
-        const { powerup, player } = event.powerupPickup
-        messages.push(encode.powerupPickup(powerup, player))
+    for(const event of gameEvents.filter("buffPickup")){
+        const { buff, player } = event.buffPickup
+        messages.push(encode.buffPickup(buff, player))
         // The pickup mutated the picker's ship: instant types change capacities
         // (health/ammo), and the five TIMED buffs (haste/shield/invisibility/
         // ricochet/rapidfire) change ship.timings. Push BOTH so the client reflects
         // the heal/refill AND the buff. The timings matter the same tick: the
         // picker's own movement prediction reads ship.timings.haste (else it
         // rubber-bands against the 1.5x server for the whole buff window), and every
-        // client needs them for the buff visuals + the powerup-feed countdown.
+        // client needs them for the buff visuals + the buff-feed countdown.
         playerUpdates.track(player.id, "shipCapacities")
         playerUpdates.track(player.id, "shipTimings")
     }

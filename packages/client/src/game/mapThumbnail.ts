@@ -68,7 +68,7 @@ export function gridMapCellBounds(data: GridMapData): ThumbnailCellBounds{
 
 // One painted cell resolved for thumbnail drawing: its column/row in the dense grid
 // and the SHAPE its palette entry holds (full / a diagonal / deco / a half tile),
-// plus the raw block KEY so the drawer can colour it via blockFaceCss the SAME way
+// plus the raw block KEY so the drawer can colour it via materialFaceCss the SAME way
 // the editor + in-game renderer do. Spawns are returned separately by the component.
 export type ThumbnailCell = {
     col: number,
