@@ -15,7 +15,9 @@ export function initializeWebSockets<T extends PacketManagerSerializerMap>(clien
         if(client.ws.readyState !== client.ws.OPEN) return
         
         const toSend = data instanceof ArrayBuffer ? new Uint8Array(await compress(data)) : data
-        client.ws.send(toSend)
+        // TS 5.7+ types typed arrays as Uint8Array<ArrayBufferLike>, which no longer
+        // satisfies the DOM WebSocket.send BufferSource type; runtime accepts it fine.
+        client.ws.send(toSend as string | Uint8Array<ArrayBuffer>)
     }
 
     client.connectWebSocket = () => new Promise((resolve, reject) => {

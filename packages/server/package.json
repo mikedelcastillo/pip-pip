@@ -9,19 +9,17 @@
     "dev:jitter": "HRZN_FORCE_LATENCY=30 HRZN_FORCE_JITTER=5 yarn dev",
     "prod": "NODE_ENV=production node ./dist/index.js",
     "build": "tsc",
-    "lint": "eslint . --ext .ts"
+    "lint": "eslint ."
   },
   "peerDependencies": {
     "@pip-pip/core": "*",
     "@pip-pip/game": "*"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^8.31.0",
-    "@typescript-eslint/parser": "^8.31.0",
-    "eslint": "^8.57.1",
+    "eslint": "^10.5.0",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
     "tsc": "^2.0.4",
-    "typescript": "^5.8.3"
+    "typescript": "^6.0.3"
   }
 }

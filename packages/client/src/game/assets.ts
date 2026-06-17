@@ -1,6 +1,15 @@
-import * as PIXI_Assets from "@pixi/assets"
+import { Assets } from "pixi.js"
 
-export const assetLoader = PIXI_Assets.Assets
+export const assetLoader = Assets
+
+// Pixi 8 folded the old @pixi/assets package into the core Assets singleton,
+// which must be init()ed once before loadBundle. Idempotent so a retry (App
+// re-running its load effect) reuses the same init instead of warning.
+let initPromise: Promise<unknown> | undefined
+export function initAssets(){
+    if(typeof initPromise === "undefined") initPromise = Assets.init()
+    return initPromise
+}
 
 import logo from "../assets/logo.png"
 assetLoader.addBundle("ui", {

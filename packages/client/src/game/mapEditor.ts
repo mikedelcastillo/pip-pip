@@ -1487,7 +1487,7 @@ export function parseGridMapData(raw: string): GridMapData{
     try{
         parsed = JSON.parse(raw)
     } catch(e){
-        throw new Error("File is not valid JSON")
+        throw new Error("File is not valid JSON", { cause: e })
     }
     if(typeof parsed !== "object" || parsed === null){
         throw new Error("File is not a map object")

@@ -6,8 +6,7 @@ import { GameContext } from "."
 import { assetLoader } from "./assets"
 
 import { CRTFilter, GlitchFilter, PixelateFilter, BulgePinchFilter } from "pixi-filters"
-import { DisplacementFilter } from "@pixi/filter-displacement"
-import { Point } from "pixi.js"
+import { DisplacementFilter, Point } from "pixi.js"
 import { SHIP_DIAMETER } from "@pip-pip/game/src/logic/constants"
 import { PipGameTile } from "@pip-pip/game/src/logic/map"
 import { materialStyleFor, tilePolygon, polygonToFlat } from "./mapGraphics"
@@ -213,11 +212,14 @@ export class DamageGraphic extends PoolableGraphic {
 
     constructor(){
         super()
-        this.text = new PIXI.Text("DAMAGE HERE", {
-            fontFamily: "VT323",
-            fontSize: 28,
-            fill: 0xE6AE10,
-            align: "center",
+        this.text = new PIXI.Text({
+            text: "DAMAGE HERE",
+            style: {
+                fontFamily: "VT323",
+                fontSize: 28,
+                fill: 0xE6AE10,
+                align: "center",
+            },
         })
         this.text.anchor.set(0.5)
         this.container.addChild(this.text)
@@ -281,18 +283,15 @@ export class BuffGraphic extends PoolableGraphic {
 
         this.graphic.clear()
         // Soft outer halo.
-        this.graphic.beginFill(color, 0.18)
-        this.graphic.drawRect(-r, -r, r * 2, r * 2)
-        this.graphic.endFill()
+        this.graphic.rect(-r, -r, r * 2, r * 2).fill({ color, alpha: 0.18 })
         // Solid inner diamond.
         const inner = r * 0.6
-        this.graphic.beginFill(color, 0.95)
         this.graphic.moveTo(0, -inner)
         this.graphic.lineTo(inner, 0)
         this.graphic.lineTo(0, inner)
         this.graphic.lineTo(-inner, 0)
         this.graphic.closePath()
-        this.graphic.endFill()
+        this.graphic.fill({ color, alpha: 0.95 })
     }
 
     cleanUp(){
@@ -317,9 +316,7 @@ export class ParticleGraphic extends PoolableGraphic {
         const s = Math.max(1, Math.round(drawSize))
 
         this.graphic.clear()
-        this.graphic.beginFill(p.color, alpha)
-        this.graphic.drawRect(-s / 2, -s / 2, s, s)
-        this.graphic.endFill()
+        this.graphic.rect(-s / 2, -s / 2, s, s).fill({ color: p.color, alpha })
 
         this.container.position.x = p.x
         this.container.position.y = p.y
@@ -373,9 +370,7 @@ export class MapLayerGraphic {
             const flat = polygonToFlat(points)
 
             // Solid face fill for the tile body.
-            g.beginFill(style.face, 1)
-            g.drawPolygon(flat)
-            g.endFill()
+            g.poly(flat).fill({ color: style.face, alpha: 1 })
 
             // A thin bevel edge for a touch of depth. For a diagonal we stroke
             // ONLY the hypotenuse (the slope edge a ship glides along) so it reads
@@ -383,15 +378,14 @@ export class MapLayerGraphic {
             // triangle's three edges. For a square a faint full outline gives the
             // blocky grid its seams.
             const isDiagonal = points.length === 3
-            g.lineStyle({ width: 2, color: style.edge, alpha: 0.9 })
             if(isDiagonal){
                 const hyp = longestEdge(points)
                 g.moveTo(hyp.a.x, hyp.a.y)
                 g.lineTo(hyp.b.x, hyp.b.y)
+                g.stroke({ width: 2, color: style.edge, alpha: 0.9 })
             } else{
-                g.drawPolygon(flat)
+                g.poly(flat).stroke({ width: 2, color: style.edge, alpha: 0.9 })
             }
-            g.lineStyle(0)
 
             for(const p of points){
                 if(p.x < minX) minX = p.x
@@ -406,18 +400,18 @@ export class MapLayerGraphic {
         // max texture size, in which case keep it as live (still single-draw)
         // vector graphics. cacheAsBitmap must be reset to false before redrawing
         // (handled by the false-set below running first on a rebuild).
-        this.container.cacheAsBitmap = false
+        this.container.cacheAsTexture(false)
         const spanX = maxX - minX
         const spanY = maxY - minY
         const cacheable = Number.isFinite(spanX) && Number.isFinite(spanY) &&
             spanX <= MapLayerGraphic.MAX_CACHE_EXTENT &&
             spanY <= MapLayerGraphic.MAX_CACHE_EXTENT &&
             tiles.length > 0
-        this.container.cacheAsBitmap = cacheable
+        this.container.cacheAsTexture(cacheable)
     }
 
     destroy(){
-        this.container.cacheAsBitmap = false
+        this.container.cacheAsTexture(false)
         this.graphic.clear()
         this.container.removeChild(this.graphic)
         this.graphic.destroy()
@@ -473,13 +467,15 @@ export class PlayerGraphic {
 
     // The player's name, shown just above the health bar. Lives on `container`
     // (not shipContainer) so it never spins with the ship and stays upright.
-    nameText: PIXI.Text = new PIXI.Text("", {
-        fontFamily: "VT323",
-        fontSize: 16,
-        fill: 0xFFFFFF,
-        stroke: COLORS.DARK_1,
-        strokeThickness: 4,
-        align: "center",
+    nameText: PIXI.Text = new PIXI.Text({
+        text: "",
+        style: {
+            fontFamily: "VT323",
+            fontSize: 16,
+            fill: 0xFFFFFF,
+            stroke: { color: COLORS.DARK_1, width: 4 },
+            align: "center",
+        },
     })
 
     constructor(player: PipPlayer){
@@ -506,7 +502,7 @@ export class PlayerGraphic {
     // container cannot both keep the shared texture and free the name texture).
     destroy(){
         this.container.removeChild(this.nameText)
-        this.nameText.destroy({ texture: true, baseTexture: true })
+        this.nameText.destroy({ texture: true, textureSource: true })
         this.container.destroy({ children: true })
     }
 
@@ -580,15 +576,22 @@ export class PipPipRenderer{
     // costs nothing. See setCrtEnabled / rebuildStageFilters below.
     crtEnabled = false
     
-    displacementSprite: PIXI.Sprite
-    displacementFilter: DisplacementFilter
+    // Assigned in init() once the (async) Pixi 8 Application has booted and the
+    // displacement texture is available, so they are definite-assignment-asserted.
+    displacementSprite!: PIXI.Sprite
+    displacementFilter!: DisplacementFilter
 
     // Game-event subscriptions registered in the constructor, remembered so
     // destroy() can detach the exact same references via game.events.off() —
     // without this every remount would leak another set of subscriptions
     // (and the closures keep this renderer, and its WebGL context, alive).
     private gameEventSubscriptions: Array<() => void> = []
-    private destroyed = false
+    destroyed = false
+
+    // Pixi 8's Application.init() is async, so the stage/renderer/canvas do not
+    // exist until init() resolves. `ready` gates render() and the renderer-backed
+    // parts of updateMapGraphics until then.
+    private ready = false
 
     camera = {
         position: {
@@ -601,11 +604,11 @@ export class PipPipRenderer{
     }
 
     constructor(game: PipPipGame){
-        this.app = new PIXI.Application({ resizeTo: window, backgroundColor: 0x150E12 })
-        this.app.ticker.stop()
+        // Pixi 8 boots asynchronously (see init()), so the constructor only wires
+        // up the framework-agnostic display tree, pools, filters and game-event
+        // subscriptions. Anything touching app.stage/renderer/canvas waits for init().
+        this.app = new PIXI.Application()
 
-        this.app.stage.addChild(this.viewportContainer)
-        
         this.viewportContainer.addChild(this.starsContainer)
         this.viewportContainer.addChild(this.bulletsContainer)
         this.viewportContainer.addChild(this.mapBackgroundContainer)
@@ -656,31 +659,6 @@ export class PipPipRenderer{
             0.5,
         )
 
-        const displacementTexture = assetLoader.get("displacement_map")
-        this.displacementSprite = new PIXI.Sprite(displacementTexture)
-        this.displacementSprite.anchor.set(0.5)
-        this.displacementFilter = new DisplacementFilter(this.displacementSprite)
-        this.displacementFilter.enabled = true
-        this.app.stage.addChild(this.displacementSprite)
-
-        this.rebuildStageFilters()
-
-        // initialize stars
-        for(let i = 0; i < STAR_BG.COUNT; i++){
-            const starTexture = assetLoader.get("star_1")
-            if(typeof starTexture === "undefined") continue
-            const star = new PIXI.Sprite(starTexture)
-            const graphic = new StarGraphic(star)
-
-            const angle = Math.random() * Math.PI * 2
-            const mag = Math.random() * this.getViewportRadius()
-            star.position.x = Math.cos(angle) * mag
-            star.position.y = Math.sin(angle) * mag
-
-            this.starsContainer.addChild(star)
-            this.stars.push(graphic)
-        }
-
         this.game = game
 
         this.onGameEvent("addPlayer", ({ player }) => {
@@ -702,7 +680,6 @@ export class PipPipRenderer{
             }
         })
 
-        this.updateMapGraphics()
         this.onGameEvent("setMap", () => {
             this.updateMapGraphics()
         })
@@ -796,6 +773,50 @@ export class PipPipRenderer{
         })
     }
 
+    // Boot the Pixi 8 Application (async in v8) and build everything that needs
+    // a live renderer/canvas: the stage tree, the displacement sprite, the stage
+    // filter stack and the star field. The constructor wired up everything that
+    // does NOT need the renderer, so by the time init() resolves the renderer is
+    // fully usable. Callers mount() only after this resolves. If destroy() ran
+    // while init was in flight, tear the freshly-booted app straight back down.
+    async init(){
+        await this.app.init({ resizeTo: window, background: 0x150E12 })
+        if(this.destroyed){
+            this.app.destroy(true)
+            return
+        }
+        this.app.ticker.stop()
+
+        this.app.stage.addChild(this.viewportContainer)
+
+        const displacementTexture = assetLoader.get("displacement_map")
+        this.displacementSprite = new PIXI.Sprite(displacementTexture)
+        this.displacementSprite.anchor.set(0.5)
+        this.displacementFilter = new DisplacementFilter({ sprite: this.displacementSprite })
+        this.app.stage.addChild(this.displacementSprite)
+
+        this.rebuildStageFilters()
+
+        // initialize stars
+        for(let i = 0; i < STAR_BG.COUNT; i++){
+            const starTexture = assetLoader.get("star_1")
+            if(typeof starTexture === "undefined") continue
+            const star = new PIXI.Sprite(starTexture)
+            const graphic = new StarGraphic(star)
+
+            const angle = Math.random() * Math.PI * 2
+            const mag = Math.random() * this.getViewportRadius()
+            star.position.x = Math.cos(angle) * mag
+            star.position.y = Math.sin(angle) * mag
+
+            this.starsContainer.addChild(star)
+            this.stars.push(graphic)
+        }
+
+        this.ready = true
+        this.updateMapGraphics()
+    }
+
     // Subscribe to a game event and remember how to detach it, so destroy()
     // can remove the exact same handler reference.
     private onGameEvent<K extends keyof EventMapOf<PipPipGame["events"]>>(
@@ -808,9 +829,11 @@ export class PipPipRenderer{
 
     updateMapGraphics(){
         // Tint the canvas to the current map's background colour so each map has
-        // a distinct mood (falls back to the original dark plum).
-        if(typeof this.game.mapType !== "undefined"){
-            this.app.renderer.backgroundColor = this.game.mapType.background ?? 0x150E12
+        // a distinct mood (falls back to the original dark plum). The renderer
+        // only exists after init(), so a setMap that arrives earlier just skips
+        // the tint; init() calls this again once ready.
+        if(this.ready && typeof this.game.mapType !== "undefined"){
+            this.app.renderer.background.color = this.game.mapType.background ?? 0x150E12
         }
 
         // Rebuild the single cached map layer from the current map's tiles. This
@@ -850,12 +873,12 @@ export class PipPipRenderer{
     }
 
     getViewportRadius(){
-        return Math.sqrt(this.app.view.width * this.app.view.width + this.app.view.height * this.app.view.height) / 2
+        return Math.sqrt(this.app.canvas.width * this.app.canvas.width + this.app.canvas.height * this.app.canvas.height) / 2
     }
 
     mount(container: HTMLDivElement){
         this.container = container
-        this.container.appendChild(this.app.view)
+        this.container.appendChild(this.app.canvas)
     }
 
     // DEBUG: visualise bot pathfinding in-world. Only runs while the debug panel
@@ -898,27 +921,29 @@ export class PipPipRenderer{
                 : [{ x: fromX, y: fromY }, { x: toX, y: toY }]
 
             // Connecting lines along the path.
-            g.lineStyle({ width: 2, color: COLORS.ACCENT, alpha: 0.7 })
             g.moveTo(waypoints[0].x, waypoints[0].y)
             for(let i = 1; i < waypoints.length; i++){
                 g.lineTo(waypoints[i].x, waypoints[i].y)
             }
+            g.stroke({ width: 2, color: COLORS.ACCENT, alpha: 0.7 })
 
             // A small dot on each waypoint.
-            g.lineStyle(0)
-            g.beginFill(COLORS.ACCENT, 0.9)
             for(const wp of waypoints){
-                g.drawCircle(wp.x, wp.y, 4)
+                g.circle(wp.x, wp.y, 4)
             }
-            g.endFill()
+            g.fill({ color: COLORS.ACCENT, alpha: 0.9 })
 
             // A ring marker on the bot's CURRENT target.
-            g.lineStyle({ width: 2, color: COLORS.MAIN, alpha: 0.9 })
-            g.drawCircle(toX, toY, SHIP_DIAMETER * 0.75)
+            g.circle(toX, toY, SHIP_DIAMETER * 0.75)
+            g.stroke({ width: 2, color: COLORS.MAIN, alpha: 0.9 })
         }
     }
 
     render(gameContext: GameContext, deltaMs: number){
+        // The render loop starts as soon as the game view mounts, but Pixi 8 boots
+        // asynchronously (init()); skip frames until the renderer/canvas exist.
+        if(!this.ready) return
+
         const deltaTime = deltaMs / this.game.deltaMs
         const timeDiff = Date.now() - this.game.lastTick
         const lerp = timeDiff / this.game.deltaMs
@@ -1022,20 +1047,20 @@ export class PipPipRenderer{
             }
             if(healthOverlayChanged(graphic.lastHealthOverlay, healthOverlay)){
                 graphic.overlayGraphic.clear()
-                graphic.overlayGraphic.lineStyle({
+                graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2 + DIMS.HEALTH_BAR_BORDER), DIMS.HEALTH_BAR_OFFSET)
+                graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH / 2 + DIMS.HEALTH_BAR_BORDER, DIMS.HEALTH_BAR_OFFSET)
+                graphic.overlayGraphic.stroke({
                     width: DIMS.HEALTH_BAR_HEIGHT + DIMS.HEALTH_BAR_BORDER * 2,
                     color: COLORS.DARK_1,
                 })
-                graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2 + DIMS.HEALTH_BAR_BORDER), DIMS.HEALTH_BAR_OFFSET)
-                graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH / 2 + DIMS.HEALTH_BAR_BORDER, DIMS.HEALTH_BAR_OFFSET)
 
-                graphic.overlayGraphic.lineStyle({
-                    width: DIMS.HEALTH_BAR_HEIGHT,
-                    color: healthOverlay.color,
-                })
                 graphic.overlayGraphic.moveTo(-(DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
                 const h = healthOverlay.health / healthOverlay.maxHealth
                 graphic.overlayGraphic.lineTo(DIMS.HEALTH_BAR_WIDTH * h - (DIMS.HEALTH_BAR_WIDTH / 2), DIMS.HEALTH_BAR_OFFSET)
+                graphic.overlayGraphic.stroke({
+                    width: DIMS.HEALTH_BAR_HEIGHT,
+                    color: healthOverlay.color,
+                })
 
                 graphic.lastHealthOverlay = healthOverlay
             }
@@ -1067,30 +1092,31 @@ export class PipPipRenderer{
                 graphic.buffGraphic.clear()
                 if(showShield){
                     const ringRadius = SHIP_DIAMETER * 0.7 + buffPulse * 4
-                    graphic.buffGraphic.lineStyle({
+                    graphic.buffGraphic.circle(0, 0, ringRadius)
+                    graphic.buffGraphic.stroke({
                         width: 3,
                         color: BuffGraphic.COLORS.shield,
                         alpha: 0.5 + buffPulse * 0.35,
                     })
-                    graphic.buffGraphic.drawCircle(0, 0, ringRadius)
                 }
                 if(showHaste){
-                    graphic.buffGraphic.lineStyle(0)
-                    graphic.buffGraphic.beginFill(BuffGraphic.COLORS.haste, 0.12 + buffPulse * 0.08)
-                    graphic.buffGraphic.drawCircle(0, 0, SHIP_DIAMETER * 0.55)
-                    graphic.buffGraphic.endFill()
+                    graphic.buffGraphic.circle(0, 0, SHIP_DIAMETER * 0.55)
+                    graphic.buffGraphic.fill({
+                        color: BuffGraphic.COLORS.haste,
+                        alpha: 0.12 + buffPulse * 0.08,
+                    })
                 }
                 // CLOAK cue: a faint ghost-white shimmer ring. Only drawn for the
                 // LOCAL player (and spectate target). The overlay is on a sibling
                 // of the faded ship sprite, so drawing it for enemies would betray
                 // a cloaked ship that is meant to be unseen.
                 if(showCloak){
-                    graphic.buffGraphic.lineStyle({
+                    graphic.buffGraphic.circle(0, 0, SHIP_DIAMETER * 0.6 + buffPulse * 3)
+                    graphic.buffGraphic.stroke({
                         width: 2,
                         color: BuffGraphic.COLORS.invis,
                         alpha: 0.25 + buffPulse * 0.25,
                     })
-                    graphic.buffGraphic.drawCircle(0, 0, SHIP_DIAMETER * 0.6 + buffPulse * 3)
                 }
                 graphic.buffGraphicDrawn = true
             } else if(graphic.buffGraphicDrawn){
@@ -1157,19 +1183,19 @@ export class PipPipRenderer{
                 const CT = Math.pow(i / graphic.positions.length, 2)
                 const PT = Math.pow((i - 1) / graphic.positions.length, 2)
 
-                graphic.graphic.lineStyle({
-                    width: CT * trailWidth,
-                    color: trailColor,
-                    alpha: Math.max(0.1, CT),
-                })
                 graphic.graphic.moveTo(
-                    prev.x + prev.dx * (1 - PT), 
+                    prev.x + prev.dx * (1 - PT),
                     prev.y + prev.dy * (1 - PT),
                 )
                 graphic.graphic.lineTo(
                     cur.x + cur.dx * (1 - CT) ,
                     cur.y + cur.dy * (1 - CT),
                 )
+                graphic.graphic.stroke({
+                    width: CT * trailWidth,
+                    color: trailColor,
+                    alpha: Math.max(0.1, CT),
+                })
             }
 
             // graphic.graphic.beginFill(0xFFFFFF)
@@ -1248,14 +1274,14 @@ export class PipPipRenderer{
             this.crtFilter.time += deltaMs * 0.01
             this.crtFilter.seed = Math.random()
         }
-        this.displacementSprite.position.x = this.app.view.width / 2
-        this.displacementSprite.position.y = this.app.view.height / 2
+        this.displacementSprite.position.x = this.app.canvas.width / 2
+        this.displacementSprite.position.y = this.app.canvas.height / 2
         // set displacement scale
 
         // Center viewport (with screen shake offset applied)
         const shakeOffset = computeShake(this.shake, deltaMs)
-        this.viewportContainer.position.x = this.app.view.width / 2 - this.camera.position.x + shakeOffset.dx
-        this.viewportContainer.position.y = this.app.view.height / 2 - this.camera.position.y + shakeOffset.dy
+        this.viewportContainer.position.x = this.app.canvas.width / 2 - this.camera.position.x + shakeOffset.dx
+        this.viewportContainer.position.y = this.app.canvas.height / 2 - this.camera.position.y + shakeOffset.dy
 
         // Compute stars
         const starMaxDist = this.getViewportRadius()
@@ -1326,19 +1352,24 @@ export class PipPipRenderer{
 
         // Turning off the map layer cache here releases its cache RenderTexture
         // before app.destroy frees the rest of the tree.
-        this.mapLayer.container.cacheAsBitmap = false
+        this.mapLayer.container.cacheAsTexture(false)
+
+        // If init() never finished (a fast unmount), there is no canvas/renderer
+        // to tear down — the in-flight init() sees `destroyed` and disposes the
+        // app it booted. Otherwise remove the canvas and destroy the app below.
+        if(!this.ready) return
 
         // Remove the canvas from the DOM before destroying the app.
         if(typeof this.container !== "undefined"){
-            if(this.app.view.parentNode === this.container){
-                this.container.removeChild(this.app.view)
+            if(this.app.canvas.parentNode === this.container){
+                this.container.removeChild(this.app.canvas)
             }
             this.container = undefined
         }
 
         // Destroy the Pixi application and its WebGL context. children:true so
-        // every stage display object is freed; texture/baseTexture:false so the
+        // every stage display object is freed; texture/textureSource:false so the
         // shared assetLoader textures survive for the next mount.
-        this.app.destroy(true, { children: true, texture: false, baseTexture: false })
+        this.app.destroy(true, { children: true, texture: false, textureSource: false })
     }
 }
