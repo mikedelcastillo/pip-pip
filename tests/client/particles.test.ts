@@ -7,6 +7,7 @@ import {
     computeShake,
     triggerShake,
     mergeShake,
+    computeShockwaveCenter,
 } from "../../packages/client/src/game/particles"
 
 function makeParticle(overrides: Partial<Particle> = {}): Particle {
@@ -108,6 +109,35 @@ describe("emitExplosion", () => {
             expect(speed).toBeGreaterThanOrEqual(1.5)
             expect(speed).toBeLessThanOrEqual(6.0)
         })
+    })
+})
+
+describe("shockwave center", () => {
+    // The world point's logical screen position is the viewport offset plus the
+    // world point (the viewport container is unscaled), and ShockwaveFilter wants
+    // its center in the input texture's PHYSICAL pixels, so it scales by resolution.
+    it("maps a world point through the viewport offset to a screen position", () => {
+        // Camera centered so the viewport is offset by half the screen; a blast at
+        // world (200, 50) sits at screen (400 + 200, 300 + 50) at resolution 1.
+        const center = computeShockwaveCenter(400, 300, 200, 50, 1)
+        expect(center.x).toBeCloseTo(600, 5)
+        expect(center.y).toBeCloseTo(350, 5)
+    })
+
+    it("scales the screen position by the renderer resolution", () => {
+        // The bug: on a 2x (retina/mobile) display the filter center must be in
+        // physical pixels, so the same blast lands at twice the logical position.
+        const center = computeShockwaveCenter(400, 300, 200, 50, 2)
+        expect(center.x).toBeCloseTo(1200, 5)
+        expect(center.y).toBeCloseTo(700, 5)
+    })
+
+    it("tracks the camera: a fixed world point moves as the viewport offset changes", () => {
+        // Same blast, two camera positions -> two distinct screen centers, so the
+        // ring stays pinned to the world blast as the camera pans.
+        const a = computeShockwaveCenter(400, 300, 0, 0, 1)
+        const b = computeShockwaveCenter(500, 300, 0, 0, 1)
+        expect(b.x - a.x).toBeCloseTo(100, 5)
     })
 })
 

@@ -185,6 +185,11 @@ export function findNearestEnemy(bot: PipPlayer, players: PipPlayer[], useTeams 
         // forever, contributing nothing. Mirror the dealDamage team guard. FFA is
         // unaffected (useTeams is false there, and every team is the -1 sentinel).
         if(useTeams === true && other.team === bot.team) continue
+        // A cloaked ship is invisible to bots: skip it entirely (like a dead or
+        // teammate player) so the bot can't lock onto, orbit, or fire at someone
+        // running the invis buff. Server-authoritative, so the timer it reads is
+        // the real one; the cloak wears off and the player becomes targetable again.
+        if(other.ship.isInvisible === true) continue
 
         const dx = other.ship.physics.position.x - botX
         const dy = other.ship.physics.position.y - botY

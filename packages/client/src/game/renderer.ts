@@ -28,6 +28,7 @@ import {
     computeShake,
     triggerShake,
     mergeShake,
+    computeShockwaveCenter,
     ShakeState,
     WallSegment,
 } from "./particles"
@@ -1476,10 +1477,17 @@ export class PipPipRenderer{
             return
         }
         this.shockwaveFilter.time = this.shockwaveElapsed
-        this.shockwaveFilter.center = {
-            x: this.viewportContainer.position.x + this.shockwaveWorld.x,
-            y: this.viewportContainer.position.y + this.shockwaveWorld.y,
-        }
+        // ShockwaveFilter's center is in the input texture's PHYSICAL pixels, so
+        // scale the world->screen position by the renderer resolution (see
+        // computeShockwaveCenter). The viewport offset already folds in the camera
+        // and screen shake, keeping the ring pinned to the blast as both move.
+        this.shockwaveFilter.center = computeShockwaveCenter(
+            this.viewportContainer.position.x,
+            this.viewportContainer.position.y,
+            this.shockwaveWorld.x,
+            this.shockwaveWorld.y,
+            this.app.renderer.resolution,
+        )
     }
 
     // Toggle the opt-in retro CRT effect. Driven by the ui store (Settings →

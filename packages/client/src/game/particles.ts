@@ -207,6 +207,28 @@ export function computeShake(state: ShakeState, dtMs: number): { dx: number, dy:
     return { dx: Math.cos(a) * amp, dy: Math.sin(a) * amp }
 }
 
+// Screen-space center for the grenade ShockwaveFilter, given the live viewport
+// offset and the blast's WORLD point. The viewport container is unscaled, so a
+// world point's logical screen position is just `viewport offset + world point`.
+// ShockwaveFilter divides its `center` uniform by the input texture's size in
+// PHYSICAL pixels (`uCenter / uInputSize` in the shader), so the center must be
+// given in physical pixels too: scale the logical position by the renderer
+// resolution. Without this the ring lands at `1 / resolution` of its intended
+// position - correct only at the top-left origin, drifting further off the more
+// the camera (and thus the blast's screen position) moves away from it.
+export function computeShockwaveCenter(
+    viewportX: number,
+    viewportY: number,
+    worldX: number,
+    worldY: number,
+    resolution: number,
+): { x: number, y: number } {
+    return {
+        x: (viewportX + worldX) * resolution,
+        y: (viewportY + worldY) * resolution,
+    }
+}
+
 export function mergeShake(current: ShakeState, incoming: ShakeState): ShakeState {
     const currentEffective = current.intensity * Math.max(0, 1 - current.elapsed / current.duration)
     return incoming.intensity >= currentEffective ? incoming : current
