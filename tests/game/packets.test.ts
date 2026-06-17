@@ -209,6 +209,10 @@ describe("game packetManager wire format", () => {
             invisibility: 180,
             ricochet: 200,
             rapidfire: 200,
+            glassCannon: 200,
+            heavyMag: 200,
+            regen: 200,
+            lifesteal: 200,
         }
         const out = packetManager.decode(packetManager.encode("playerShipTimings", timings)).playerShipTimings?.[0]
         expect(out).toEqual(timings)

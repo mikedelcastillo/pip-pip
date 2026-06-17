@@ -2,7 +2,8 @@ import { PipPipGameMode, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { CUSTOM_MAP_INDEX } from "@pip-pip/game/src/maps"
 import { CHAT_MAX_MESSAGE_LENGTH } from "@pip-pip/game/src/logic/constants"
 import { PipPlayer, PlayerScores } from "@pip-pip/game/src/logic/player"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, BuffType } from "@pip-pip/game/src/logic/buff"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS,
+    GLASS_CANNON_TICKS, HEAVY_MAG_TICKS, REGEN_TICKS, LIFESTEAL_TICKS, BuffType } from "@pip-pip/game/src/logic/buff"
 import { PIP_SHIPS, ShipType } from "@pip-pip/game/src/ships"
 import { create } from "zustand"
 import { GAME_CONTEXT, getClientPlayer } from "."
@@ -89,7 +90,8 @@ export function playerStats(player: PipPlayer): ClientPlayerStats {
     return {
         reloading: ship.isReloading,
         ammo: ship.capacities.weapon,
-        ammoMax: ship.stats.weapon.capacity,
+        // Effective capacity so the HUD ammo max reflects Heavy Mag's doubled mag.
+        ammoMax: ship.weaponCapacity,
         health: ship.capacities.health,
         healthMax: ship.maxHealth,
         spawned: player.spawned,
@@ -104,10 +106,18 @@ export function playerStats(player: PipPlayer): ClientPlayerStats {
         ricochetMaxTicks: RICOCHET_TICKS,
         rapidfireTicks: ship.timings.rapidfire,
         rapidfireMaxTicks: RAPIDFIRE_TICKS,
+        glassCannonTicks: ship.timings.glassCannon,
+        glassCannonMaxTicks: GLASS_CANNON_TICKS,
+        heavyMagTicks: ship.timings.heavyMag,
+        heavyMagMaxTicks: HEAVY_MAG_TICKS,
+        regenTicks: ship.timings.regen,
+        regenMaxTicks: REGEN_TICKS,
+        lifestealTicks: ship.timings.lifesteal,
+        lifestealMaxTicks: LIFESTEAL_TICKS,
         tacticalReloadTicks: ship.timings.tacticalReload,
         tacticalReloadMaxTicks: ship.stats.tactical.reload.ticks,
         tacticalAmmo: ship.capacities.tactical,
-        tacticalAmmoMax: ship.stats.tactical.capacity,
+        tacticalAmmoMax: ship.tacticalCapacity,
     }
 }
 
@@ -162,6 +172,17 @@ export interface ClientPlayerStats {
     // ship.timings.rapidfire so it shows on the buff bar + tactical feed too.
     rapidfireTicks: number
     rapidfireMaxTicks: number
+    // glassCannon / heavyMag / regen / lifesteal ride playerShipTimings like the
+    // others (networked); read straight off ship.timings so they light up the buff
+    // bar + tactical feed for the local and remote players.
+    glassCannonTicks: number
+    glassCannonMaxTicks: number
+    heavyMagTicks: number
+    heavyMagMaxTicks: number
+    regenTicks: number
+    regenMaxTicks: number
+    lifestealTicks: number
+    lifestealMaxTicks: number
 
     // Secondary/tactical cannon state: reload countdown (ticks) vs its full
     // reload duration, plus remaining ammo. Drives the tactical cooldown
@@ -221,6 +242,7 @@ export interface BuffEntry {
 // pure predicate so callers (and tests) share one source of truth.
 const TIMED_BUFF_TYPES: ReadonlySet<BuffType> = new Set<BuffType>([
     "haste", "shield", "invis", "ricochet", "rapidfire",
+    "glassCannon", "heavyMag", "regen", "lifesteal",
 ])
 
 export function isTimedBuff(type: BuffType): boolean {
@@ -250,6 +272,10 @@ const BUFF_LABELS: Record<BuffType, string> = {
     invis: "CLOAK",
     ricochet: "RICOCHET",
     rapidfire: "RAPIDFIRE",
+    glassCannon: "GLASS",
+    heavyMag: "MAG",
+    regen: "REGEN",
+    lifesteal: "STEAL",
 }
 
 export function buffLabel(type: BuffType): string {
@@ -266,6 +292,10 @@ export const BUFF_COLORS: Record<BuffType, string> = {
     invis: "#CCE6FF",
     ricochet: "#FF66AA",
     rapidfire: "#FFE14D",
+    glassCannon: "#FF4422",
+    heavyMag: "#A9692E",
+    regen: "#66FFB2",
+    lifesteal: "#C81E5A",
 }
 
 // The same palette as Pixi numeric colors, derived here (the single source) so the
@@ -358,6 +388,10 @@ export function activeBuffs(stats: ClientPlayerStats): ActiveBuff[] {
         { type: "invis", label: buffLabel("invis"), color: buffColor("invis"), ticks: stats.invisTicks, maxTicks: stats.invisMaxTicks },
         { type: "ricochet", label: buffLabel("ricochet"), color: buffColor("ricochet"), ticks: stats.ricochetTicks, maxTicks: stats.ricochetMaxTicks },
         { type: "rapidfire", label: buffLabel("rapidfire"), color: buffColor("rapidfire"), ticks: stats.rapidfireTicks, maxTicks: stats.rapidfireMaxTicks },
+        { type: "glassCannon", label: buffLabel("glassCannon"), color: buffColor("glassCannon"), ticks: stats.glassCannonTicks, maxTicks: stats.glassCannonMaxTicks },
+        { type: "heavyMag", label: buffLabel("heavyMag"), color: buffColor("heavyMag"), ticks: stats.heavyMagTicks, maxTicks: stats.heavyMagMaxTicks },
+        { type: "regen", label: buffLabel("regen"), color: buffColor("regen"), ticks: stats.regenTicks, maxTicks: stats.regenMaxTicks },
+        { type: "lifesteal", label: buffLabel("lifesteal"), color: buffColor("lifesteal"), ticks: stats.lifestealTicks, maxTicks: stats.lifestealMaxTicks },
     ]
     return all
         .filter((buff) => buff.ticks > 0)
@@ -379,6 +413,7 @@ export interface PlayerBuffBadge {
 // The fixed badge order, longest-window buffs first, so a player's chips always
 // read in the same order no matter the insertion order of the BuffRemaining map.
 const BUFF_BADGE_ORDER: readonly BuffType[] = [
+    "glassCannon", "lifesteal", "regen", "heavyMag",
     "haste", "ricochet", "rapidfire", "invis", "shield",
 ]
 
@@ -519,6 +554,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
         invisTicks: 0, invisMaxTicks: INVIS_TICKS,
         ricochetTicks: 0, ricochetMaxTicks: RICOCHET_TICKS,
         rapidfireTicks: 0, rapidfireMaxTicks: RAPIDFIRE_TICKS,
+        glassCannonTicks: 0, glassCannonMaxTicks: GLASS_CANNON_TICKS,
+        heavyMagTicks: 0, heavyMagMaxTicks: HEAVY_MAG_TICKS,
+        regenTicks: 0, regenMaxTicks: REGEN_TICKS,
+        lifestealTicks: 0, lifestealMaxTicks: LIFESTEAL_TICKS,
         tacticalReloadTicks: 0, tacticalReloadMaxTicks: 0,
         tacticalAmmo: 0, tacticalAmmoMax: 0,
     },
@@ -608,6 +647,10 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
             if (t.invisibility > 0) buffRemaining[buffRemainingKey(player.id, "invis")] = t.invisibility
             if (t.ricochet > 0) buffRemaining[buffRemainingKey(player.id, "ricochet")] = t.ricochet
             if (t.rapidfire > 0) buffRemaining[buffRemainingKey(player.id, "rapidfire")] = t.rapidfire
+            if (t.glassCannon > 0) buffRemaining[buffRemainingKey(player.id, "glassCannon")] = t.glassCannon
+            if (t.heavyMag > 0) buffRemaining[buffRemainingKey(player.id, "heavyMag")] = t.heavyMag
+            if (t.regen > 0) buffRemaining[buffRemainingKey(player.id, "regen")] = t.regen
+            if (t.lifesteal > 0) buffRemaining[buffRemainingKey(player.id, "lifesteal")] = t.lifesteal
         }
 
         const next: Partial<GameStoreState> = {

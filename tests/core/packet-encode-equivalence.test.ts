@@ -162,7 +162,7 @@ const packetInputs: Record<string, any> = {
     playerShootBullet: { playerId: "AB", positionX: 5.5, positionY: 6.5, velocityX: 7.5, velocityY: 8.5, radius: 1.5, bulletType: 2, explosionRadius: 3.5 },
     serverTickHeader: { tick: 1234567 },
     ownPlayerState: { positionX: 1.5, positionY: 2.5, velocityX: 3.5, velocityY: 4.5, lastInputSeq: 777 },
-    playerShipTimings: { playerId: "AB", weaponReload: 1, weaponRate: 2, tacticalReload: 3, tacticalRate: 4, healthRegenerationRest: 5, healthRegenerationHeal: 6, invincibility: 7, haste: 8, shield: 9, invisibility: 10, ricochet: 11, rapidfire: 12 },
+    playerShipTimings: { playerId: "AB", weaponReload: 1, weaponRate: 2, tacticalReload: 3, tacticalRate: 4, healthRegenerationRest: 5, healthRegenerationHeal: 6, invincibility: 7, haste: 8, shield: 9, invisibility: 10, ricochet: 11, rapidfire: 12, glassCannon: 13, heavyMag: 14, regen: 15, lifesteal: 16 },
     playerShipCapacities: { playerId: "AB", weapon: 30, tactical: 5, health: 99 },
     playerTimings: { playerId: "AB", spawnTimeout: 60 },
     playerScores: { playerId: "AB", kills: 10, assists: 3, deaths: 2, damage: 123456 },

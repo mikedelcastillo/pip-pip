@@ -12,7 +12,8 @@ import { PipShip } from "./ship"
 import { PipGameMap } from "./map"
 import { PipMapType, PIP_MAPS, CUSTOM_MAP_INDEX, makeCustomMapType } from "../maps"
 import { GridMapData, GridPipGameMap, loadGridMap, validateGridMapData } from "./grid-map"
-import { BUFF_BLOCK_SIZE, BUFF_SPAWN_INTERVAL_TICKS, BUFF_SPAWN_PER_INTERVAL, BUFF_SPAWN_WEIGHTS } from "./buff-config"
+import { BUFF_BLOCK_SIZE, BUFF_SPAWN_INTERVAL_TICKS, BUFF_SPAWN_PER_INTERVAL, BUFF_SPAWN_WEIGHTS,
+    REGEN_HEAL_AMOUNT, REGEN_HEAL_INTERVAL_TICKS } from "./buff-config"
 import { tickDown } from "./utils"
 import { INTERP_DELAY_TICKS } from "./constants"
 
@@ -1230,6 +1231,24 @@ export class PipPipGame{
         this.buffs.unset(buff)
     }
 
+    // Over-time buff effects resolved once per tick. Currently just Regen: while the
+    // buff is up, heal REGEN_HEAL_AMOUNT every REGEN_HEAL_INTERVAL_TICKS (5 HP/sec),
+    // capped at the ship's maxHealth. Server-authoritative on health, so gated on
+    // triggerDamage just like dealDamage (the client mirrors the resulting health
+    // off playerShipCapacities). Dead players (health 0, awaiting respawn) are
+    // skipped so regen never revives them.
+    updateBuffEffects(players: PipPlayer[] = Object.values(this.players)){
+        if(this.options.triggerDamage === false) return
+        if(this.tickNumber % REGEN_HEAL_INTERVAL_TICKS !== 0) return
+
+        for(const player of players){
+            const ship = player.ship
+            if(ship.timings.regen <= 0) continue
+            if(ship.capacities.health <= 0) continue
+            ship.capacities.health = Math.min(ship.maxHealth, ship.capacities.health + REGEN_HEAL_AMOUNT)
+        }
+    }
+
     // Emit `count` bullets for one shot, fanned evenly across a cone of total
     // width `angle` (radians) centred on the firing direction. The base
     // position/rotation is the shooter's ship now, OR — when considerPlayerPing
@@ -1407,7 +1426,10 @@ export class PipPipGame{
         if(target.ship.isShielded) return
 
         // decrease health
-        const dealerDamage = weaponDamage
+        // Glass Cannon (damageMultiplier > 1) triples the dealer's outgoing damage
+        // here, so it covers every source routed through dealDamage (bullets +
+        // grenade AoE). 1 when inactive, leaving normal damage untouched.
+        const dealerDamage = weaponDamage * dealer.ship.damageMultiplier
         const defenseRatio = 2 - target.ship.defense
         const rawDamage = Math.max(1, Math.round(defenseRatio * dealerDamage))
         const damage = Math.min(rawDamage, target.ship.capacities.health)
@@ -1419,6 +1441,18 @@ export class PipPipGame{
         // still happen.
         if(dealer.id !== target.id){
             dealer.score.damage += damage
+            // Lifesteal: while the dealer holds the buff, healthy damage dealt to an
+            // ENEMY heals the dealer for the same amount (capped at the dealer's
+            // maxHealth). Inside the dealer !== target guard so self-damage never
+            // heals; a shielded target already returned 0 above so it grants none.
+            // Guarded on the dealer still being alive so a same-tick mutual kill
+            // can't revive a dead dealer.
+            if(dealer.ship.timings.lifesteal > 0 && dealer.ship.capacities.health > 0){
+                dealer.ship.capacities.health = Math.min(
+                    dealer.ship.maxHealth,
+                    dealer.ship.capacities.health + damage,
+                )
+            }
             // Assist bookkeeping (server-authoritative, same triggerDamage gate as
             // the rest of scoring): remember the tick at which this attacker last
             // hit this victim, keyed by attacker id, on the VICTIM. If the victim
@@ -1833,6 +1867,10 @@ export class PipPipGame{
 
         // Resolve buff pickups against final ship positions this tick.
         this.updateBuffPickups(players)
+
+        // Apply over-time buff effects (regen heal) after pickups, so a buff grabbed
+        // this tick can already tick on a later tick.
+        this.updateBuffEffects(players)
 
         for(const player of players){
             player.trackPositionState()

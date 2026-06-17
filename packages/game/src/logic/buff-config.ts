@@ -32,11 +32,15 @@ export const BUFF_SPAWN_PER_INTERVAL = 1
 export const BUFF_SPAWN_WEIGHTS: Record<BuffType, number> = {
     health: 5,
     shield: 5,
+    regen: 5,
     ammo: 3,
     haste: 3,
+    heavyMag: 3,
+    lifesteal: 3,
     rapidfire: 2,
     ricochet: 1,
     invis: 1,
+    glassCannon: 1,
 }
 
 // Upper bound for any single timed-buff timer, in ticks. Buffs STACK (re-grabbing
@@ -53,3 +57,26 @@ export const SHIELD_TICKS = TICKS_PER_SECOND * 15 // 300 ticks (15s)
 export const INVIS_TICKS = TICKS_PER_SECOND * 20 // 400 ticks (20s)
 export const RICOCHET_TICKS = TICKS_PER_SECOND * 30 // 600 ticks (30s)
 export const RAPIDFIRE_TICKS = TICKS_PER_SECOND * 30 // 600 ticks (30s)
+export const GLASS_CANNON_TICKS = TICKS_PER_SECOND * 15 // 300 ticks (15s)
+export const HEAVY_MAG_TICKS = TICKS_PER_SECOND * 15 // 300 ticks (15s)
+export const REGEN_TICKS = TICKS_PER_SECOND * 20 // 400 ticks (20s)
+export const LIFESTEAL_TICKS = TICKS_PER_SECOND * 20 // 400 ticks (20s)
+
+// Glass Cannon: while active the ship deals GLASS_CANNON_DAMAGE_MULTIPLIER times
+// its normal outgoing damage (all sources, applied in dealDamage), but its max
+// health is forced down to GLASS_CANNON_MAX_HEALTH (the maxHealth getter returns
+// this while the timer runs; current health is clamped to it on pickup). On
+// expiry maxHealth reverts to the stat and current health is left untouched.
+export const GLASS_CANNON_DAMAGE_MULTIPLIER = 3
+export const GLASS_CANNON_MAX_HEALTH = 25
+
+// Heavy Mag: while active both ammo pools' effective capacity is multiplied by
+// this factor (see PipShip.weaponCapacity / tacticalCapacity). Pickup refills to
+// the doubled cap; on expiry current ammo is clamped back to normal capacity.
+export const HEAVY_MAG_AMMO_MULTIPLIER = 2
+
+// Regen: while active the ship heals REGEN_HEAL_AMOUNT health every
+// REGEN_HEAL_INTERVAL_TICKS (5 HP/second at 20 tps), capped at maxHealth. Applied
+// server-side each tick in PipPipGame.updateBuffEffects (gated on triggerDamage).
+export const REGEN_HEAL_AMOUNT = 5
+export const REGEN_HEAL_INTERVAL_TICKS = TICKS_PER_SECOND // every 20 ticks (1s)

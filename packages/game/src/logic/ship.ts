@@ -6,6 +6,7 @@ import { SHIP_DIAMETER } from "./constants"
 import { MOVEMENT_CONFIG, MOVEMENT_ACCEL_RANGE, MOVEMENT_SPEED_RANGE } from "./physics-config"
 import { PipPlayer } from "./player"
 import { RAPIDFIRE_MULTIPLIER } from "./buff"
+import { GLASS_CANNON_MAX_HEALTH, GLASS_CANNON_DAMAGE_MULTIPLIER, HEAVY_MAG_AMMO_MULTIPLIER } from "./buff-config"
 import { tickDown } from "./utils"
 
 export type StatRange = {
@@ -200,6 +201,15 @@ export type ShipTimings = {
     invisibility: number,
     ricochet: number,
     rapidfire: number,
+    // More timed buffs. While > 0: glassCannon (deals triple damage but maxHealth
+    // is forced to GLASS_CANNON_MAX_HEALTH), heavyMag (ammo capacity doubled),
+    // regen (heals over time, applied server-side in updateBuffEffects), lifesteal
+    // (damage dealt to enemies heals the dealer, applied in dealDamage). All ride
+    // playerShipTimings like the buffs above and tick down each tick in update().
+    glassCannon: number,
+    heavyMag: number,
+    regen: number,
+    lifesteal: number,
 }
 
 export type ShipCapacities = {
@@ -242,6 +252,10 @@ export class PipShip{
         invisibility: 0,
         ricochet: 0,
         rapidfire: 0,
+        glassCannon: 0,
+        heavyMag: 0,
+        regen: 0,
+        lifesteal: 0,
     }
 
     capacities: ShipCapacities = {
@@ -271,6 +285,10 @@ export class PipShip{
         this.timings.invisibility = 0
         this.timings.ricochet = 0
         this.timings.rapidfire = 0
+        this.timings.glassCannon = 0
+        this.timings.heavyMag = 0
+        this.timings.regen = 0
+        this.timings.lifesteal = 0
 
         // Zero the weapon + tactical reload/rate timers so a respawned ship is
         // immediately fire-ready, matching its refilled ammo. update() ticks these
@@ -301,7 +319,29 @@ export class PipShip{
     }
 
     get maxHealth(){
+        // Glass Cannon forces max health down to a fixed low value while active.
+        // On expiry this reverts to the stat; current health is NOT topped up (it
+        // simply stops being capped at the low value), per the buff design.
+        if(this.timings.glassCannon > 0) return GLASS_CANNON_MAX_HEALTH
         return this.stats.health.capacity.normal
+    }
+
+    // Outgoing-damage multiplier applied in dealDamage to EVERY hit this ship
+    // lands (bullets + grenade AoE). Glass Cannon triples it; otherwise 1.
+    get damageMultiplier(){
+        return this.timings.glassCannon > 0 ? GLASS_CANNON_DAMAGE_MULTIPLIER : 1
+    }
+
+    // Effective ammo capacities: Heavy Mag multiplies the stat capacity while
+    // active (pickup refills to this, and weaponFull/tacticalFull + reload-refill
+    // measure against it). Reverts to the stat on expiry, where update() clamps
+    // any overflow ammo back down so a reload can't lose it.
+    get weaponCapacity(){
+        return this.stats.weapon.capacity * (this.timings.heavyMag > 0 ? HEAVY_MAG_AMMO_MULTIPLIER : 1)
+    }
+
+    get tacticalCapacity(){
+        return this.stats.tactical.capacity * (this.timings.heavyMag > 0 ? HEAVY_MAG_AMMO_MULTIPLIER : 1)
     }
 
     get defense(){
@@ -360,7 +400,7 @@ export class PipShip{
     }
 
     get weaponFull(){
-        return this.capacities.weapon === this.stats.weapon.capacity
+        return this.capacities.weapon >= this.weaponCapacity
     }
 
     get canUseWeapon(){
@@ -405,7 +445,7 @@ export class PipShip{
     }
 
     get tacticalFull(){
-        return this.capacities.tactical === this.stats.tactical.capacity
+        return this.capacities.tactical >= this.tacticalCapacity
     }
 
     get canReloadTactical(){
@@ -444,6 +484,7 @@ export class PipShip{
     update(){
         const wasReloading = this.isReloading
         const wasTacticalReloading = this.isTacticalReloading
+        const wasHeavyMag = this.timings.heavyMag > 0
 
         this.timings.invincibility = tickDown(this.timings.invincibility)
         this.timings.healthRegenerationHeal = tickDown(this.timings.healthRegenerationHeal)
@@ -457,6 +498,19 @@ export class PipShip{
         this.timings.invisibility = tickDown(this.timings.invisibility)
         this.timings.ricochet = tickDown(this.timings.ricochet)
         this.timings.rapidfire = tickDown(this.timings.rapidfire)
+        this.timings.glassCannon = tickDown(this.timings.glassCannon)
+        this.timings.heavyMag = tickDown(this.timings.heavyMag)
+        this.timings.regen = tickDown(this.timings.regen)
+        this.timings.lifesteal = tickDown(this.timings.lifesteal)
+
+        // Heavy Mag just expired: the capacity getters now report the normal cap,
+        // so clamp any overflow ammo down to it. Without this, an over-stocked mag
+        // leaves weaponFull/tacticalFull false, which would let a reload fire and
+        // REPLACE the overflow with the smaller normal capacity (losing ammo).
+        if(wasHeavyMag && this.timings.heavyMag === 0){
+            this.capacities.weapon = Math.min(this.capacities.weapon, this.weaponCapacity)
+            this.capacities.tactical = Math.min(this.capacities.tactical, this.tacticalCapacity)
+        }
 
         // take input from player
         if(typeof this.player !== "undefined"){
@@ -466,7 +520,7 @@ export class PipShip{
 
         // check if reload is done
         if(wasReloading && !this.isReloading){
-            this.capacities.weapon = this.stats.weapon.capacity
+            this.capacities.weapon = this.weaponCapacity
             if(typeof this.player !== "undefined"){
                 this.game.events.emit("playerReloadEnd", { player: this.player })
             }
@@ -474,7 +528,7 @@ export class PipShip{
 
         // check if the tactical reload is done
         if(wasTacticalReloading && !this.isTacticalReloading){
-            this.capacities.tactical = this.stats.tactical.capacity
+            this.capacities.tactical = this.tacticalCapacity
         }
 
         this.rotation += radianDifference(this.rotation, this.targetRotation) / (1 + 8 * (1 - this.stats.aim.accuracy))

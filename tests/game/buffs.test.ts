@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest"
 import { PipPipGame, PipPipGamePhase } from "@pip-pip/game/src/logic"
 import { PipPlayer } from "@pip-pip/game/src/logic/player"
 import { Vector2 } from "@pip-pip/core/src/physics"
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, RAPIDFIRE_MULTIPLIER, applyBuffEffect } from "@pip-pip/game/src/logic/buff"
-import { MAX_BUFF_TICKS } from "@pip-pip/game/src/logic/buff-config"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, RAPIDFIRE_MULTIPLIER,
+    GLASS_CANNON_TICKS, HEAVY_MAG_TICKS, REGEN_TICKS, LIFESTEAL_TICKS, applyBuffEffect } from "@pip-pip/game/src/logic/buff"
+import { MAX_BUFF_TICKS, GLASS_CANNON_MAX_HEALTH, GLASS_CANNON_DAMAGE_MULTIPLIER,
+    HEAVY_MAG_AMMO_MULTIPLIER } from "@pip-pip/game/src/logic/buff-config"
 import { packetManager, encode } from "@pip-pip/game/src/networking/packets"
 
 // Ship index 3 ("Blu") uses pure default stats, so its numbers are predictable.
@@ -547,6 +549,230 @@ describe("timed-buff stacking", () => {
     })
 })
 
+describe("glass cannon buff", () => {
+    it("applyBuffEffect sets the timer, caps maxHealth, and clamps current health to it", () => {
+        const { player } = makeArena()
+        const ship = player.ship
+        expect(ship.timings.glassCannon).toBe(0)
+        expect(ship.capacities.health).toBeGreaterThan(GLASS_CANNON_MAX_HEALTH)
+
+        applyBuffEffect("glassCannon", player)
+
+        expect(ship.timings.glassCannon).toBe(GLASS_CANNON_TICKS)
+        expect(ship.maxHealth).toBe(GLASS_CANNON_MAX_HEALTH)
+        // Picked up above 25, so current health drops to the new cap immediately.
+        expect(ship.capacities.health).toBe(GLASS_CANNON_MAX_HEALTH)
+    })
+
+    it("does not RAISE current health below the cap on pickup", () => {
+        const { player } = makeArena()
+        player.ship.capacities.health = 10
+
+        applyBuffEffect("glassCannon", player)
+
+        expect(player.ship.capacities.health).toBe(10)
+    })
+
+    it("triples all outgoing damage dealt through dealDamage", () => {
+        const { game, player } = makeArena()
+        const target = new PipPlayer(game, "BB")
+        target.setShip(BLU)
+        game.spawnPlayer(target, 500, 0)
+        const full = target.ship.capacities.health
+
+        // Baseline hit with no buff, then the same hit while glass cannon is active.
+        game.dealDamage(player, target)
+        const plainDamage = full - target.ship.capacities.health
+
+        target.ship.capacities.health = full
+        player.ship.timings.glassCannon = GLASS_CANNON_TICKS
+        game.dealDamage(player, target)
+        const buffedDamage = full - target.ship.capacities.health
+
+        expect(buffedDamage).toBe(plainDamage * GLASS_CANNON_DAMAGE_MULTIPLIER)
+    })
+
+    it("on expiry maxHealth reverts to the stat and current health is left untouched", () => {
+        const { game, player } = makeArena()
+        const ship = player.ship
+        ship.timings.glassCannon = 1
+        ship.capacities.health = GLASS_CANNON_MAX_HEALTH
+
+        game.update() // glass cannon ticks 1 -> 0
+
+        expect(ship.timings.glassCannon).toBe(0)
+        expect(ship.maxHealth).toBe(ship.stats.health.capacity.normal)
+        // Health is NOT topped up; it merely stops being capped at the low value.
+        expect(ship.capacities.health).toBe(GLASS_CANNON_MAX_HEALTH)
+    })
+
+    it("reset() clears the glass cannon timer", () => {
+        const { player } = makeArena()
+        player.ship.timings.glassCannon = GLASS_CANNON_TICKS
+
+        player.ship.reset()
+
+        expect(player.ship.timings.glassCannon).toBe(0)
+        expect(player.ship.maxHealth).toBe(player.ship.stats.health.capacity.normal)
+    })
+})
+
+describe("heavy mag buff", () => {
+    it("applyBuffEffect doubles ammo capacity and refills both pools to it", () => {
+        const { player } = makeArena()
+        const ship = player.ship
+        const weaponCap = ship.stats.weapon.capacity
+        const tacticalCap = ship.stats.tactical.capacity
+        ship.capacities.weapon = 0
+        ship.capacities.tactical = 0
+
+        applyBuffEffect("heavyMag", player)
+
+        expect(ship.timings.heavyMag).toBe(HEAVY_MAG_TICKS)
+        expect(ship.weaponCapacity).toBe(weaponCap * HEAVY_MAG_AMMO_MULTIPLIER)
+        expect(ship.tacticalCapacity).toBe(tacticalCap * HEAVY_MAG_AMMO_MULTIPLIER)
+        expect(ship.capacities.weapon).toBe(weaponCap * HEAVY_MAG_AMMO_MULTIPLIER)
+        expect(ship.capacities.tactical).toBe(tacticalCap * HEAVY_MAG_AMMO_MULTIPLIER)
+        expect(ship.weaponFull).toBe(true)
+    })
+
+    it("clamps overflow ammo back to normal capacity when it expires", () => {
+        const { game, player } = makeArena()
+        const ship = player.ship
+        const weaponCap = ship.stats.weapon.capacity
+        const tacticalCap = ship.stats.tactical.capacity
+
+        ship.timings.heavyMag = 1
+        ship.capacities.weapon = weaponCap * HEAVY_MAG_AMMO_MULTIPLIER
+        ship.capacities.tactical = tacticalCap * HEAVY_MAG_AMMO_MULTIPLIER
+
+        game.update() // heavyMag ticks 1 -> 0, overflow clamped down
+
+        expect(ship.timings.heavyMag).toBe(0)
+        expect(ship.capacities.weapon).toBe(weaponCap)
+        expect(ship.capacities.tactical).toBe(tacticalCap)
+    })
+
+    it("reset() clears the heavy mag timer (capacity returns to normal)", () => {
+        const { player } = makeArena()
+        player.ship.timings.heavyMag = HEAVY_MAG_TICKS
+
+        player.ship.reset()
+
+        expect(player.ship.timings.heavyMag).toBe(0)
+        expect(player.ship.weaponCapacity).toBe(player.ship.stats.weapon.capacity)
+    })
+})
+
+describe("regen buff", () => {
+    it("heals over time while active, capped at maxHealth", () => {
+        const { game, player } = makeArena()
+        const ship = player.ship
+        ship.capacities.health = 10
+        ship.timings.regen = REGEN_TICKS
+
+        // Run well past one heal interval; health must climb but never exceed max.
+        for(let i = 0; i < 60; i++) game.update()
+
+        expect(ship.capacities.health).toBeGreaterThan(10)
+        expect(ship.capacities.health).toBeLessThanOrEqual(ship.maxHealth)
+    })
+
+    it("does not heal past maxHealth", () => {
+        const { game, player } = makeArena()
+        const ship = player.ship
+        ship.capacities.health = ship.maxHealth - 1
+        ship.timings.regen = REGEN_TICKS
+
+        for(let i = 0; i < 60; i++) game.update()
+
+        expect(ship.capacities.health).toBe(ship.maxHealth)
+    })
+
+    it("does not heal a dead (health 0) player", () => {
+        const { game, player } = makeArena()
+        const ship = player.ship
+        ship.capacities.health = 0
+        ship.timings.regen = REGEN_TICKS
+
+        for(let i = 0; i < 60; i++) game.update()
+
+        expect(ship.capacities.health).toBe(0)
+    })
+
+    it("applyBuffEffect sets the regen timer to REGEN_TICKS", () => {
+        const { player } = makeArena()
+        applyBuffEffect("regen", player)
+        expect(player.ship.timings.regen).toBe(REGEN_TICKS)
+    })
+})
+
+describe("lifesteal buff", () => {
+    it("heals the dealer by the damage dealt to an enemy", () => {
+        const { game, player } = makeArena()
+        const target = new PipPlayer(game, "BB")
+        target.setShip(BLU)
+        game.spawnPlayer(target, 500, 0)
+
+        player.ship.capacities.health = 50
+        player.ship.timings.lifesteal = LIFESTEAL_TICKS
+        const targetFull = target.ship.capacities.health
+
+        game.dealDamage(player, target)
+        const dealt = targetFull - target.ship.capacities.health
+
+        expect(dealt).toBeGreaterThan(0)
+        expect(player.ship.capacities.health).toBe(50 + dealt)
+    })
+
+    it("does not heal past the dealer's maxHealth", () => {
+        const { game, player } = makeArena()
+        const target = new PipPlayer(game, "BB")
+        target.setShip(BLU)
+        game.spawnPlayer(target, 500, 0)
+
+        player.ship.timings.lifesteal = LIFESTEAL_TICKS
+        // Already full: lifesteal cannot push above max.
+        player.ship.capacities.health = player.ship.maxHealth
+
+        game.dealDamage(player, target)
+
+        expect(player.ship.capacities.health).toBe(player.ship.maxHealth)
+    })
+
+    it("does not heal on self-damage", () => {
+        const { game, player } = makeArena()
+        player.ship.capacities.health = 50
+        player.ship.timings.lifesteal = LIFESTEAL_TICKS
+
+        // Dealer === target: a suicide must never lifesteal.
+        game.dealDamage(player, player)
+
+        expect(player.ship.capacities.health).toBeLessThan(50)
+    })
+
+    it("grants no heal against a shielded target (zero damage dealt)", () => {
+        const { game, player } = makeArena()
+        const target = new PipPlayer(game, "BB")
+        target.setShip(BLU)
+        game.spawnPlayer(target, 500, 0)
+        target.ship.timings.shield = 5
+
+        player.ship.capacities.health = 50
+        player.ship.timings.lifesteal = LIFESTEAL_TICKS
+
+        game.dealDamage(player, target)
+
+        expect(player.ship.capacities.health).toBe(50)
+    })
+
+    it("applyBuffEffect sets the lifesteal timer to LIFESTEAL_TICKS", () => {
+        const { player } = makeArena()
+        applyBuffEffect("lifesteal", player)
+        expect(player.ship.timings.lifesteal).toBe(LIFESTEAL_TICKS)
+    })
+})
+
 describe("playerShipTimings wire is uint16 (buff timers survive a round-trip)", () => {
     it("round-trips a 600-tick invisibility/ricochet through encode + decode", () => {
         const { player } = makeArena()
@@ -577,5 +803,21 @@ describe("playerShipTimings wire is uint16 (buff timers survive a round-trip)", 
         expect(timings?.haste).toBe(MAX_BUFF_TICKS)
         expect(timings?.shield).toBe(MAX_BUFF_TICKS)
         expect(timings?.rapidfire).toBe(MAX_BUFF_TICKS)
+    })
+
+    it("round-trips the new glassCannon/heavyMag/regen/lifesteal timers", () => {
+        const { player } = makeArena()
+        player.ship.timings.glassCannon = GLASS_CANNON_TICKS
+        player.ship.timings.heavyMag = HEAVY_MAG_TICKS
+        player.ship.timings.regen = REGEN_TICKS
+        player.ship.timings.lifesteal = LIFESTEAL_TICKS
+
+        const decoded = packetManager.decode(encode.playerShipTimings(player))
+        const timings = decoded.playerShipTimings?.[0]
+
+        expect(timings?.glassCannon).toBe(GLASS_CANNON_TICKS)
+        expect(timings?.heavyMag).toBe(HEAVY_MAG_TICKS)
+        expect(timings?.regen).toBe(REGEN_TICKS)
+        expect(timings?.lifesteal).toBe(LIFESTEAL_TICKS)
     })
 })

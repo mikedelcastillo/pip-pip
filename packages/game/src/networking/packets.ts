@@ -181,6 +181,16 @@ export const packetManager = new PacketManager({
         invisibility: $uint16,
         ricochet: $uint16,
         rapidfire: $uint16,
+        // More timed-buff windows (uint16, same reasoning as above): glassCannon
+        // (triple-damage / 25-HP cap), heavyMag (doubled ammo capacity), regen
+        // (heal-over-time) and lifesteal (heal on damage dealt). Networked so the
+        // buff bars + tactical feed show them on the local and remote players, and
+        // so the client's prediction reads the same windows (maxHealth / capacity /
+        // damage multipliers all derive from these timers).
+        glassCannon: $uint16,
+        heavyMag: $uint16,
+        regen: $uint16,
+        lifesteal: $uint16,
     }),
 
     playerShipCapacities: new Packet({
@@ -470,6 +480,10 @@ export const encode = {
         invisibility: player.ship.timings.invisibility,
         ricochet: player.ship.timings.ricochet,
         rapidfire: player.ship.timings.rapidfire,
+        glassCannon: player.ship.timings.glassCannon,
+        heavyMag: player.ship.timings.heavyMag,
+        regen: player.ship.timings.regen,
+        lifesteal: player.ship.timings.lifesteal,
     }),
     playerShipCapacities: (player: PipPlayer) => packetManager.serializers.playerShipCapacities.encode({
         playerId: player.id,

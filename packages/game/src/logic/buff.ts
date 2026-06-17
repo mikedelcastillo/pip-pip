@@ -3,17 +3,20 @@ import { generateId } from "@pip-pip/core/src/lib/utils"
 
 import { PipPlayer } from "./player"
 import { PipPipGame } from "."
-import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, MAX_BUFF_TICKS } from "./buff-config"
+import { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS, MAX_BUFF_TICKS,
+    GLASS_CANNON_TICKS, HEAVY_MAG_TICKS, REGEN_TICKS, LIFESTEAL_TICKS } from "./buff-config"
 
 // Re-export the timed-buff durations so existing importers of this module keep
 // working now that the values live in buff-config.
-export { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS } from "./buff-config"
+export { HASTE_TICKS, SHIELD_TICKS, INVIS_TICKS, RICOCHET_TICKS, RAPIDFIRE_TICKS,
+    GLASS_CANNON_TICKS, HEAVY_MAG_TICKS, REGEN_TICKS, LIFESTEAL_TICKS } from "./buff-config"
 
 // Map pickups. "health"/"ammo" are instant-effect; "haste"/"shield"/"invis"/
 // "ricochet"/"rapidfire" are timed buffs applied to the ship's timings (ticked
 // down in ship.update). Extend this union plus the effect switch in
 // applyBuffEffect to add more.
 export type BuffType = "health" | "ammo" | "haste" | "shield" | "invis" | "ricochet" | "rapidfire"
+    | "glassCannon" | "heavyMag" | "regen" | "lifesteal"
 
 // Wire mapping for BuffType. The buffSpawn packet carries the type as a
 // uint8; this is the single source of truth both sides share so a client can
@@ -28,6 +31,10 @@ export const BUFF_TYPE_TO_CODE: Record<BuffType, number> = {
     invis: 4,
     ricochet: 5,
     rapidfire: 6,
+    glassCannon: 7,
+    heavyMag: 8,
+    regen: 9,
+    lifesteal: 10,
 }
 
 export const BUFF_CODE_TO_TYPE: Record<number, BuffType> = {
@@ -38,6 +45,10 @@ export const BUFF_CODE_TO_TYPE: Record<number, BuffType> = {
     4: "invis",
     5: "ricochet",
     6: "rapidfire",
+    7: "glassCannon",
+    8: "heavyMag",
+    9: "regen",
+    10: "lifesteal",
 }
 
 // Buff ids are exactly BUFF_ID_LENGTH chars from generateId so they
@@ -89,6 +100,21 @@ export function applyBuffEffect(type: BuffType, player: PipPlayer){
         ship.timings.ricochet = Math.min(MAX_BUFF_TICKS, ship.timings.ricochet + RICOCHET_TICKS)
     } else if(type === "rapidfire"){
         ship.timings.rapidfire = Math.min(MAX_BUFF_TICKS, ship.timings.rapidfire + RAPIDFIRE_TICKS)
+    } else if(type === "glassCannon"){
+        ship.timings.glassCannon = Math.min(MAX_BUFF_TICKS, ship.timings.glassCannon + GLASS_CANNON_TICKS)
+        // maxHealth now returns GLASS_CANNON_MAX_HEALTH (the timer is set above), so
+        // clamp current health down to it: you become fragile the instant you grab it.
+        ship.capacities.health = Math.min(ship.capacities.health, ship.maxHealth)
+    } else if(type === "heavyMag"){
+        ship.timings.heavyMag = Math.min(MAX_BUFF_TICKS, ship.timings.heavyMag + HEAVY_MAG_TICKS)
+        // Set the timer FIRST so the capacity getters report the doubled cap, then
+        // top both pools off to it (an ammo pickup, but bigger).
+        ship.capacities.weapon = ship.weaponCapacity
+        ship.capacities.tactical = ship.tacticalCapacity
+    } else if(type === "regen"){
+        ship.timings.regen = Math.min(MAX_BUFF_TICKS, ship.timings.regen + REGEN_TICKS)
+    } else if(type === "lifesteal"){
+        ship.timings.lifesteal = Math.min(MAX_BUFF_TICKS, ship.timings.lifesteal + LIFESTEAL_TICKS)
     }
 }
 
