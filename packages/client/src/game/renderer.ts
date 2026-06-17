@@ -5,7 +5,7 @@ import * as PIXI from "pixi.js"
 import { GameContext } from "."
 import { assetLoader } from "./assets"
 
-import { CRTFilter, GlitchFilter, PixelateFilter, BulgePinchFilter } from "pixi-filters"
+import { CRTFilter, GlitchFilter, PixelateFilter, BulgePinchFilter, AdvancedBloomFilter, ShockwaveFilter, RGBSplitFilter } from "pixi-filters"
 import { DisplacementFilter, Point } from "pixi.js"
 import { SHIP_DIAMETER } from "@pip-pip/game/src/logic/constants"
 import { PipGameTile } from "@pip-pip/game/src/logic/map"
@@ -13,9 +13,7 @@ import { materialStyleFor, tilePolygon, polygonToFlat } from "./mapGraphics"
 import { COLORS, DIMS } from "./styles"
 import { Bullet } from "@pip-pip/game/src/logic/bullet"
 import { Buff, BUFF_RADIUS } from "@pip-pip/game/src/logic/buff"
-import { tickDown } from "@pip-pip/game/src/logic/utils"
 import { exceedsSnapDistance } from "./interpolation"
-import { Vector2 } from "@pip-pip/core/src/physics"
 import { EventCallback, EventMapOf } from "@pip-pip/core/src/common/events"
 import { healthBarColor, isTeamMode } from "./teams"
 import { useGameStore, BUFF_COLORS_NUMERIC } from "./store"
@@ -31,7 +29,6 @@ import {
     triggerShake,
     mergeShake,
     ShakeState,
-    Particle,
     WallSegment,
 } from "./particles"
 
@@ -82,12 +79,16 @@ export const STAR_BG = {
 }
 
 export class StarGraphic {
-    sprite: PIXI.Sprite
+    // The star is now a Pixi 8 Particle (GPU-batched in a ParticleContainer)
+    // rather than a standalone Sprite. A Particle exposes flat x/y/scaleX/scaleY/
+    // rotation/anchor fields instead of the Sprite's position/scale objects.
+    particle: PIXI.Particle
     z = 0
 
-    constructor(sprite: PIXI.Sprite){
-        this.sprite = sprite
-        sprite.anchor.set(0.5)
+    constructor(particle: PIXI.Particle){
+        this.particle = particle
+        particle.anchorX = 0.5
+        particle.anchorY = 0.5
         this.setRandomZ()
     }
 
@@ -103,8 +104,9 @@ export class StarGraphic {
     setZ(n: number){
         this.z = n
         const scale = STAR_BG.MIN_SCALE + (1 - this.zRatio) * (STAR_BG.MAX_SCALE - STAR_BG.MIN_SCALE)
-        this.sprite.scale.set(scale)
-        this.sprite.rotation = Math.random() * Math.PI
+        this.particle.scaleX = scale
+        this.particle.scaleY = scale
+        this.particle.rotation = Math.random() * Math.PI
     }
 }
 
@@ -208,11 +210,15 @@ export class DamageGraphic extends PoolableGraphic {
     positionY = 0
     id?: string
     count = 0
-    text: PIXI.Text
+    // BitmapText (not Text): a damage popup's number changes on every hit, and a
+    // PIXI.Text re-rasterizes its own canvas-backed texture on each text change.
+    // A Pixi 8 BitmapText draws batched glyph quads from a dynamically-generated
+    // VT323 bitmap font, so updating the count is just a cheap geometry rebuild.
+    text: PIXI.BitmapText
 
     constructor(){
         super()
-        this.text = new PIXI.Text({
+        this.text = new PIXI.BitmapText({
             text: "DAMAGE HERE",
             style: {
                 fontFamily: "VT323",
@@ -296,33 +302,6 @@ export class BuffGraphic extends PoolableGraphic {
 
     cleanUp(){
         this.buff = undefined
-        this.graphic.clear()
-    }
-}
-
-export class ParticleGraphic extends PoolableGraphic {
-    graphic = new PIXI.Graphics()
-
-    constructor(){
-        super()
-        this.container.addChild(this.graphic)
-    }
-
-    draw(p: Particle){
-        const lifeRatio = p.age / p.lifespan
-        const alpha = Math.max(0, 1 - lifeRatio)
-        const drawSize = Math.max(0.5, p.size * (1 - lifeRatio))
-
-        const s = Math.max(1, Math.round(drawSize))
-
-        this.graphic.clear()
-        this.graphic.rect(-s / 2, -s / 2, s, s).fill({ color: p.color, alpha })
-
-        this.container.position.x = p.x
-        this.container.position.y = p.y
-    }
-
-    cleanUp(){
         this.graphic.clear()
     }
 }
@@ -462,6 +441,11 @@ export class PlayerGraphic {
     // of calling clear() every idle frame.
     buffGraphicDrawn = false
 
+    // Whether the cloak shimmer (an RGBSplitFilter) is currently attached to
+    // shipContainer. Tracked so the filter is set/removed only on the cloak
+    // transition rather than reassigned every frame.
+    cloakActive = false
+
     shipContainer: PIXI.Container = new PIXI.Container()
     shipSprite?: PIXI.Sprite
 
@@ -525,15 +509,36 @@ export class PipPipRenderer{
     app: PIXI.Application
     game: PipPipGame
 
+    // The star field as a single GPU-batched ParticleContainer (200+ stars
+    // upload as one draw call). Only positions/scale/rotation animate, so those
+    // are the dynamic buffers; color stays static (stars are plain white).
     stars: StarGraphic[] = []
-    starsContainer = new PIXI.Container()
+    starsContainer = new PIXI.ParticleContainer({
+        dynamicProperties: { position: true, vertex: true, rotation: true, color: false, uvs: false },
+    })
 
     viewportContainer = new PIXI.Container()
     playersContainer = new PIXI.Container()
     bulletsContainer = new PIXI.Container()
     buffsContainer = new PIXI.Container()
     damagesContainer = new PIXI.Container()
-    particlesContainer = new PIXI.Container()
+
+    // All world particles (explosions, sparks, thruster trails, muzzle flashes)
+    // render as one additively-blended ParticleContainer instead of one
+    // PIXI.Graphics per particle. Each live sim particle drives one pooled
+    // PIXI.Particle tinted off a 1px white texture; position, scale and color all
+    // animate per frame so they are the dynamic buffers. "add" blend makes the
+    // overlapping particles read as hot glowing light against the dark space bg.
+    particlesContainer = new PIXI.ParticleContainer({
+        dynamicProperties: { position: true, vertex: true, color: true, rotation: false, uvs: false },
+    })
+    // A flat 1x1 white texture; each particle is scaled to its pixel size and
+    // tinted to its colour. Texture.WHITE needs no renderer, so it is safe here.
+    particleTexture = PIXI.Texture.WHITE
+    // Pooled Particle objects, grown to the peak live-particle count and reused.
+    // Inactive ones are parked at alpha 0 (still cheap in a ParticleContainer)
+    // rather than being added/removed each frame.
+    particleSprites: PIXI.Particle[] = []
 
     // In-world debug overlay (bot paths + targets), drawn only while the debug
     // panel is open. Its own single PIXI.Graphics so a frame either fills it
@@ -547,7 +552,6 @@ export class PipPipRenderer{
     damages: GraphicPool<DamageGraphic>
     bullets: GraphicPool<BulletGraphic>
     buffs: GraphicPool<BuffGraphic>
-    particles: GraphicPool<ParticleGraphic>
     players: Record<string, PlayerGraphic> = {}
 
     // The whole static map as one cached vector layer (see MapLayerGraphic).
@@ -569,6 +573,45 @@ export class PipPipRenderer{
     glitchFilter = new GlitchFilter()
     pixelateFilter = new PixelateFilter()
     buldgePinchFilter = new BulgePinchFilter()
+
+    // Always-on arcade glow: bright pixels (bullets, sparks, the additive
+    // particle layer, buff orbs) bleed light. Threshold keeps the dim space bg
+    // and HUD text from blooming into mush. Part of the base look, so it lives in
+    // the stage filter stack unconditionally (see rebuildStageFilters).
+    bloomFilter = new AdvancedBloomFilter({
+        threshold: 0.5,
+        bloomScale: 0.9,
+        brightness: 1.0,
+        blur: 6,
+        quality: 4,
+    })
+
+    // A transient ring distortion fired from a grenade detonation. Lives in the
+    // stage filter stack only while active (shockwaveActive), so it costs nothing
+    // the rest of the time. center is screen-space; time advances in seconds.
+    shockwaveFilter = new ShockwaveFilter({
+        amplitude: 24,
+        wavelength: 130,
+        speed: 700,
+        brightness: 1.0,
+    })
+    shockwaveActive = false
+    // The detonation point in WORLD space; converted to screen space each frame
+    // (the camera keeps moving while the ring expands). Elapsed time in seconds.
+    private shockwaveWorld = { x: 0, y: 0 }
+    private shockwaveElapsed = 0
+    // The ring is done once it has travelled past the far edge of any screen.
+    static SHOCKWAVE_DURATION = 1.2
+
+    // Shared cloak shimmer: a small animated RGB split applied to whichever ship
+    // is cloaked AND visible (the local player, or the spectate target). At most
+    // one such ship exists per frame, so a single shared instance is enough; its
+    // offsets pulse off the same wall-clock sine as the buff rings.
+    cloakFilter = new RGBSplitFilter({
+        red: { x: 0, y: 0 },
+        green: { x: 0, y: 0 },
+        blue: { x: 0, y: 0 },
+    })
 
     // Opt-in retro CRT post-processing, toggled from Settings and persisted via
     // the ui store (OFF by default). Membership in app.stage.filters is the
@@ -631,7 +674,10 @@ export class PipPipRenderer{
         this.bullets = new GraphicPool(this.bulletsContainer, BulletGraphic)
         this.buffs = new GraphicPool(this.buffsContainer, BuffGraphic)
         this.damages = new GraphicPool(this.damagesContainer, DamageGraphic)
-        this.particles = new GraphicPool(this.particlesContainer, ParticleGraphic)
+
+        // Additively blend the whole particle layer so overlapping explosion /
+        // spark / thruster particles read as hot glowing light, not flat squares.
+        this.particlesContainer.blendMode = "add"
 
         // CRT post-processing tuned to a tasteful retro look (the toggle adds it
         // on top of the always-on bulge). Curvature/vignette stay gentle so the
@@ -721,6 +767,12 @@ export class PipPipRenderer{
                 bullet.physics.position.y,
                 explosionSize,
             )
+
+            // A grenade's AoE detonation also kicks a screen-space shockwave ring
+            // out from the blast point, on top of the bigger particle burst.
+            if(isGrenade){
+                this.triggerShockwave(bullet.physics.position.x, bullet.physics.position.y)
+            }
         })
 
         this.onGameEvent("buffSpawn", ({ buff }) => {
@@ -780,7 +832,21 @@ export class PipPipRenderer{
     // fully usable. Callers mount() only after this resolves. If destroy() ran
     // while init was in flight, tear the freshly-booted app straight back down.
     async init(){
-        await this.app.init({ resizeTo: window, background: 0x150E12 })
+        await this.app.init({
+            resizeTo: window,
+            background: 0x150E12,
+            // Prefer Pixi 8's WebGPU renderer; it transparently falls back to
+            // WebGL when WebGPU is unavailable. Every filter we use ships a GPU
+            // program, so the post-processing stack works on both backends.
+            preference: "webgpu",
+            // The pixelate/CRT aesthetic does not want MSAA.
+            antialias: false,
+            // Render crisply on HiDPI / mobile screens. Capped at 2 so a 3x phone
+            // panel does not triple the fullscreen-filter fill cost. autoDensity
+            // keeps the canvas CSS size correct while backing it at this density.
+            autoDensity: true,
+            resolution: Math.min(window.devicePixelRatio || 1, 2),
+        })
         if(this.destroyed){
             this.app.destroy(true)
             return
@@ -797,19 +863,19 @@ export class PipPipRenderer{
 
         this.rebuildStageFilters()
 
-        // initialize stars
+        // initialize stars (each is a ParticleContainer Particle, not a Sprite)
         for(let i = 0; i < STAR_BG.COUNT; i++){
             const starTexture = assetLoader.get("star_1")
             if(typeof starTexture === "undefined") continue
-            const star = new PIXI.Sprite(starTexture)
+            const star = new PIXI.Particle({ texture: starTexture, anchorX: 0.5, anchorY: 0.5 })
             const graphic = new StarGraphic(star)
 
             const angle = Math.random() * Math.PI * 2
             const mag = Math.random() * this.getViewportRadius()
-            star.position.x = Math.cos(angle) * mag
-            star.position.y = Math.sin(angle) * mag
+            star.x = Math.cos(angle) * mag
+            star.y = Math.sin(angle) * mag
 
-            this.starsContainer.addChild(star)
+            this.starsContainer.addParticle(star)
             this.stars.push(graphic)
         }
 
@@ -873,7 +939,13 @@ export class PipPipRenderer{
     }
 
     getViewportRadius(){
-        return Math.sqrt(this.app.canvas.width * this.app.canvas.width + this.app.canvas.height * this.app.canvas.height) / 2
+        // app.screen is in LOGICAL (CSS) pixels, independent of the device
+        // resolution set in init(); app.canvas.width would be physical pixels and
+        // double under a 2x resolution, throwing off camera centering and the
+        // star field radius. All viewport math reads app.screen for this reason.
+        const w = this.app.screen.width
+        const h = this.app.screen.height
+        return Math.sqrt(w * w + h * h) / 2
     }
 
     mount(container: HTMLDivElement){
@@ -1088,6 +1160,20 @@ export class PipPipRenderer{
             const showShield = graphic.player.ship.timings.shield > 0
             const showHaste = graphic.player.ship.timings.haste > 0
             const showCloak = graphic.player.ship.isInvisible && (isClient || graphic.player === followPlayer)
+
+            // Cloak shimmer: attach the shared RGB-split filter to the ship the
+            // first frame it cloaks (and visible), detach it the frame it
+            // uncloaks. The split offsets are animated once per frame below.
+            if(showCloak){
+                if(!graphic.cloakActive){
+                    graphic.shipContainer.filters = [this.cloakFilter]
+                    graphic.cloakActive = true
+                }
+            } else if(graphic.cloakActive){
+                graphic.shipContainer.filters = []
+                graphic.cloakActive = false
+            }
+
             if(showShield || showHaste || showCloak){
                 graphic.buffGraphic.clear()
                 if(showShield){
@@ -1236,14 +1322,10 @@ export class PipPipRenderer{
             }
         }
 
-        // update particles: step the pure simulation (with wall bounces),
-        // recycle every graphic from the previous frame, then redraw one graphic
-        // per live particle.
+        // update particles: step the pure simulation (with wall bounces), then
+        // sync the live set into the batched ParticleContainer.
         this.particleSystem.update(deltaMs, this.wallSegments)
-        for(const g of this.particles.active){
-            this.particles.free(g)
-        }
-        this.particleSystem.forEach(p => this.particles.use(g => g.draw(p)))
+        this.syncParticles()
 
         // emit thruster trails behind every spawned, moving ship
         for(const graphic of players){
@@ -1274,28 +1356,44 @@ export class PipPipRenderer{
             this.crtFilter.time += deltaMs * 0.01
             this.crtFilter.seed = Math.random()
         }
-        this.displacementSprite.position.x = this.app.canvas.width / 2
-        this.displacementSprite.position.y = this.app.canvas.height / 2
+
+        // Cloak shimmer: pulse a small horizontal RGB split off the same sine as
+        // the buff rings. Only matters when a ship has the filter attached (at
+        // most one per frame), but it is cheap to keep in sync unconditionally.
+        const cloakSplit = 1 + buffPulse * 2.5
+        this.cloakFilter.red = { x: cloakSplit, y: 0 }
+        this.cloakFilter.green = { x: 0, y: 0 }
+        this.cloakFilter.blue = { x: -cloakSplit, y: 0 }
+
+        this.displacementSprite.position.x = this.app.screen.width / 2
+        this.displacementSprite.position.y = this.app.screen.height / 2
         // set displacement scale
 
-        // Center viewport (with screen shake offset applied)
+        // Center viewport (with screen shake offset applied). app.screen is in
+        // logical pixels, so this stays correct under any device resolution.
         const shakeOffset = computeShake(this.shake, deltaMs)
-        this.viewportContainer.position.x = this.app.canvas.width / 2 - this.camera.position.x + shakeOffset.dx
-        this.viewportContainer.position.y = this.app.canvas.height / 2 - this.camera.position.y + shakeOffset.dy
+        this.viewportContainer.position.x = this.app.screen.width / 2 - this.camera.position.x + shakeOffset.dx
+        this.viewportContainer.position.y = this.app.screen.height / 2 - this.camera.position.y + shakeOffset.dy
+
+        // Advance the grenade shockwave ring, if one is active. Its centre tracks
+        // the detonation's world point through the (now-updated) viewport offset
+        // so the ring stays pinned to the blast as the camera moves; when it has
+        // run its course the filter is pulled from the stage stack.
+        this.updateShockwave(deltaMs)
 
         // Compute stars
         const starMaxDist = this.getViewportRadius()
         for(const star of this.stars){
-            star.sprite.position.x += cameraDeltaX * star.zRatio * star.zRatio * STAR_BG.EFFECT
-            star.sprite.position.y += cameraDeltaY * star.zRatio * star.zRatio * STAR_BG.EFFECT
+            star.particle.x += cameraDeltaX * star.zRatio * star.zRatio * STAR_BG.EFFECT
+            star.particle.y += cameraDeltaY * star.zRatio * star.zRatio * STAR_BG.EFFECT
 
-            const dx = this.camera.position.x - star.sprite.position.x
-            const dy = this.camera.position.y - star.sprite.position.y
+            const dx = this.camera.position.x - star.particle.x
+            const dy = this.camera.position.y - star.particle.y
             const dist2 = dx * dx + dy * dy
             if(dist2 > starMaxDist * starMaxDist){
                 const angle = Math.random() * Math.PI * 2
-                star.sprite.position.x = this.camera.position.x + Math.cos(angle) * starMaxDist
-                star.sprite.position.y = this.camera.position.y + Math.sin(angle) * starMaxDist
+                star.particle.x = this.camera.position.x + Math.cos(angle) * starMaxDist
+                star.particle.y = this.camera.position.y + Math.sin(angle) * starMaxDist
                 star.setRandomZ()
             }
         }
@@ -1307,11 +1405,81 @@ export class PipPipRenderer{
     // appended only when enabled, so toggling it off removes it entirely (no
     // wasted GPU pass).
     rebuildStageFilters(){
-        const filters: PIXI.Filter[] = [this.buldgePinchFilter]
+        // Order matters (each filter consumes the previous one's output): the
+        // transient shockwave distortion first, then the always-on bloom + lens
+        // bulge, then the optional CRT pass last so scanlines sit over everything.
+        const filters: PIXI.Filter[] = []
+        if(this.shockwaveActive){
+            filters.push(this.shockwaveFilter)
+        }
+        filters.push(this.bloomFilter)
+        filters.push(this.buldgePinchFilter)
         if(this.crtEnabled){
             filters.push(this.crtFilter)
         }
         this.app.stage.filters = filters
+    }
+
+    // Sync the live particle simulation into the batched ParticleContainer. Each
+    // live sim particle drives one pooled PIXI.Particle (grown lazily to the peak
+    // count); leftover pooled particles are parked at alpha 0. position/scale/
+    // color are dynamic buffers, so these per-frame mutations upload automatically.
+    private syncParticles(){
+        const sprites = this.particleSprites
+        let i = 0
+        this.particleSystem.forEach(p => {
+            let s = sprites[i]
+            if(typeof s === "undefined"){
+                s = new PIXI.Particle({ texture: this.particleTexture, anchorX: 0.5, anchorY: 0.5 })
+                sprites.push(s)
+                this.particlesContainer.addParticle(s)
+            }
+            const lifeRatio = p.age / p.lifespan
+            const drawSize = Math.max(0.5, p.size * (1 - lifeRatio))
+            s.x = p.x
+            s.y = p.y
+            // The texture is 1px, so scale IS the pixel size of the square.
+            s.scaleX = drawSize
+            s.scaleY = drawSize
+            s.tint = p.color
+            s.alpha = Math.max(0, 1 - lifeRatio)
+            i++
+        })
+        // Park any pooled particles beyond the live count out of sight.
+        for(; i < sprites.length; i++){
+            sprites[i].alpha = 0
+        }
+    }
+
+    // Start (or restart) the grenade shockwave ring at a world point. Adds the
+    // filter to the stage stack if it was not already running. Latest grenade
+    // wins; one ring at a time is plenty for the feel and keeps the cost bounded.
+    private triggerShockwave(worldX: number, worldY: number){
+        this.shockwaveWorld.x = worldX
+        this.shockwaveWorld.y = worldY
+        this.shockwaveElapsed = 0
+        if(!this.shockwaveActive){
+            this.shockwaveActive = true
+            this.rebuildStageFilters()
+        }
+    }
+
+    // Advance the active shockwave: re-pin its centre to the blast's current
+    // screen position (via the live viewport offset) and step its clock. When it
+    // has run SHOCKWAVE_DURATION it is deactivated and removed from the stack.
+    private updateShockwave(deltaMs: number){
+        if(!this.shockwaveActive) return
+        this.shockwaveElapsed += deltaMs / 1000
+        if(this.shockwaveElapsed >= PipPipRenderer.SHOCKWAVE_DURATION){
+            this.shockwaveActive = false
+            this.rebuildStageFilters()
+            return
+        }
+        this.shockwaveFilter.time = this.shockwaveElapsed
+        this.shockwaveFilter.center = {
+            x: this.viewportContainer.position.x + this.shockwaveWorld.x,
+            y: this.viewportContainer.position.y + this.shockwaveWorld.y,
+        }
     }
 
     // Toggle the opt-in retro CRT effect. Driven by the ui store (Settings →
@@ -1338,10 +1506,13 @@ export class PipPipRenderer{
         this.gameEventSubscriptions = []
 
         // Release pooled graphics (each pool removes its children + destroys).
+        // The particle + star ParticleContainers (and their Particles) are part
+        // of the stage tree, so app.destroy({ children: true }) below frees them;
+        // just drop our references to the pooled Particle objects.
         this.bullets.destroy()
         this.buffs.destroy()
         this.damages.destroy()
-        this.particles.destroy()
+        this.particleSprites = []
 
         // Destroy any players still present: app.destroy below passes texture:false
         // so it would NOT free their name Text textures, so free them explicitly.
