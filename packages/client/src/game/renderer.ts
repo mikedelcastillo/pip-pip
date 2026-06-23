@@ -616,7 +616,7 @@ export class PipPipRenderer{
 
     // Opt-in retro CRT post-processing, toggled from Settings and persisted via
     // the ui store (OFF by default). Membership in app.stage.filters is the
-    // on/off switch — when off the CRT pass is simply not in the array, so it
+    // on/off switch - when off the CRT pass is simply not in the array, so it
     // costs nothing. See setCrtEnabled / rebuildStageFilters below.
     crtEnabled = false
     
@@ -626,8 +626,8 @@ export class PipPipRenderer{
     displacementFilter!: DisplacementFilter
 
     // Game-event subscriptions registered in the constructor, remembered so
-    // destroy() can detach the exact same references via game.events.off() —
-    // without this every remount would leak another set of subscriptions
+    // destroy() can detach the exact same references via game.events.off().
+    // Without this every remount would leak another set of subscriptions
     // (and the closures keep this renderer, and its WebGL context, alive).
     private gameEventSubscriptions: Array<() => void> = []
     destroyed = false
@@ -642,6 +642,13 @@ export class PipPipRenderer{
     // and render() drains it (drainGpuMutations) so all GPU lifecycle sits
     // adjacent to the submit, where Pixi can order it safely.
     private pendingGpuMutations: Array<() => void> = []
+
+    // setMap can fire several times between two render frames (and once before
+    // init() resolves). Each updateMapGraphics() is a full, identical rebuild of
+    // the cached map layer (redraws every tile, destroys + recreates the cache
+    // RenderTexture), so instead of queueing one closure per event we coalesce to
+    // this single flag and rebuild at most once per frame, on the render tick.
+    private mapDirty = false
 
     // Pixi 8's Application.init() is async, so the stage/renderer/canvas do not
     // exist until init() resolves. `ready` gates render() and the renderer-backed
@@ -746,10 +753,11 @@ export class PipPipRenderer{
         this.onGameEvent("setMap", () => {
             // mapLayer.rebuild toggles cacheAsTexture, which destroys + recreates
             // a RenderTexture (a GPU-resource mutation), so defer it to the render
-            // tick rather than running it from this update-tick handler. The map
-            // data is already committed to game state, so reading it at drain time
-            // is still correct. See pendingGpuMutations.
-            this.queueGpuMutation(() => this.updateMapGraphics())
+            // tick rather than running it from this update-tick handler. Coalesce
+            // via mapDirty so N setMaps between two frames rebuild the layer ONCE,
+            // not N times. The map data is already committed to game state, so
+            // reading it at drain time is still correct. See mapDirty.
+            this.mapDirty = true
         })
 
         this.onGameEvent("addBullet", ({ bullet }) => {
@@ -909,6 +917,9 @@ export class PipPipRenderer{
 
         this.ready = true
         this.updateMapGraphics()
+        // init() just did a full rebuild; clear any mapDirty a setMap set before
+        // we were ready so the first render frame does not redundantly rebuild.
+        this.mapDirty = false
     }
 
     // Subscribe to a game event and remember how to detach it, so destroy()
@@ -925,17 +936,45 @@ export class PipPipRenderer{
     // immediately. Called from update-tick game-event handlers (see
     // pendingGpuMutations for why).
     private queueGpuMutation(mutation: () => void){
+        // When the tab is hidden the browser pauses requestAnimationFrame, so the
+        // render tick (drainGpuMutations' only caller) stops while the setInterval
+        // update tick keeps firing and packets keep arriving. With no render there
+        // is no in-flight submit to race, so run the mutation now rather than let
+        // the queue retain detached graphics/textures until refocus and then run
+        // the whole backlog in one frame. This matches the pre-deferral behaviour,
+        // which was already safe while hidden. See pendingGpuMutations.
+        if(typeof document !== "undefined" && document.hidden){
+            this.runGpuMutation(mutation)
+            return
+        }
         this.pendingGpuMutations.push(mutation)
     }
 
-    // Drain the queued GPU mutations. Called once at the top of render(), so they
-    // run on the render tick right before app.render().
+    // Run one deferred GPU mutation with error isolation: a throw must not abort
+    // the render frame, escape into the update-tick handler / Zustand action that
+    // queued it, or drop the sibling mutations in the same drain batch.
+    private runGpuMutation(mutation: () => void){
+        try{
+            mutation()
+        } catch(error){
+            console.error("Deferred GPU mutation threw; skipping it.", error)
+        }
+    }
+
+    // Drain the queued GPU mutations. Called at the top of render() (and once in
+    // destroy()), so they run on the render tick right before app.render(). A
+    // coalesced map rebuild (see mapDirty) is folded in here so it shares the same
+    // once-per-frame, render-tick, error-isolated path.
     private drainGpuMutations(){
+        if(this.mapDirty){
+            this.mapDirty = false
+            this.pendingGpuMutations.push(() => this.updateMapGraphics())
+        }
         if(this.pendingGpuMutations.length === 0) return
         const mutations = this.pendingGpuMutations
         this.pendingGpuMutations = []
         for(const mutation of mutations){
-            mutation()
+            this.runGpuMutation(mutation)
         }
     }
 
@@ -1063,10 +1102,10 @@ export class PipPipRenderer{
         if(!this.ready) return
 
         // Apply GPU-resource mutations queued from the update tick (player
-        // destroys, shockwave filter-target reallocation, map-layer recache) here,
-        // on the render tick and immediately before we submit, so we never free a
-        // buffer the previous in-flight submit still references. See
-        // pendingGpuMutations.
+        // destroys, shockwave filter-target reallocation) plus a coalesced map
+        // rebuild here, on the render tick and immediately before we submit, so we
+        // never free a buffer the previous in-flight submit still references. See
+        // pendingGpuMutations / mapDirty.
         this.drainGpuMutations()
 
         const deltaTime = deltaMs / this.game.deltaMs
@@ -1280,7 +1319,7 @@ export class PipPipRenderer{
         // for bots, only while debug is on); a clear when off.
         this.drawBotPaths(players)
 
-        // Nothing to follow this frame — the local player is briefly dead /
+        // Nothing to follow this frame - the local player is briefly dead /
         // respawning, or a spectator has no live target yet. HOLD the camera at
         // its last target instead of snapping to the world origin, so dying
         // doesn't yank the view away for the respawn window. The camera target
@@ -1553,23 +1592,44 @@ export class PipPipRenderer{
     setCrtEnabled(enabled: boolean){
         if(this.crtEnabled === enabled) return
         this.crtEnabled = enabled
-        this.rebuildStageFilters()
+        // rebuildStageFilters reassigns app.stage.filters, reallocating the stage
+        // filter-target buffers (a GPU-resource mutation). This is driven by a UI /
+        // Zustand action on an arbitrary DOM-event tick, NOT the render tick, so
+        // defer it exactly like triggerShockwave does. crtEnabled is already set,
+        // so the deferred rebuild reads the new value. Without this, toggling CRT
+        // mid-frame would race an in-flight submit (the very crash this file's
+        // pendingGpuMutations machinery exists to prevent). See pendingGpuMutations.
+        this.queueGpuMutation(() => this.rebuildStageFilters())
     }
 
     // Tear everything down so a remount doesn't leak a WebGL context, the Pixi
     // ticker/loader, or the game-event subscriptions. Safe to call more than
     // once. Shared loaded textures/baseTextures are intentionally NOT destroyed
-    // here (assetLoader caches them across mounts) — only this app's own
+    // here (assetLoader caches them across mounts) - only this app's own
     // display objects are released.
     destroy(){
         if(this.destroyed) return
         this.destroyed = true
 
-        // Drop any GPU mutations still queued from the update tick. app.destroy
-        // below tears down the whole renderer (and its GPU context), freeing all
-        // GPU memory at once, so running these deferred closures would only poke
-        // half-destroyed state (or app.stage) for no benefit.
-        this.pendingGpuMutations = []
+        // Flush queued GPU mutations BEFORE teardown. A player removed on the last
+        // update tick before unmount still has its graphic.destroy() queued; that
+        // graphic is already detached from the stage and gone from this.players, so
+        // neither the explicit free loop below nor app.destroy({ texture: false })
+        // can reach its generated nameText texture - only the queued destroy frees
+        // it. The app still exists here (app.destroy runs further down), so running
+        // the queue is safe and drainGpuMutations isolates any throw. If init()
+        // never finished there is no booted renderer and nothing rendered to free,
+        // so just drop the queue. See pendingGpuMutations.
+        if(this.ready){
+            // The map layer is about to be torn down (cacheAsTexture(false) +
+            // app.destroy below), so skip any pending rebuild; the drain here
+            // exists only to run queued resource frees (e.g. the orphaned player
+            // destroys from the last update tick).
+            this.mapDirty = false
+            this.drainGpuMutations()
+        } else{
+            this.pendingGpuMutations = []
+        }
 
         // Detach every game-event subscription this renderer added.
         for(const off of this.gameEventSubscriptions){
@@ -1598,7 +1658,7 @@ export class PipPipRenderer{
         this.mapLayer.container.cacheAsTexture(false)
 
         // If init() never finished (a fast unmount), there is no canvas/renderer
-        // to tear down — the in-flight init() sees `destroyed` and disposes the
+        // to tear down - the in-flight init() sees `destroyed` and disposes the
         // app it booted. Otherwise remove the canvas and destroy the app below.
         if(!this.ready) return
 
